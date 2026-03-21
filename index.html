@@ -308,22 +308,66 @@
 
         function getTodayISO() {
             const now = new Date();
-            const parts = new Intl.DateTimeFormat('en-CA', { timeZone: APP_TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
-            return parts;
+            // Use en-US to get reliable M/D/YYYY, then convert to YYYY-MM-DD
+            const fmt = new Intl.DateTimeFormat('en-US', { timeZone: APP_TIMEZONE, year: 'numeric', month: 'numeric', day: 'numeric' }).format(now);
+            const m = fmt.match(/(\d+)\/(\d+)\/(\d+)/);
+            if (m) return `${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`;
+            // Fallback to en-CA
+            return new Intl.DateTimeFormat('en-CA', { timeZone: APP_TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
         }
 
         function calculatePOD(admitDate) {
             if (!admitDate) return 0;
-            // Use Central Time for both dates to get accurate day count
-            const todayStr = getTodayISO(); // YYYY-MM-DD in Central Time
-            const todayParts = todayStr.split('-');
-            const todayMs = Date.UTC(parseInt(todayParts[0]), parseInt(todayParts[1]) - 1, parseInt(todayParts[2]));
-            // Parse admit date (could be ISO string or YYYY-MM-DD)
-            const admitStr = typeof admitDate === 'string' && admitDate.length >= 10 ? admitDate.substring(0, 10) : new Date(admitDate).toISOString().substring(0, 10);
-            const admitParts = admitStr.split('-');
-            const admitMs = Date.UTC(parseInt(admitParts[0]), parseInt(admitParts[1]) - 1, parseInt(admitParts[2]));
-            const days = Math.floor((todayMs - admitMs) / (1000 * 60 * 60 * 24));
-            return Math.max(0, days);
+            try {
+                // Get today in Central Time as year/month/day numbers
+                const now = new Date();
+                const todayFmt = new Intl.DateTimeFormat('en-US', { timeZone: APP_TIMEZONE, year: 'numeric', month: 'numeric', day: 'numeric' }).format(now);
+                // todayFmt = "3/21/2026" format
+                const todayMatch = todayFmt.match(/(\d+)\/(\d+)\/(\d+)/);
+                if (!todayMatch) return 0;
+                const todayMs = Date.UTC(parseInt(todayMatch[3]), parseInt(todayMatch[1]) - 1, parseInt(todayMatch[2]));
+
+                // Parse admit date - handle multiple formats
+                let admitMs;
+                let ad = admitDate;
+
+                // Handle Firestore Timestamp objects
+                if (ad && typeof ad === 'object' && ad.toDate) {
+                    ad = ad.toDate().toISOString();
+                } else if (ad && typeof ad === 'object' && ad.seconds) {
+                    ad = new Date(ad.seconds * 1000).toISOString();
+                }
+
+                if (typeof ad === 'string') {
+                    // Try YYYY-MM-DD or ISO format
+                    const isoMatch = ad.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+                    if (isoMatch) {
+                        admitMs = Date.UTC(parseInt(isoMatch[1]), parseInt(isoMatch[2]) - 1, parseInt(isoMatch[3]));
+                    } else {
+                        // Try M/D/YYYY format
+                        const usMatch = ad.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+                        if (usMatch) {
+                            let yr = parseInt(usMatch[3]);
+                            if (yr < 100) yr += 2000;
+                            admitMs = Date.UTC(yr, parseInt(usMatch[1]) - 1, parseInt(usMatch[2]));
+                        } else {
+                            // Last resort: let Date parse it
+                            const d = new Date(ad);
+                            if (!isNaN(d.getTime())) admitMs = d.getTime();
+                        }
+                    }
+                } else if (ad instanceof Date) {
+                    admitMs = Date.UTC(ad.getFullYear(), ad.getMonth(), ad.getDate());
+                }
+
+                if (admitMs === undefined || isNaN(admitMs)) return 0;
+
+                const days = Math.floor((todayMs - admitMs) / (1000 * 60 * 60 * 24));
+                return Math.max(0, days);
+            } catch (e) {
+                console.error('calculatePOD error:', e, 'admitDate:', admitDate);
+                return 0;
+            }
         }
 
         // Smart date parser: understands "3/18", "3/18/26", "3/18/2026", "March 18", "Mar 18", etc.
