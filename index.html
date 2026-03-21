@@ -3325,14 +3325,21 @@
                 if (dxMatch) patient.diagnosis = dxMatch[1].trim();
 
                 // Extract procedure / s/p
-                const spMatch = b.match(/(?:s\/p|status post|procedure|op)\s*[:\-]?\s*(.+?)(?=\n|(?:\s*(?:problems?|plan|todo|to[- ]?do|tasks?|if[/ ]then|overnight|diet|activity|code|dispo|pod|contact|$)))/i);
+                const spMatch = b.match(/(?:s\/p|status post|procedure|op)\s*[:\-]?\s*(.+?)(?=\n|(?:\s*(?:problems?|plan|todo|to[- ]?do|tasks?|if[/ ]then|overnight|diet|activity|code|dispo|pod|contact|PMH|pmh|past medical|$)))/i);
                 if (spMatch) {
-                    const procText = spMatch[1].trim();
-                    patient.procedures = procText.split(/[,;]/).map(p => p.trim()).filter(Boolean);
-                    // If no separate diagnosis found, derive it
-                    if (!patient.diagnosis && patient.procedures.length > 0) {
-                        patient.diagnosis = 's/p ' + patient.procedures.join(', ');
+                    let procText = spMatch[1].trim();
+                    // Strip dates from procedure text (e.g. "lap appy 3/18" -> "lap appy")
+                    procText = procText.replace(/\s+\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\s*/g, ' ').trim();
+                    // Extract "c/b ..." (complicated by) from procedure text into problems
+                    const cbInProc = procText.match(/\s+c\/b\s+(.+)$/i);
+                    if (cbInProc) {
+                        const complications = cbInProc[1].split(/[,;&]+/).map(c => c.trim()).filter(c => c.length > 1);
+                        patient.problems = [...patient.problems, ...complications];
+                        procText = procText.replace(/\s+c\/b\s+.+$/i, '').trim();
                     }
+                    // Strip "w/" or "with" clauses that aren't part of the procedure name
+                    // but keep "w/ LOA" since LOA is a procedure
+                    patient.procedures = procText.split(/[,;]/).map(p => p.trim()).filter(Boolean);
                 }
 
                 // Extract dates - try explicit admit/surgery dates first
@@ -3431,36 +3438,40 @@
                 }
 
                 // Smart diagnosis prediction from procedure if no explicit diagnosis found
+                // NOTE: diagnosis is stored separately from procedures. The display template
+                // shows "Diagnosis s/p Procedure" so we should NOT include "s/p" in the diagnosis field.
                 if (!patient.diagnosis && patient.procedures.length > 0) {
-                    // Try to match procedure text against known procedure-diagnosis pairs
                     for (const proc of patient.procedures) {
                         const procLower = proc.toLowerCase().trim();
-                        // Direct match
+                        // Direct match in procedure-diagnosis map
                         if (PROCEDURE_DIAGNOSIS_MAP[procLower]) {
-                            patient.diagnosis = PROCEDURE_DIAGNOSIS_MAP[procLower] + ' s/p ' + proc;
+                            patient.diagnosis = PROCEDURE_DIAGNOSIS_MAP[procLower];
                             break;
                         }
                         // Partial match: check if any key is contained in the procedure text
                         for (const [key, dx] of Object.entries(PROCEDURE_DIAGNOSIS_MAP)) {
                             if (procLower.includes(key.toLowerCase()) || key.toLowerCase().includes(procLower)) {
-                                patient.diagnosis = dx + ' s/p ' + proc;
+                                patient.diagnosis = dx;
                                 break;
                             }
                         }
                         if (patient.diagnosis) break;
                     }
-                    // If still no match, just use "s/p [procedure]"
-                    if (!patient.diagnosis) {
-                        patient.diagnosis = 's/p ' + patient.procedures.join(', ');
-                    }
                 }
 
-                // If diagnosis mentions "c/b" (complicated by), extract complications as problems
+                // If diagnosis has "c/b" in it, extract the complications into problems
                 if (patient.diagnosis) {
                     const cbMatch = patient.diagnosis.match(/\bc\/b\s+(.+?)$/i);
-                    if (cbMatch && patient.problems.length === 0) {
+                    if (cbMatch) {
                         const complications = cbMatch[1].split(/[,;&]+/).map(c => c.trim()).filter(c => c.length > 1);
-                        patient.problems = [...patient.problems, ...complications];
+                        // Add complications to problems if not already there
+                        complications.forEach(c => {
+                            if (!patient.problems.some(p => p.toLowerCase() === c.toLowerCase())) {
+                                patient.problems.push(c);
+                            }
+                        });
+                        // Clean diagnosis: remove the "c/b ..." part
+                        patient.diagnosis = patient.diagnosis.replace(/\s*c\/b\s+.+$/i, '').trim();
                     }
                 }
 
