@@ -1199,127 +1199,223 @@
 
         function parsePreRoundSpeech(transcript) {
             const t = transcript;
-            const result = { notes: transcript, checkedItems: [], sectionNotes: {} };
+            const result = { checkedItems: [], sectionNotes: {}, patientUpdates: {}, examFindings: '' };
 
-            // Section keyword patterns: each maps to the checklist key
-            const sectionPatterns = [
-                { key: 'vitals', start: /\b(vitals?|vital signs?|temps?|temperature|blood pressure|bp|heart rate|hr|o2 sat(?:uration)?|sats?|febrile|afebrile|hemodynamic(?:ally)?|tachycardic|bradycardic|hypertensive|hypotensive|normotensive|t-?max)\b/i },
-                { key: 'ios', start: /\b(i(?:\/| and |&)o(?:s)?|ins? and outs?|input|output|urine|uop|foley|void(?:ing)?|net (?:positive|negative|even|fluid)|fluid balance|total intake)\b/i },
-                { key: 'labs', start: /\b(labs?|wbc|white (?:blood )?count|hemoglobin|hgb|hematocrit|hct|creatinine|cr|bmp|cmp|cbc|potassium|sodium|bun|glucose|lactate|lactic|troponin|inr|plt|platelets|lfts?|liver function)\b/i },
-                { key: 'overnight', start: /\b(overnight|last night|over ?night|during the night|nurs(?:e|ing) (?:called|report|noted|says?)|event(?:s)?|no (?:overnight )?events?|uneventful|slept well|poor sleep|restless)\b/i },
-                { key: 'lines', start: /\b(line(?:s)?|drain(?:s)?|tube(?:s)?|(?:peripheral )?iv(?:s)?|central line|picc|(?:triple |quad )?lumen|foley|jp|jackson.?pratt|ng(?:t| tube)|chest tube|penrose|wound vac|ostomy)\b/i },
-                { key: 'meds', start: /\b(medication(?:s)?|med(?:s)?|antibiotic(?:s)?|abx|pain med(?:s)?|pca|drip|infusion|heparin|lovenox|insulin|vanco(?:mycin)?|zosyn|pip(?:eracillin)?|flagyl|ancef|home med(?:s)?|current med(?:s)?)\b/i },
-                { key: 'pain', start: /\b(pain|comfort(?:able)?|hurting|sore|analges(?:ic|ia)|pca|epidural|nerve block|pain (?:score|level|scale|control|management|well.?controlled|poorly controlled)|(\d+)(?:\/| out of )10)\b/i },
-                { key: 'plan', start: /\b(plan|today(?:'s plan)?|goal(?:s)?|discharge|dispo(?:sition)?|surgery|procedure|scope|(?:the )?plan (?:is|for) today|advance diet|progress|anticipate|dc plan)\b/i }
-            ];
-
-            // Split transcript into sentences for better parsing
-            const sentences = t.split(/[.;!?]+/).map(s => s.trim()).filter(s => s.length > 2);
-
-            // For each sentence, find which section(s) it matches and assign the full sentence as a note
-            const sectionSentences = { vitals: [], ios: [], labs: [], overnight: [], lines: [], meds: [], pain: [], plan: [] };
-
-            sentences.forEach(sentence => {
-                let matched = false;
-                for (const { key, start } of sectionPatterns) {
-                    if (start.test(sentence)) {
-                        sectionSentences[key].push(sentence);
-                        matched = true;
-                    }
-                }
-                // If not matched to any section, check for common patterns
-                if (!matched) {
-                    // Numbers with units often relate to vitals or labs
-                    if (/\d+\s*\/\s*\d+/.test(sentence) && /bp|blood pressure/i.test(t)) {
-                        sectionSentences.vitals.push(sentence);
-                    }
-                }
-            });
-
-            // Also do a single-pass extraction for common structured data
-            // Extract vitals values
+            // ---- Step 1: Extract structured vitals into clean format ----
+            const vitals = {};
             const bpMatch = t.match(/(?:bp|blood pressure)\s*(?:is|was|of|:)?\s*(\d{2,3}\s*\/\s*\d{2,3})/i);
             const hrMatch = t.match(/(?:hr|heart rate|pulse)\s*(?:is|was|of|:)?\s*(\d{2,3})/i);
             const tempMatch = t.match(/(?:temp|temperature|t-?max)\s*(?:is|was|of|:)?\s*(\d{2,3}\.?\d*)/i);
             const satMatch = t.match(/(?:sat(?:s|uration)?|o2|spo2)\s*(?:is|was|of|:)?\s*(\d{2,3})%?/i);
             const rrMatch = t.match(/(?:rr|resp(?:iratory)? rate|respirations)\s*(?:is|was|of|:)?\s*(\d{1,2})/i);
+            if (tempMatch) vitals.T = tempMatch[1];
+            if (hrMatch) vitals.HR = hrMatch[1];
+            if (bpMatch) vitals.BP = bpMatch[1].replace(/\s/g, '');
+            if (rrMatch) vitals.RR = rrMatch[1];
+            if (satMatch) vitals.SpO2 = satMatch[1] + '%';
 
-            if (bpMatch || hrMatch || tempMatch || satMatch || rrMatch) {
-                const vitalParts = [];
-                if (tempMatch) vitalParts.push(`T ${tempMatch[1]}`);
-                if (hrMatch) vitalParts.push(`HR ${hrMatch[1]}`);
-                if (bpMatch) vitalParts.push(`BP ${bpMatch[1]}`);
-                if (rrMatch) vitalParts.push(`RR ${rrMatch[1]}`);
-                if (satMatch) vitalParts.push(`SpO2 ${satMatch[1]}%`);
-                if (sectionSentences.vitals.length === 0) {
-                    sectionSentences.vitals.push(vitalParts.join(', '));
-                }
+            // Qualitative vitals
+            if (/\b(afebrile|no fever)\b/i.test(t)) vitals.Temp = vitals.T || 'Afebrile';
+            if (/\b(febrile|fever|spiked)\b/i.test(t) && !vitals.T) vitals.Temp = 'Febrile';
+            if (/\b(hemodynamically stable|hd stable)\b/i.test(t)) vitals.HD = 'Stable';
+            if (/\btachycardic\b/i.test(t)) vitals.HR = (vitals.HR || '') + ' (tachy)';
+            if (/\bhypotensive\b/i.test(t)) vitals.BP = (vitals.BP || '') + ' (low)';
+
+            if (Object.keys(vitals).length > 0) {
+                result.sectionNotes.vitals = Object.entries(vitals).map(([k, v]) => `${k} ${v}`).join(', ');
+                result.checkedItems.push('vitals');
+            } else if (/\b(vitals?\s+(?:stable|wnl|normal|within normal|unremarkable|reviewed))\b/i.test(t)) {
+                result.sectionNotes.vitals = 'Vitals stable/WNL';
+                result.checkedItems.push('vitals');
             }
 
-            // Extract lab values mentioned
-            const labValuePattern = /\b(wbc|white count|hemoglobin|hgb|hct|hematocrit|platelets?|plt|sodium|na|potassium|k|chloride|cl|co2|bicarb|bun|creatinine|cr|glucose|calcium|ca|magnesium|mg|phosphorus|phos|inr|ptt|pt|lactate|lactic|troponin|lipase|bilirubin|tbili|ast|alt|alk phos|albumin)\s*(?:is|was|of|:| )?\s*(\d+\.?\d*)/gi;
-            let labMatch;
-            const labValues = [];
-            while ((labMatch = labValuePattern.exec(t)) !== null) {
-                labValues.push(`${labMatch[1].toUpperCase()} ${labMatch[2]}`);
+            // ---- Step 2: Extract structured lab values ----
+            const labNorm = { 'white count': 'WBC', 'wbc': 'WBC', 'hemoglobin': 'Hgb', 'hgb': 'Hgb', 'hematocrit': 'Hct', 'hct': 'Hct',
+                'platelets': 'Plt', 'plt': 'Plt', 'sodium': 'Na', 'na': 'Na', 'potassium': 'K', 'k': 'K',
+                'chloride': 'Cl', 'cl': 'Cl', 'co2': 'CO2', 'bicarb': 'CO2', 'bun': 'BUN', 'creatinine': 'Cr', 'cr': 'Cr',
+                'glucose': 'Glucose', 'calcium': 'Ca', 'ca': 'Ca', 'magnesium': 'Mg', 'mg': 'Mg',
+                'phosphorus': 'Phos', 'phos': 'Phos', 'inr': 'INR', 'ptt': 'PTT', 'pt': 'PT',
+                'lactate': 'Lactate', 'lactic': 'Lactate', 'troponin': 'Troponin', 'lipase': 'Lipase',
+                'bilirubin': 'Tbili', 'tbili': 'Tbili', 'ast': 'AST', 'alt': 'ALT', 'alk phos': 'Alk Phos', 'albumin': 'Albumin' };
+            const labPattern = /\b(wbc|white count|hemoglobin|hgb|hct|hematocrit|platelets?|plt|sodium|na|potassium|k|chloride|cl|co2|bicarb|bun|creatinine|cr|glucose|calcium|ca|magnesium|mg|phosphorus|phos|inr|ptt|pt|lactate|lactic|troponin|lipase|bilirubin|tbili|ast|alt|alk phos|albumin)\s*(?:is|was|of|at|:| )?\s*(\d+\.?\d*)/gi;
+            let lm;
+            const labEntries = [];
+            while ((lm = labPattern.exec(t)) !== null) {
+                const name = labNorm[lm[1].toLowerCase()] || lm[1].toUpperCase();
+                labEntries.push(`${name} ${lm[2]}`);
             }
-            if (labValues.length > 0 && sectionSentences.labs.length === 0) {
-                sectionSentences.labs.push(labValues.join(', '));
+            // Qualitative lab mentions
+            if (/\b(labs?\s+(?:stable|wnl|normal|within normal|unremarkable|improved|trending down|trending up))\b/i.test(t)) {
+                const qualMatch = t.match(/labs?\s+(stable|wnl|normal|within normal|unremarkable|improved|trending (?:down|up))/i);
+                if (qualMatch && labEntries.length === 0) labEntries.push(`Labs ${qualMatch[1]}`);
+            }
+            if (/\b(leukocytosis|elevated wbc|wbc (?:up|rising|elevated|trending up))\b/i.test(t)) labEntries.push('WBC elevated');
+            if (/\b(anemia|low (?:hgb|hemoglobin)|hgb (?:down|dropping|low))\b/i.test(t)) labEntries.push('Hgb low');
+            if (/\b(aki|acute kidney|creatinine (?:up|rising|elevated|bumped))\b/i.test(t)) labEntries.push('Cr elevated (AKI concern)');
+
+            if (labEntries.length > 0) {
+                result.sectionNotes.labs = labEntries.join(', ');
+                result.checkedItems.push('labs');
             }
 
-            // Extract pain score
-            const painScore = t.match(/pain\s*(?:score|level|scale|is|was|of|:)?\s*(\d{1,2})\s*(?:\/|out of)\s*10/i) ||
+            // ---- Step 3: I/Os ----
+            const ioNotes = [];
+            const uopMatch = t.match(/(?:uop|urine output|put out|voided?|foley)\s*(?:is|was|of|:)?\s*(\d+)\s*(?:ml|cc|mls)?/i);
+            if (uopMatch) ioNotes.push(`UOP ${uopMatch[1]}mL`);
+            if (/\b(net positive|positive fluid|fluid positive)\b/i.test(t)) ioNotes.push('Net positive');
+            if (/\b(net negative|negative fluid|fluid negative)\b/i.test(t)) ioNotes.push('Net negative');
+            if (/\b(net even|even fluid|fluid even)\b/i.test(t)) ioNotes.push('Net even');
+            if (/\b(good uop|adequate uop|making urine|good output)\b/i.test(t)) ioNotes.push('Adequate UOP');
+            if (/\b(low uop|poor output|oliguric|not making urine|decreased uop)\b/i.test(t)) ioNotes.push('Low UOP');
+            const drainMatch = t.match(/(?:jp|drain|ng|ngt|chest tube)\s*(?:output|put out|is|was|:)?\s*(\d+)\s*(?:ml|cc|mls)?/i);
+            if (drainMatch) ioNotes.push(`Drain ${drainMatch[1]}mL`);
+            if (/\b(i(?:\/| and |&)o(?:s)?\s+(?:reviewed|even|balanced|wnl))\b/i.test(t)) ioNotes.push('I/Os reviewed');
+
+            if (ioNotes.length > 0) {
+                result.sectionNotes.ios = ioNotes.join(', ');
+                result.checkedItems.push('ios');
+            }
+
+            // ---- Step 4: Overnight events ----
+            const overnightNotes = [];
+            if (/\b(uneventful|no (?:overnight )?events?|quiet night|slept well|no issues|no concerns overnight)\b/i.test(t)) {
+                overnightNotes.push('Uneventful night');
+            }
+            if (/\b(nurse called|nursing called|nursing reports?|nurse says?|nurse noted)\b/i.test(t)) {
+                const nurseMatch = t.match(/nurs(?:e|ing)\s+(?:called|reports?|says?|noted)\s+(.+?)(?:\.|$)/i);
+                overnightNotes.push(nurseMatch ? `Nursing: ${nurseMatch[1].trim()}` : 'Nursing called');
+            }
+            if (/\b(poor sleep|restless|agitated|confused|delirium|sundowning)\b/i.test(t)) overnightNotes.push('Restless/poor sleep');
+            if (/\b(nausea|vomiting|emesis|n\/v)\b/i.test(t)) overnightNotes.push('N/V overnight');
+            if (/\b(desatted|desaturation|hypoxic|required o2|oxygen requirement)\b/i.test(t)) overnightNotes.push('Desaturation event');
+
+            if (overnightNotes.length > 0) {
+                result.sectionNotes.overnight = overnightNotes.join('; ');
+                result.checkedItems.push('overnight');
+            }
+
+            // ---- Step 5: Lines/drains/tubes ----
+            const lineNotes = [];
+            if (/\b(piv|peripheral iv|peripheral line)\s*(?:x\s*\d+|intact|working|in place)?/i.test(t)) lineNotes.push('PIV intact');
+            if (/\b(central line|triple lumen|tlc|quad lumen|picc)\s*(?:intact|in place|working|d\/c|discontinued|removed)?/i.test(t)) {
+                const clType = t.match(/(central line|triple lumen|tlc|quad lumen|picc)/i)[1];
+                const clAction = /\b(d\/c|discontinued|removed|pulled)\b/i.test(t) ? ' - d/c' : ' intact';
+                lineNotes.push(clType.toUpperCase() + clAction);
+            }
+            if (/\b(foley)\s*(?:intact|in place|d\/c|out|removed|discontinued)?/i.test(t)) {
+                const foleyAction = /\b(d\/c|out|removed|discontinued)\b/i.test(t) ? 'Foley d/c' : 'Foley in place';
+                lineNotes.push(foleyAction);
+            }
+            if (/\b(jp|jackson.?pratt)\s*(?:\d+)?\s*(?:intact|in place|output)?/i.test(t)) lineNotes.push('JP intact');
+            if (/\b(ngt?|ng tube|nasogastric)\s*(?:in place|to (?:lcws|low|wall|suction)|d\/c|removed)?/i.test(t)) {
+                const ngtAction = /\b(d\/c|removed)\b/i.test(t) ? 'NGT d/c' : /\b(lcws|suction|wall)\b/i.test(t) ? 'NGT to LCWS' : 'NGT in place';
+                lineNotes.push(ngtAction);
+            }
+            if (/\b(chest tube)\s*(?:intact|in place|d\/c|removed|to water seal|to suction)?/i.test(t)) lineNotes.push('Chest tube noted');
+            if (/\b(wound vac)\s*(?:intact|in place|functioning)?/i.test(t)) lineNotes.push('Wound vac intact');
+            if (/\b(lines?\s+(?:all\s+)?intact|no (?:lines|drains|tubes))\b/i.test(t)) lineNotes.push('Lines intact');
+
+            if (lineNotes.length > 0) {
+                result.sectionNotes.lines = lineNotes.join(', ');
+                result.checkedItems.push('lines');
+            }
+
+            // ---- Step 6: Medications ----
+            const medNotes = [];
+            if (/\b(on\s+(?:vanco|vancomycin|zosyn|pip.?tazo|flagyl|metronidazole|ancef|cefazolin|cipro|ciprofloxacin|meropenem|unasyn|augmentin|levofloxacin|levaquin|doxycycline|bactrim|clindamycin))\b/i.test(t)) {
+                const abxName = t.match(/on\s+(\w+)/i);
+                medNotes.push(`Abx: ${abxName ? abxName[1] : 'noted'}`);
+            }
+            if (/\b(heparin|lovenox|enoxaparin)\s*(?:for dvt|prophylaxis|subq)?\b/i.test(t)) medNotes.push('DVT ppx noted');
+            if (/\b(pca|dilaudid|morphine|oxycodone|tylenol|toradol|ketorolac|gabapentin|ibuprofen)\b/i.test(t)) {
+                const painMed = t.match(/(pca|dilaudid|morphine|oxycodone|tylenol|toradol|ketorolac|gabapentin|ibuprofen)/i);
+                medNotes.push(`Pain: ${painMed[1]}`);
+            }
+            if (/\b(insulin|sliding scale|iss)\b/i.test(t)) medNotes.push('Insulin/SSI');
+            if (/\b(home meds?\s*(?:resumed|restarted|held|on hold))\b/i.test(t)) {
+                medNotes.push(/resumed|restarted/i.test(t) ? 'Home meds resumed' : 'Home meds held');
+            }
+            if (/\b(meds?\s+(?:reviewed|unchanged|continued|no changes))\b/i.test(t)) medNotes.push('Meds reviewed, no changes');
+
+            if (medNotes.length > 0) {
+                result.sectionNotes.meds = medNotes.join(', ');
+                result.checkedItems.push('meds');
+            }
+
+            // ---- Step 7: Pain ----
+            const painNotes = [];
+            const painScore = t.match(/(?:pain\s*(?:score|level|scale|is|was|of|:)?\s*|reports?\s*)(\d{1,2})\s*(?:\/|out of)\s*10/i) ||
                               t.match(/(\d{1,2})\s*(?:\/|out of)\s*10\s*(?:pain|for pain)/i);
-            if (painScore && sectionSentences.pain.length === 0) {
-                sectionSentences.pain.push(`Pain ${painScore[1]}/10`);
+            if (painScore) painNotes.push(`Pain ${painScore[1]}/10`);
+            if (/\b(well.?controlled|controlled|comfortable|no pain|pain free|minimal pain)\b/i.test(t)) painNotes.push('Well controlled');
+            if (/\b(poorly controlled|uncontrolled|significant pain|severe pain|requesting pain med)\b/i.test(t)) painNotes.push('Poorly controlled');
+            if (/\b(epidural|nerve block|pca)\s*(?:working|in place|effective|running)?\b/i.test(t)) {
+                const modality = t.match(/(epidural|nerve block|pca)/i);
+                painNotes.push(`${modality[1].toUpperCase()} in place`);
             }
 
-            // Build final section notes and checked items
-            for (const key of Object.keys(sectionSentences)) {
-                if (sectionSentences[key].length > 0) {
-                    result.sectionNotes[key] = sectionSentences[key].join('. ');
-                    result.checkedItems.push(key);
-                }
+            if (painNotes.length > 0) {
+                result.sectionNotes.pain = painNotes.join(', ');
+                result.checkedItems.push('pain');
             }
 
-            // Also extract data that should update the patient profile
-            result.patientUpdates = {};
+            // ---- Step 8: Plan ----
+            const planNotes = [];
+            const planMatch = t.match(/(?:the )?plan\s+(?:is|for today)?\s*(?:is|to)?\s*(.+?)(?:\.|$)/i);
+            if (planMatch) planNotes.push(planMatch[1].trim());
+            if (/\b(advance diet|advancing diet)\b/i.test(t)) planNotes.push('Advance diet');
+            if (/\b(dc\s+(?:today|tomorrow|in the morning)|discharge\s+(?:today|tomorrow|pending|home))\b/i.test(t)) planNotes.push('D/C planning');
+            if (/\b(to (?:the )?or|back to or|surgery today|operative|procedure today|scope today)\b/i.test(t)) planNotes.push('OR/procedure today');
+            if (/\b(continue current|continue plan|stay the course|same plan)\b/i.test(t)) planNotes.push('Continue current plan');
+            if (/\b(consult|get (?:a )?consult|call (?:a )?consult)\b/i.test(t)) {
+                const consultMatch = t.match(/consult\s+(\w+)/i);
+                planNotes.push(consultMatch ? `Consult ${consultMatch[1]}` : 'Consult pending');
+            }
 
-            // Exam findings from the dictation
-            const examPhrases = [];
-            const examPatterns = [
-                /(?:abdomen|abd)\s+(?:is\s+)?(.+?)(?:\.|$)/i,
-                /(?:wound|incision|surgical site)\s+(?:is\s+)?(.+?)(?:\.|$)/i,
-                /(?:lungs?|chest)\s+(?:are\s+|is\s+)?(.+?)(?:\.|$)/i,
-                /(?:heart|cardiac)\s+(?:is\s+)?(.+?)(?:\.|$)/i,
-                /(?:extremities|legs?|edema)\s+(?:are\s+|is\s+)?(.+?)(?:\.|$)/i,
-                /(?:mental status|neuro|neurological(?:ly)?|alert|oriented)\s*(?:is\s+)?(.+?)(?:\.|$)/i
+            if (planNotes.length > 0) {
+                result.sectionNotes.plan = planNotes.join('; ');
+                result.checkedItems.push('plan');
+            }
+
+            // ---- Physical exam only (for examFindings) ----
+            const examParts = [];
+            const examRules = [
+                { pat: /(?:abdomen|abd(?:ominal)?)\s+(?:is\s+)?(.+?)(?:\.|;|,\s*(?:wound|lung|heart|chest|ext|neuro|mental)|$)/i, prefix: 'Abd' },
+                { pat: /(?:wound|incision|surgical site)\s+(?:is\s+)?(.+?)(?:\.|;|,\s*(?:abd|lung|heart|chest|ext|neuro|mental)|$)/i, prefix: 'Wound' },
+                { pat: /(?:lungs?|breath sounds?|ctab?)\s+(?:are\s+|is\s+)?(.+?)(?:\.|;|,\s*(?:abd|wound|heart|chest|ext|neuro|mental)|$)/i, prefix: 'Lungs' },
+                { pat: /(?:heart|cardiac|rrr|murmur)\s+(?:is\s+)?(.+?)(?:\.|;|,\s*(?:abd|wound|lung|chest|ext|neuro|mental)|$)/i, prefix: 'Heart' },
+                { pat: /(?:extremit(?:ies|y)|legs?|lower extrem|edema|calf|calves)\s+(?:are\s+|is\s+|with\s+|no\s+)?(.+?)(?:\.|;|$)/i, prefix: 'Ext' },
+                { pat: /(?:neuro(?:logically?)?|mental status|a(?:lert)?\s*(?:and|&)\s*o(?:riented)?)\s*(?:is\s+|:)?\s*(.+?)(?:\.|;|$)/i, prefix: 'Neuro' }
             ];
-            examPatterns.forEach(pat => {
+            // Also catch shorthand: "CTAB", "RRR", "S/NT/ND", "CDI"
+            if (/\bCTAB\b/i.test(t)) examParts.push('Lungs: CTAB');
+            if (/\bRRR\b/i.test(t)) examParts.push('Heart: RRR');
+            if (/\bS\/?NT\/?ND\b/i.test(t)) examParts.push('Abd: S/NT/ND');
+            if (/\bCDI\b/i.test(t) || /\bc\/?d\/?i\b/.test(t)) examParts.push('Wound: CDI');
+            if (/\bA&?O\s*x?\s*3\b/i.test(t) || /\balert and oriented\b/i.test(t)) examParts.push('Neuro: A&Ox3');
+
+            examRules.forEach(({ pat, prefix }) => {
                 const m = t.match(pat);
-                if (m) examPhrases.push(m[0].trim().replace(/\.$/, ''));
+                // Avoid duplicating shorthand already captured
+                if (m && !examParts.some(e => e.startsWith(prefix + ':'))) {
+                    const finding = m[1].trim().replace(/,$/, '');
+                    if (finding.length > 1 && finding.length < 80) {
+                        examParts.push(`${prefix}: ${finding}`);
+                    }
+                }
             });
-            if (examPhrases.length > 0) {
-                result.patientUpdates.examFindings = examPhrases.join('; ');
+
+            if (examParts.length > 0) {
+                result.examFindings = examParts.join('; ');
             }
 
-            // Plan updates
-            const planMatch = t.match(/(?:the )?plan\s+(?:is|for today(?:'s plan)?)\s*(?:is|to)?\s*(.+?)(?:\.|$)/i);
-            if (planMatch) {
-                result.patientUpdates.treatmentPlan = planMatch[1].trim();
-            }
-
-            // Diet changes
+            // ---- Diet/Activity for patient profile updates ----
             const dietMatch = t.match(/(?:advance|change|switch)\s+(?:to\s+|diet\s+(?:to\s+)?)(regular|clears?|full liquids?|npo|mechanical soft|cardiac|renal|diabetic)/i) ||
                               t.match(/diet\s+(?:is|:)\s*(regular|clears?|full liquids?|npo|mechanical soft|cardiac|renal|diabetic)/i);
             if (dietMatch) {
                 const dietMap = { 'npo': 'NPO', 'clears': 'Clears', 'clear': 'Clears', 'full liquids': 'Full Liquids', 'full liquid': 'Full Liquids', 'regular': 'Regular', 'mechanical soft': 'Mechanical Soft', 'cardiac': 'Cardiac', 'renal': 'Renal', 'diabetic': 'Diabetic' };
                 result.patientUpdates.diet = dietMap[dietMatch[1].toLowerCase()] || dietMatch[1];
             }
-
-            // Activity changes
-            const actMatch = t.match(/(?:activity\s+(?:is|:)|up\s+(?:to|ad lib)|out of bed|oob|ambulate|ambulating|weight bearing)\s*(.+?)(?:\.|$)/i);
-            if (actMatch) result.patientUpdates.activity = actMatch[0].trim().replace(/\.$/, '');
 
             return result;
         }
@@ -2499,6 +2595,36 @@
                                     {/* Expandable Section */}
                                     {expandedPatient === patient.id && (
                                         <div className="border-t border-gray-200 pt-3 mt-3 space-y-3">
+                                            {/* Today's Pre-Round Summary */}
+                                            {(() => {
+                                                const today = getTodayISO();
+                                                const todayPR = patient.preRoundHistory?.[today];
+                                                if (!todayPR || !todayPR.sections || Object.keys(todayPR.sections).length === 0) return null;
+                                                const sectionLabels = { vitals: 'Vitals', ios: 'I/Os', labs: 'Labs', overnight: 'Overnight', lines: 'Lines/Drains', meds: 'Meds', pain: 'Pain', plan: 'Plan' };
+                                                return (
+                                                    <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3">
+                                                        <div className="flex justify-between items-center mb-2">
+                                                            <p className="text-xs font-bold text-indigo-700 uppercase">Today's Pre-Round Summary</p>
+                                                            <span className="text-xs text-indigo-400">{todayPR.timestamp ? new Date(todayPR.timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : ''}</span>
+                                                        </div>
+                                                        <div className="space-y-1">
+                                                            {Object.entries(todayPR.sections).map(([key, note]) => (
+                                                                <div key={key} className="text-xs">
+                                                                    <span className="font-semibold text-indigo-600">{sectionLabels[key] || key}:</span>{' '}
+                                                                    <span className="text-gray-700">{note}</span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                        {todayPR.priorLabs && (
+                                                            <div className="mt-2 pt-2 border-t border-indigo-200 text-xs">
+                                                                <span className="font-semibold text-indigo-500">Prior day labs:</span>{' '}
+                                                                <span className="text-gray-500">{todayPR.priorLabs}</span>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })()}
+
                                             {/* Disposition */}
                                             {patient.dispositionPlan && (
                                                 <div className="text-sm">
@@ -2913,6 +3039,23 @@
                                         </div>
                                     )}
 
+                                    {/* Pre-Round Summary */}
+                                    {(() => {
+                                        const todayPR = patient.preRoundHistory?.[getTodayISO()];
+                                        if (!todayPR?.sections || Object.keys(todayPR.sections).length === 0) return null;
+                                        const labels = { vitals: 'Vitals', ios: 'I/Os', labs: 'Labs', overnight: 'Overnight', lines: 'Lines', meds: 'Meds', pain: 'Pain', plan: 'Plan' };
+                                        return (
+                                            <div className="mt-3 text-base bg-indigo-50 rounded-lg p-3">
+                                                <div className="font-semibold text-indigo-700 mb-1">Pre-Round Summary:</div>
+                                                {Object.entries(todayPR.sections).map(([key, note]) => (
+                                                    <div key={key} className="text-gray-600">
+                                                        <span className="font-medium text-indigo-600">{labels[key] || key}:</span> {note}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        );
+                                    })()}
+
                                     {/* Treatment Plan */}
                                     {patient.treatmentPlan && (
                                         <div className="mt-3 text-lg">
@@ -3026,6 +3169,21 @@
                                             <span className="font-semibold">Exam:</span> {patient.examFindings}
                                         </div>
                                     )}
+
+                                    {/* Pre-Round Summary */}
+                                    {(() => {
+                                        const todayPR = patient.preRoundHistory?.[getTodayISO()];
+                                        if (!todayPR?.sections || Object.keys(todayPR.sections).length === 0) return null;
+                                        const labels = { vitals: 'VS', ios: 'I/O', labs: 'Labs', overnight: 'O/N', lines: 'Lines', meds: 'Meds', pain: 'Pain', plan: 'Plan' };
+                                        return (
+                                            <div className="mb-2 text-sm bg-indigo-50 border border-indigo-100 rounded p-2">
+                                                <span className="font-semibold text-indigo-700">Pre-Round:</span>{' '}
+                                                {Object.entries(todayPR.sections).map(([key, note], i) => (
+                                                    <span key={key}>{i > 0 ? ' | ' : ''}<span className="font-medium text-indigo-600">{labels[key]}:</span> {note}</span>
+                                                ))}
+                                            </div>
+                                        );
+                                    })()}
 
                                     {patient.treatmentPlan && (
                                         <div className="mb-2 text-sm">
@@ -4741,19 +4899,29 @@ To-do: Check AM labs, I/Os q4h`}
                 const active = allPatients.filter(p => p.status !== 'discharged').sort((a, b) => parseInt(a.room) - parseInt(b.room));
                 setPatients(active);
 
+                const today = getTodayISO();
                 const newChecklist = {};
                 active.forEach(p => {
-                    newChecklist[p.id] = {
-                        vitals: false,
-                        ios: false,
-                        labs: false,
-                        overnight: false,
-                        lines: false,
-                        meds: false,
-                        pain: false,
-                        plan: false,
-                        notes: { vitals: '', ios: '', labs: '', overnight: '', lines: '', meds: '', pain: '', plan: '' }
-                    };
+                    // Restore today's pre-round data if it exists (daily reset with persistence)
+                    const todayPR = p.preRoundHistory?.[today];
+                    const sections = todayPR?.sections || {};
+                    const items = ['vitals', 'ios', 'labs', 'overnight', 'lines', 'meds', 'pain', 'plan'];
+                    const notes = {};
+                    const checks = {};
+                    items.forEach(item => {
+                        notes[item] = sections[item] || '';
+                        checks[item] = !!sections[item];
+                    });
+
+                    // If no today data, carry forward prior day lab trends as a hint
+                    if (!todayPR) {
+                        const prevDays = Object.keys(p.preRoundHistory || {}).filter(d => d < today).sort().reverse();
+                        if (prevDays.length > 0 && p.preRoundHistory[prevDays[0]]?.sections?.labs) {
+                            notes._priorLabs = p.preRoundHistory[prevDays[0]].sections.labs;
+                        }
+                    }
+
+                    newChecklist[p.id] = { ...checks, notes };
                 });
                 setChecklist(newChecklist);
             };
@@ -4835,6 +5003,7 @@ To-do: Check AM labs, I/Os q4h`}
 
             const handleParsePreRoundDictation = async (transcript) => {
                 const parsed = parsePreRoundSpeech(transcript);
+                const today = getTodayISO();
 
                 // Determine which patient this applies to
                 let targetPatientId = null;
@@ -4853,7 +5022,6 @@ To-do: Check AM labs, I/Os q4h`}
                         updated[targetPatientId].notes = { ...updated[targetPatientId].notes };
                         parsed.checkedItems.forEach(item => {
                             updated[targetPatientId][item] = true;
-                            // Append to existing notes rather than overwrite
                             if (parsed.sectionNotes[item]) {
                                 const existing = updated[targetPatientId].notes[item] || '';
                                 const newNote = parsed.sectionNotes[item];
@@ -4865,29 +5033,62 @@ To-do: Check AM labs, I/Os q4h`}
                         return updated;
                     });
 
-                    // Update the patient profile in Firestore if we extracted relevant data
-                    if (parsed.patientUpdates && Object.keys(parsed.patientUpdates).length > 0) {
-                        const patient = patients.find(p => p.id === targetPatientId);
-                        if (patient) {
-                            const updates = { ...patient };
-                            if (parsed.patientUpdates.examFindings) {
-                                // Append to existing exam findings for the day
-                                updates.examFindings = patient.examFindings
-                                    ? patient.examFindings + '; ' + parsed.patientUpdates.examFindings
-                                    : parsed.patientUpdates.examFindings;
+                    // Update patient profile: pre-round summary + physical exam only
+                    const patient = patients.find(p => p.id === targetPatientId);
+                    if (patient) {
+                        const updates = { ...patient };
+
+                        // Build today's pre-round summary from section notes
+                        const preRoundHistory = patient.preRoundHistory || {};
+                        const todaySummary = preRoundHistory[today] || { sections: {}, timestamp: '' };
+
+                        // Merge section notes into today's summary
+                        parsed.checkedItems.forEach(item => {
+                            if (parsed.sectionNotes[item]) {
+                                todaySummary.sections[item] = parsed.sectionNotes[item];
                             }
-                            if (parsed.patientUpdates.treatmentPlan) {
-                                updates.treatmentPlan = parsed.patientUpdates.treatmentPlan;
+                        });
+                        todaySummary.timestamp = new Date().toISOString();
+
+                        // Carry forward yesterday's trending labs if today is fresh
+                        if (!preRoundHistory[today]) {
+                            // Find most recent previous day
+                            const prevDays = Object.keys(preRoundHistory).filter(d => d < today).sort().reverse();
+                            if (prevDays.length > 0) {
+                                const prevLabs = preRoundHistory[prevDays[0]]?.sections?.labs;
+                                if (prevLabs) {
+                                    todaySummary.priorLabs = prevLabs;
+                                }
                             }
-                            if (parsed.patientUpdates.diet) {
-                                updates.diet = parsed.patientUpdates.diet;
-                            }
-                            if (parsed.patientUpdates.activity) {
-                                updates.activity = parsed.patientUpdates.activity;
-                            }
-                            await DB.put('patients', updates);
-                            loadPatients();
                         }
+
+                        preRoundHistory[today] = todaySummary;
+
+                        // Keep only last 14 days of history
+                        const allDates = Object.keys(preRoundHistory).sort().reverse();
+                        if (allDates.length > 14) {
+                            allDates.slice(14).forEach(d => delete preRoundHistory[d]);
+                        }
+
+                        updates.preRoundHistory = preRoundHistory;
+
+                        // Only update examFindings with actual physical exam findings
+                        if (parsed.examFindings) {
+                            updates.examFindings = parsed.examFindings;
+                        }
+
+                        // Update diet if mentioned
+                        if (parsed.patientUpdates.diet) {
+                            updates.diet = parsed.patientUpdates.diet;
+                        }
+
+                        // Update plan from dictation only if explicit plan statement
+                        if (parsed.sectionNotes.plan) {
+                            updates.treatmentPlan = parsed.sectionNotes.plan;
+                        }
+
+                        await DB.put('patients', updates);
+                        loadPatients();
                     }
                 }
                 dictation.clear();
@@ -4931,6 +5132,12 @@ To-do: Check AM labs, I/Os q4h`}
 
                                     {isExpanded && (
                                         <div className="p-4 border-t border-gray-200 space-y-3">
+                                            {c.notes?._priorLabs && (
+                                                <div className="bg-blue-50 border border-blue-200 rounded p-2 text-xs">
+                                                    <span className="font-semibold text-blue-700">Yesterday's labs:</span>{' '}
+                                                    <span className="text-blue-600">{c.notes._priorLabs}</span>
+                                                </div>
+                                            )}
                                             <div className="bg-gray-50 rounded p-3 mb-2">
                                                 <DictationBar dictation={dictation} onParse={handleParsePreRoundDictation} parseLabel="Auto-Fill" compact={true} />
                                             </div>
