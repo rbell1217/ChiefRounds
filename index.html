@@ -433,6 +433,85 @@
             return result;
         }
 
+        // ==================== SMART SPEECH CLEANUP ====================
+        // Cleans up speech-to-text output while preserving medical terminology
+        function cleanMedicalSpeech(text) {
+            if (!text) return text;
+            let cleaned = text;
+
+            // Medical abbreviation corrections (speech-to-text often expands these)
+            const medTerms = [
+                [/\bstatus post\b/gi, 's/p'],
+                [/\bpost op(erative)?\b/gi, 'postop'],
+                [/\bpre op(erative)?\b/gi, 'preop'],
+                [/\blap\s+(appy|chole|coly?|appendectomy)\b/gi, (m, p) => 'lap ' + p.toLowerCase()],
+                [/\blaparoscopic\b/gi, 'lap'],
+                [/\bappendectomy\b/gi, 'appy'],
+                [/\bcholecystectomy\b/gi, 'chole'],
+                [/\bpost operative day\s*(\d+)/gi, 'POD $1'],
+                [/\bP\s*O\s*D\s*#?\s*(\d+)/gi, 'POD $1'],
+                [/\bpee oh dee\b/gi, 'POD'],
+                [/\bnothing by mouth\b/gi, 'NPO'],
+                [/\bn\.?\s*p\.?\s*o\.?\b/gi, 'NPO'],
+                [/\bT\s*I\s*D\b/gi, 'TID'],
+                [/\bthree times (a |per )?day\b/gi, 'TID'],
+                [/\btwice (a |per )?day\b/gi, 'BID'],
+                [/\bB\s*I\s*D\b/gi, 'BID'],
+                [/\bonce (a |per )?day\b/gi, 'daily'],
+                [/\bsequential compression devices?\b/gi, 'SCDs'],
+                [/\bdeep vein thrombosis\b/gi, 'DVT'],
+                [/\bD\s*V\s*T\b/g, 'DVT'],
+                [/\bdo not resuscitate\b/gi, 'DNR'],
+                [/\bdo not intubate\b/gi, 'DNI'],
+                [/\bD\s*N\s*R\b/g, 'DNR'],
+                [/\bfull code\b/gi, 'Full Code'],
+                [/\bout of bed\b/gi, 'OOB'],
+                [/\bnasogastric tube\b/gi, 'NGT'],
+                [/\bjackson[ -]?pratt\b/gi, 'JP'],
+                [/\bJ\s*P\s*drain\b/gi, 'JP drain'],
+                [/\bintravenous\b/gi, 'IV'],
+                [/\bI\s*V\s*F?\b/g, (m) => m.replace(/\s/g, '')],
+                [/\bwhite blood cell(s| count)?\b/gi, 'WBC'],
+                [/\bhemoglobin\b/gi, 'Hgb'],
+                [/\bcreatinine\b/gi, 'Cr'],
+                [/\bblood urea nitrogen\b/gi, 'BUN'],
+                [/\bcomplete blood count\b/gi, 'CBC'],
+                [/\bcomprehensive metabolic panel\b/gi, 'CMP'],
+                [/\bbasic metabolic panel\b/gi, 'BMP'],
+                [/\bcomputed tomography\b/gi, 'CT'],
+                [/\bC\s*T\s*scan\b/gi, 'CT scan'],
+                [/\bphysical therapy\b/gi, 'PT'],
+                [/\boccupational therapy\b/gi, 'OT'],
+                [/\bper oral\b/gi, 'PO'],
+                [/\bP\s*O\b/g, 'PO'],
+                [/\bmilligrams?\b/gi, 'mg'],
+                [/\bmilliliters?\b/gi, 'mL'],
+                [/\bsubcutaneous(ly)?\b/gi, 'subQ'],
+            ];
+
+            for (const [pattern, replacement] of medTerms) {
+                cleaned = cleaned.replace(pattern, replacement);
+            }
+
+            // Capitalize first letter of each sentence
+            cleaned = cleaned.replace(/(^|[.!?]\s+)([a-z])/g, (m, pre, letter) => pre + letter.toUpperCase());
+
+            // Capitalize first letter overall
+            if (cleaned.length > 0) {
+                cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+            }
+
+            // Fix double spaces
+            cleaned = cleaned.replace(/\s{2,}/g, ' ').trim();
+
+            // Add period at end if missing punctuation
+            if (cleaned.length > 0 && !/[.!?]$/.test(cleaned)) {
+                cleaned += '.';
+            }
+
+            return cleaned;
+        }
+
         // ==================== REUSABLE DICTATION HOOK ====================
         function useDictation(onTranscriptChange) {
             const recognitionRef = React.useRef(null);
@@ -462,7 +541,11 @@
                         for (let i = event.resultIndex; i < event.results.length; i++) {
                             const t = event.results[i][0].transcript;
                             if (event.results[i].isFinal) {
-                                finalText += (finalText ? ' ' : '') + t.trim();
+                                // Apply smart medical cleanup to final speech results
+                                const cleaned = cleanMedicalSpeech(t.trim());
+                                // Remove trailing period if we're appending to existing text
+                                const toAppend = finalText ? cleaned.replace(/\.$/, '') : cleaned;
+                                finalText += (finalText ? ' ' : '') + toAppend;
                             } else {
                                 interim += t;
                             }
@@ -1709,49 +1792,75 @@
 
             if (presentMode) {
                 return (
-                    <div className="fixed inset-0 bg-cream-50 z-50 overflow-y-auto p-4">
-                        <button
-                            onClick={() => setPresentMode(false)}
-                            className="fixed top-4 right-4 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded font-bold z-50"
-                        >
-                            Exit Present
-                        </button>
+                    <div className="fixed inset-0 bg-cream-50 z-50 overflow-y-auto">
+                        {/* Exit button in its own row at top, not overlapping content */}
+                        <div className="sticky top-0 bg-cream-50/95 backdrop-blur-sm p-3 flex justify-end z-50 border-b border-gray-200">
+                            <button
+                                onClick={() => setPresentMode(false)}
+                                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded font-bold text-sm"
+                            >
+                                Exit Present
+                            </button>
+                        </div>
 
-                        <div className="space-y-6 pb-20">
+                        <div className="space-y-6 p-4 pb-20">
                             {patients.map((patient) => (
-                                <div key={patient.id} className="text-2xl leading-relaxed border-l-4 border-medical-500 pl-6">
-                                    <div className="font-bold text-medical-500">
-                                        Room {patient.room} | {patient.diagnosis} | POD {calculatePOD(patient.admitDate)} | {patient.codeStatus}
+                                <div key={patient.id} className="border-l-4 border-medical-500 pl-5 pr-2">
+                                    {/* Header: Room and Code Status */}
+                                    <div className="text-xl font-bold text-medical-600 mb-1">
+                                        Room {patient.room} | {patient.codeStatus}
                                     </div>
 
+                                    {/* Diagnosis and Procedure - prominent */}
+                                    <div className="text-2xl font-bold text-gray-800 leading-snug">
+                                        {patient.diagnosis}
+                                    </div>
+                                    {patient.procedures?.length > 0 && (
+                                        <div className="text-xl text-gray-700 mt-0.5">
+                                            S/p {patient.procedures.join(', ')}
+                                        </div>
+                                    )}
+                                    <div className="text-lg text-gray-500 font-medium mt-0.5">
+                                        POD {calculatePOD(patient.admitDate)}
+                                    </div>
+
+                                    {/* Active Problems */}
                                     {patient.problems?.length > 0 && (
-                                        <div className="mt-2">
-                                            <div className="font-semibold">Active Problems:</div>
+                                        <div className="mt-3 text-lg">
+                                            <div className="font-semibold text-gray-700">Active Problems:</div>
                                             {patient.problems.map((p, i) => (
-                                                <div key={i}>• {p}</div>
+                                                <div key={i} className="text-gray-600 ml-2">- {p}</div>
                                             ))}
                                         </div>
                                     )}
 
+                                    {/* Treatment Plan */}
                                     {patient.treatmentPlan && (
-                                        <div className="mt-2">
-                                            <div className="font-semibold">Plan:</div>
-                                            <div>{patient.treatmentPlan}</div>
+                                        <div className="mt-3 text-lg">
+                                            <div className="font-semibold text-gray-700">Plan:</div>
+                                            <div className="text-gray-600">{patient.treatmentPlan}</div>
                                         </div>
                                     )}
 
-                                    <div className="mt-2">
-                                        Diet: {patient.diet} | Activity: {patient.activity} | DVT: {patient.dvtProphylaxis}
+                                    {/* Orders summary */}
+                                    <div className="mt-3 text-base text-gray-600 space-y-0.5">
+                                        <div><span className="font-semibold text-gray-700">Diet:</span> {patient.diet || 'N/A'}</div>
+                                        <div><span className="font-semibold text-gray-700">Activity:</span> {patient.activity || 'N/A'}</div>
+                                        <div><span className="font-semibold text-gray-700">DVT Ppx:</span> {patient.dvtProphylaxis || 'N/A'}</div>
                                     </div>
 
-                                    {patient.concerns && (
-                                        <div className="mt-2 text-red-600 font-bold">
-                                            ⚠️ CONCERNS: {patient.concerns}
+                                    {/* Disposition */}
+                                    {patient.dispositionPlan && (
+                                        <div className="mt-2 text-lg">
+                                            <span className="font-semibold text-gray-700">Dispo:</span> {patient.dispositionPlan}
                                         </div>
                                     )}
 
-                                    {patient.dispositionPlan && (
-                                        <div className="mt-2">Dispo: {patient.dispositionPlan}</div>
+                                    {/* Concerns - red alert */}
+                                    {patient.concerns && (
+                                        <div className="mt-3 text-lg text-red-600 font-bold bg-red-50 border border-red-200 rounded p-2">
+                                            CONCERNS: {patient.concerns}
+                                        </div>
                                     )}
                                 </div>
                             ))}
