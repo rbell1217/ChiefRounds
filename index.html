@@ -898,6 +898,126 @@
             return cleaned;
         }
 
+        // ==================== RED FLAGS DETECTION ====================
+        function detectRedFlags(patient, labs, outputs) {
+            const flags = [];
+            const pod = calculatePOD(patient.admitDate);
+
+            // Check labs for concerning trends
+            if (labs && labs.length > 0) {
+                const byType = {};
+                labs.forEach(l => {
+                    if (!byType[l.type]) byType[l.type] = [];
+                    byType[l.type].push(l);
+                });
+
+                // Rising WBC (3+ values trending up)
+                if (byType['WBC'] && byType['WBC'].length >= 2) {
+                    const sorted = byType['WBC'].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                    if (sorted.length >= 2 && sorted[0].value > sorted[1].value && sorted[0].value > 12) {
+                        flags.push({ type: 'lab', severity: 'warning', text: `WBC rising: ${sorted[1].value} → ${sorted[0].value}` });
+                    }
+                    if (sorted[0].value > 15) {
+                        flags.push({ type: 'lab', severity: 'critical', text: `WBC critically elevated: ${sorted[0].value}` });
+                    }
+                }
+
+                // Dropping Hgb
+                if (byType['Hgb'] && byType['Hgb'].length >= 2) {
+                    const sorted = byType['Hgb'].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                    if (sorted[0].value < sorted[1].value && sorted[0].value < 8) {
+                        flags.push({ type: 'lab', severity: 'critical', text: `Hgb dropping: ${sorted[1].value} → ${sorted[0].value}` });
+                    } else if (sorted[0].value < sorted[1].value && sorted[0].value < 10) {
+                        flags.push({ type: 'lab', severity: 'warning', text: `Hgb trending down: ${sorted[1].value} → ${sorted[0].value}` });
+                    }
+                }
+
+                // Rising Cr (AKI)
+                if (byType['Cr'] && byType['Cr'].length >= 2) {
+                    const sorted = byType['Cr'].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                    if (sorted[0].value > sorted[1].value * 1.3) {
+                        flags.push({ type: 'lab', severity: 'warning', text: `Cr rising: ${sorted[1].value} → ${sorted[0].value} (possible AKI)` });
+                    }
+                }
+
+                // Rising lactate
+                if (byType['Lactate'] && byType['Lactate'].length >= 1) {
+                    const latest = byType['Lactate'].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
+                    if (latest.value > 4) flags.push({ type: 'lab', severity: 'critical', text: `Lactate elevated: ${latest.value}` });
+                    else if (latest.value > 2) flags.push({ type: 'lab', severity: 'warning', text: `Lactate mildly elevated: ${latest.value}` });
+                }
+
+                // Critically abnormal K
+                if (byType['K'] && byType['K'].length >= 1) {
+                    const latest = byType['K'].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
+                    if (latest.value > 5.5) flags.push({ type: 'lab', severity: 'critical', text: `Hyperkalemia: K ${latest.value}` });
+                    if (latest.value < 3.0) flags.push({ type: 'lab', severity: 'critical', text: `Hypokalemia: K ${latest.value}` });
+                }
+            }
+
+            // POD-based flags
+            if (pod >= 3 && patient.diet === 'NPO') {
+                flags.push({ type: 'clinical', severity: 'info', text: `POD ${pod} still NPO - consider diet advancement` });
+            }
+            if (pod >= 2 && patient.activity === 'Bedrest') {
+                flags.push({ type: 'clinical', severity: 'info', text: `POD ${pod} still on bedrest - consider mobilization` });
+            }
+
+            // Manual concerns from the patient record
+            if (patient.concerns) {
+                flags.push({ type: 'manual', severity: 'warning', text: patient.concerns });
+            }
+
+            return flags;
+        }
+
+        // ==================== LAB TREND ANALYSIS ====================
+        function getLabTrends(patientId, labs) {
+            if (!labs || labs.length === 0) return [];
+            const patientLabs = labs.filter(l => l.patientId === patientId);
+            const byType = {};
+            patientLabs.forEach(l => {
+                if (!byType[l.type]) byType[l.type] = [];
+                byType[l.type].push(l);
+            });
+
+            const trends = [];
+            Object.entries(byType).forEach(([type, values]) => {
+                if (values.length < 2) return;
+                const sorted = values.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+                const latest = sorted[sorted.length - 1];
+                const prev = sorted[sorted.length - 2];
+                const change = latest.value - prev.value;
+                const pctChange = Math.abs(change / prev.value * 100);
+                const range = LAB_RANGES[type];
+                const isAbnormal = range && (latest.value < range.min || latest.value > range.max);
+
+                if (Math.abs(change) > 0.01) {
+                    trends.push({
+                        type,
+                        current: latest.value,
+                        previous: prev.value,
+                        change,
+                        pctChange: pctChange.toFixed(0),
+                        direction: change > 0 ? 'up' : 'down',
+                        arrow: change > 0 ? '↑' : '↓',
+                        isAbnormal,
+                        unit: range?.unit || '',
+                        values: sorted.map(v => ({ value: v.value, date: v.timestamp }))
+                    });
+                }
+            });
+
+            // Sort: critical trends first (abnormal + big change)
+            trends.sort((a, b) => {
+                if (a.isAbnormal && !b.isAbnormal) return -1;
+                if (!a.isAbnormal && b.isAbnormal) return 1;
+                return b.pctChange - a.pctChange;
+            });
+
+            return trends;
+        }
+
         // ==================== REUSABLE DICTATION HOOK ====================
         function useDictation(onTranscriptChange) {
             const recognitionRef = React.useRef(null);
@@ -1115,7 +1235,7 @@
         function PatientFormModal({ onClose, onSave, editingPatient }) {
             const [formData, setFormData] = React.useState(editingPatient || {
                 room: '', diagnosis: '', problems: [], procedures: [], pmh: [],
-                treatmentPlan: '', diet: 'Regular', activity: 'Ambulate TID',
+                antibiotics: [], treatmentPlan: '', diet: 'Regular', activity: 'Ambulate TID',
                 dvtProphylaxis: 'Heparin 5000 TID', giProphylaxis: 'Pantoprazole',
                 dispositionPlan: '', concerns: '', codeStatus: 'Full Code',
                 admitDate: getTodayISO()
@@ -1257,6 +1377,45 @@
                                     value={typeof formData.pmh === 'string' ? formData.pmh : (formData.pmh || []).join(', ')}
                                     onChange={handleInputChange} placeholder="HTN, DM2, COPD, CAD"
                                     className={`w-full bg-gray-50 border border-gray-300 rounded px-3 py-2 text-gray-800 transition ${fieldHighlight('pmh')}`} />
+                            </div>
+
+                            {/* Antibiotics */}
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-600 mb-1">Antibiotics</label>
+                                <div className="space-y-2">
+                                    {(formData.antibiotics || []).map((abx, idx) => (
+                                        <div key={idx} className="flex gap-2 items-center">
+                                            <input type="text" value={abx.name} placeholder="Drug name"
+                                                onChange={(e) => {
+                                                    const updated = [...(formData.antibiotics || [])];
+                                                    updated[idx] = { ...updated[idx], name: e.target.value };
+                                                    setFormData(prev => ({ ...prev, antibiotics: updated }));
+                                                }}
+                                                className="flex-1 bg-gray-50 border border-gray-300 rounded px-2 py-1.5 text-gray-800 text-sm" />
+                                            <input type="date" value={abx.startDate || ''} title="Start date"
+                                                onChange={(e) => {
+                                                    const updated = [...(formData.antibiotics || [])];
+                                                    updated[idx] = { ...updated[idx], startDate: e.target.value };
+                                                    setFormData(prev => ({ ...prev, antibiotics: updated }));
+                                                }}
+                                                className="bg-gray-50 border border-gray-300 rounded px-2 py-1.5 text-gray-800 text-xs w-28" />
+                                            <input type="date" value={abx.stopDate || ''} title="Stop date"
+                                                onChange={(e) => {
+                                                    const updated = [...(formData.antibiotics || [])];
+                                                    updated[idx] = { ...updated[idx], stopDate: e.target.value };
+                                                    setFormData(prev => ({ ...prev, antibiotics: updated }));
+                                                }}
+                                                className="bg-gray-50 border border-gray-300 rounded px-2 py-1.5 text-gray-800 text-xs w-28" />
+                                            <button type="button" onClick={() => {
+                                                const updated = (formData.antibiotics || []).filter((_, i) => i !== idx);
+                                                setFormData(prev => ({ ...prev, antibiotics: updated }));
+                                            }} className="text-red-500 hover:text-red-700 text-sm px-1">✕</button>
+                                        </div>
+                                    ))}
+                                    <button type="button" onClick={() => {
+                                        setFormData(prev => ({ ...prev, antibiotics: [...(prev.antibiotics || []), { name: '', startDate: getTodayISO(), stopDate: '' }] }));
+                                    }} className="text-xs text-medical-600 hover:text-medical-700 font-medium">+ Add Antibiotic</button>
+                                </div>
                             </div>
 
                             {/* Treatment Plan */}
@@ -1611,6 +1770,8 @@
             const [expandedPatient, setExpandedPatient] = React.useState(null);
             const [showQuickAdd, setShowQuickAdd] = React.useState(false);
             const [editingDateId, setEditingDateId] = React.useState(null);
+            const [viewMode, setViewMode] = React.useState('list'); // 'list' or 'timeline'
+            const [timelinePatientId, setTimelinePatientId] = React.useState(null);
             const quickDictation = useDictation();
 
             React.useEffect(() => {
@@ -1788,6 +1949,18 @@
                         </div>
                     </div>
 
+                    {/* View Toggle */}
+                    <div className="flex gap-1 px-3 pt-2">
+                        <button onClick={() => setViewMode('list')}
+                            className={`px-3 py-1 rounded text-xs font-medium transition ${viewMode === 'list' ? 'bg-medical-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                            Patient List
+                        </button>
+                        <button onClick={() => setViewMode('timeline')}
+                            className={`px-3 py-1 rounded text-xs font-medium transition ${viewMode === 'timeline' ? 'bg-medical-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                            Timeline
+                        </button>
+                    </div>
+
                     {/* Quick Add by Dictation */}
                     {showQuickAdd && (
                         <div className="mx-3 mt-3 bg-white border-2 border-emerald-500/40 rounded-lg p-4 shadow-lg shadow-emerald-500/10">
@@ -1797,8 +1970,145 @@
                         </div>
                     )}
 
+                    {/* Timeline View */}
+                    {viewMode === 'timeline' && (
+                        <div className="p-3 space-y-4">
+                            {timelinePatientId ? (() => {
+                                const patient = patients.find(p => p.id === timelinePatientId);
+                                if (!patient) return null;
+                                const patientLabs = labs.filter(l => l.patientId === patient.id);
+                                const patientOutputs = outputs.filter(o => o.patientId === patient.id);
+                                const pod = calculatePOD(patient.admitDate);
+
+                                // Group labs by date
+                                const labsByDate = {};
+                                patientLabs.forEach(l => {
+                                    const date = l.timestamp ? l.timestamp.substring(0, 10) : getTodayISO();
+                                    if (!labsByDate[date]) labsByDate[date] = [];
+                                    labsByDate[date].push(l);
+                                });
+                                const dates = Object.keys(labsByDate).sort().reverse();
+
+                                return (
+                                    <div>
+                                        <button onClick={() => setTimelinePatientId(null)} className="text-sm text-medical-600 hover:text-medical-700 mb-3 font-medium">← Back to all patients</button>
+                                        <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
+                                            <h3 className="text-xl font-bold text-medical-600">Room {patient.room}</h3>
+                                            <p className="text-sm text-gray-600">{patient.diagnosis}{patient.procedures?.length > 0 ? ` s/p ${patient.procedures.join(', ')}` : ''} | POD {pod}</p>
+                                            {patient.antibiotics?.length > 0 && (
+                                                <div className="mt-2">
+                                                    <p className="text-xs font-semibold text-gray-500">Antibiotics:</p>
+                                                    {patient.antibiotics.map((abx, i) => (
+                                                        <span key={i} className="text-xs bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded mr-1">
+                                                            {abx.name} {abx.startDate ? `(Day ${calculatePOD(abx.startDate)})` : ''}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Lab trend charts as text */}
+                                        {(() => {
+                                            const trends = getLabTrends(patient.id, labs);
+                                            if (trends.length === 0) return <p className="text-sm text-gray-500">No lab data to show trends.</p>;
+                                            return (
+                                                <div className="space-y-3">
+                                                    <h4 className="text-sm font-bold text-gray-700">Lab Trends</h4>
+                                                    {trends.map((t, i) => (
+                                                        <div key={i} className="bg-white border border-gray-200 rounded-lg p-3">
+                                                            <div className="flex justify-between items-center mb-1">
+                                                                <span className={`text-sm font-bold ${t.isAbnormal ? 'text-red-600' : 'text-gray-700'}`}>{t.type}</span>
+                                                                <span className={`text-sm font-bold ${t.direction === 'up' ? 'text-red-600' : 'text-blue-600'}`}>{t.arrow} {t.pctChange}%</span>
+                                                            </div>
+                                                            <div className="flex items-center gap-1 overflow-x-auto">
+                                                                {t.values.map((v, vi) => {
+                                                                    const range = LAB_RANGES[t.type];
+                                                                    const abnormal = range && (v.value < range.min || v.value > range.max);
+                                                                    return (
+                                                                        <div key={vi} className="text-center flex-shrink-0">
+                                                                            <div className={`text-xs font-mono px-2 py-1 rounded ${abnormal ? 'bg-red-100 text-red-700' : 'bg-gray-50 text-gray-700'}`}>
+                                                                                {v.value}
+                                                                            </div>
+                                                                            <div className="text-xs text-gray-400 mt-0.5">{v.date ? v.date.substring(5, 10).replace('-', '/') : ''}</div>
+                                                                            {vi < t.values.length - 1 && <span className="text-gray-300 text-xs">→</span>}
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            );
+                                        })()}
+
+                                        {/* Day-by-day timeline */}
+                                        {dates.length > 0 && (
+                                            <div className="mt-4">
+                                                <h4 className="text-sm font-bold text-gray-700 mb-2">Daily Lab History</h4>
+                                                {dates.map(date => {
+                                                    const dayLabs = labsByDate[date];
+                                                    const dayPod = calculatePOD(patient.admitDate) - calculatePOD(date + 'T00:00:00');
+                                                    return (
+                                                        <div key={date} className="bg-white border-l-4 border-medical-400 rounded-r-lg p-3 mb-2">
+                                                            <div className="text-xs font-bold text-medical-600 mb-1">{date.substring(5).replace('-', '/')} (POD {calculatePOD(patient.admitDate) - Math.floor((new Date(getTodayISO()) - new Date(date)) / 86400000)})</div>
+                                                            <div className="flex flex-wrap gap-2">
+                                                                {dayLabs.map((l, li) => {
+                                                                    const abnormal = isLabAbnormal(l.type, l.value);
+                                                                    return (
+                                                                        <span key={li} className={`text-xs px-2 py-0.5 rounded ${abnormal ? 'bg-red-100 text-red-700 font-bold' : 'bg-gray-50 text-gray-600'}`}>
+                                                                            {l.type}: {l.value}
+                                                                        </span>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })() : (
+                                <div>
+                                    <p className="text-sm text-gray-500 mb-3">Select a patient to view their longitudinal data:</p>
+                                    <div className="space-y-2">
+                                        {sortedPatients.map(patient => {
+                                            const trends = getLabTrends(patient.id, labs);
+                                            const flags = detectRedFlags(patient, labs.filter(l => l.patientId === patient.id), outputs.filter(o => o.patientId === patient.id));
+                                            return (
+                                                <div key={patient.id} onClick={() => setTimelinePatientId(patient.id)}
+                                                    className="bg-white border border-gray-200 rounded-lg p-3 cursor-pointer hover:border-medical-400 transition">
+                                                    <div className="flex justify-between items-center">
+                                                        <div>
+                                                            <span className="font-bold text-medical-600">Room {patient.room}</span>
+                                                            <span className="text-sm text-gray-500 ml-2">{patient.diagnosis} | POD {calculatePOD(patient.admitDate)}</span>
+                                                        </div>
+                                                        <div className="flex gap-1">
+                                                            {flags.filter(f => f.severity === 'critical').length > 0 && <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded">🔴 {flags.filter(f => f.severity === 'critical').length}</span>}
+                                                            {flags.filter(f => f.severity === 'warning').length > 0 && <span className="text-xs bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded">🟡 {flags.filter(f => f.severity === 'warning').length}</span>}
+                                                            {trends.length > 0 && <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">{trends.length} trends</span>}
+                                                        </div>
+                                                    </div>
+                                                    {trends.length > 0 && (
+                                                        <div className="flex flex-wrap gap-1 mt-1">
+                                                            {trends.slice(0, 4).map((t, i) => (
+                                                                <span key={i} className={`text-xs px-1.5 py-0.5 rounded ${t.isAbnormal ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-500'}`}>
+                                                                    {t.type} {t.arrow}{t.pctChange}%
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     {/* Patient Cards */}
-                    <div className="p-3 space-y-3">
+                    {viewMode === 'list' && <div className="p-3 space-y-3">
                         {sortedPatients.length === 0 ? (
                             <div className="text-center py-8 text-gray-500">
                                 <p>No patients yet. Add one to get started!</p>
@@ -1867,12 +2177,81 @@
                                         </div>
                                     )}
 
-                                    {/* Concerns */}
-                                    {patient.concerns && (
-                                        <div className="mb-2 p-2 bg-red-50 border border-red-500/50 rounded text-sm text-red-600">
-                                            <strong>⚠️ Concerns:</strong> {patient.concerns}
+                                    {/* Antibiotics */}
+                                    {patient.antibiotics?.length > 0 && (
+                                        <div className="mb-2">
+                                            <p className="text-xs font-semibold text-gray-500 uppercase">Antibiotics:</p>
+                                            <div className="space-y-1 mt-1">
+                                                {patient.antibiotics.map((abx, i) => {
+                                                    const dayCount = abx.startDate ? calculatePOD(abx.startDate) : 0;
+                                                    const isStopped = abx.stopDate && abx.stopDate <= getTodayISO();
+                                                    return (
+                                                        <div key={i} className={`text-xs px-2 py-1 rounded flex items-center justify-between ${isStopped ? 'bg-gray-100 text-gray-400 line-through' : 'bg-amber-50 text-amber-800 border border-amber-200'}`}>
+                                                            <span className="font-medium">{abx.name}</span>
+                                                            <span>
+                                                                {abx.startDate && <span>Day {dayCount}</span>}
+                                                                {abx.stopDate && <span className="ml-1">(stop {abx.stopDate.substring(5).replace('-', '/')})</span>}
+                                                                {!abx.stopDate && abx.startDate && <span className="ml-1 text-amber-600">(ongoing)</span>}
+                                                            </span>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
                                         </div>
                                     )}
+
+                                    {/* Red Flags - auto-detected */}
+                                    {(() => {
+                                        const patientLabs = labs.filter(l => l.patientId === patient.id);
+                                        const patientOutputs = outputs.filter(o => o.patientId === patient.id);
+                                        const flags = detectRedFlags(patient, patientLabs, patientOutputs);
+                                        if (flags.length === 0 && !patient.concerns) return null;
+                                        return (
+                                            <div className="mb-2">
+                                                {patient.concerns && (
+                                                    <div className="p-2 bg-red-50 border border-red-500/50 rounded text-sm text-red-600 mb-1">
+                                                        <strong>⚠️</strong> {patient.concerns}
+                                                    </div>
+                                                )}
+                                                {flags.filter(f => f.type !== 'manual').length > 0 && (
+                                                    <div className="space-y-1">
+                                                        {flags.filter(f => f.type !== 'manual').map((flag, i) => (
+                                                            <div key={i} className={`text-xs px-2 py-1 rounded flex items-center gap-1 ${
+                                                                flag.severity === 'critical' ? 'bg-red-100 text-red-800 border border-red-300' :
+                                                                flag.severity === 'warning' ? 'bg-amber-50 text-amber-800 border border-amber-200' :
+                                                                'bg-blue-50 text-blue-700 border border-blue-200'
+                                                            }`}>
+                                                                <span>{flag.severity === 'critical' ? '🔴' : flag.severity === 'warning' ? '🟡' : '🔵'}</span>
+                                                                <span>{flag.text}</span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })()}
+
+                                    {/* Lab Trends - always visible */}
+                                    {(() => {
+                                        const trends = getLabTrends(patient.id, labs);
+                                        if (trends.length === 0) return null;
+                                        return (
+                                            <div className="mb-2">
+                                                <p className="text-xs font-semibold text-gray-500 uppercase">Trends:</p>
+                                                <div className="flex flex-wrap gap-1 mt-1">
+                                                    {trends.slice(0, 6).map((t, i) => (
+                                                        <span key={i} className={`text-xs px-2 py-1 rounded font-medium ${
+                                                            t.isAbnormal
+                                                                ? (t.direction === 'up' ? 'bg-red-50 text-red-700' : 'bg-red-50 text-red-700')
+                                                                : 'bg-gray-50 text-gray-600'
+                                                        }`}>
+                                                            {t.type} {t.previous} {t.arrow} {t.current} {t.unit}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
 
                                     {/* Quick Info */}
                                     <div className="grid grid-cols-2 gap-2 text-sm mb-2">
@@ -2004,7 +2383,7 @@
                                 </div>
                             ))
                         )}
-                    </div>
+                    </div>}
 
                     {/* Modals */}
                     {showPatientForm && (
@@ -3392,6 +3771,29 @@
                 const dvtMatch = b.match(/(?:dvt\s*(?:prophy(?:laxis)?)?|anticoag(?:ulation)?|vte)\s*[:\-]\s*(.+?)(?=\n|$)/i);
                 if (dvtMatch) patient.dvtProphylaxis = dvtMatch[1].trim();
 
+                // Extract antibiotics
+                const abxMatch = b.match(/(?:abx|antibiotics?|antimicrobials?)\s*[:\-]\s*(.+?)(?=\n\s*(?:plan|todo|to[- ]?do|diet|activity|code|dispo|contact|$))/is);
+                if (abxMatch) {
+                    const abxText = abxMatch[1].trim();
+                    patient.antibiotics = abxText.split(/[,;\n]+/).map(a => a.trim()).filter(a => a.length > 1).map(a => {
+                        // Try to extract date from abx entry like "Zosyn (started 3/18)" or "Vanc day 3"
+                        const dateMatch = a.match(/(?:started?|since|from)\s*(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)/i);
+                        const dayMatch = a.match(/day\s*(\d+)/i);
+                        let startDate = '';
+                        if (dateMatch) {
+                            startDate = parseFlexibleDate(dateMatch[1]) || '';
+                        } else if (dayMatch) {
+                            const days = parseInt(dayMatch[1]);
+                            const todayParts = getTodayISO().split('-');
+                            const d = new Date(parseInt(todayParts[0]), parseInt(todayParts[1]) - 1, parseInt(todayParts[2]));
+                            d.setDate(d.getDate() - days + 1);
+                            startDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                        }
+                        const name = a.replace(/\s*\(.*\)/, '').replace(/\s*day\s*\d+/i, '').trim();
+                        return { name, startDate, stopDate: '' };
+                    });
+                }
+
                 // Extract disposition
                 const dispoMatch = b.match(/(?:dispo(?:sition)?|dc\s*plan|discharge\s*plan)\s*[:\-]\s*(.+?)(?=\n|$)/i);
                 if (dispoMatch) patient.dispositionPlan = dispoMatch[1].trim();
@@ -3579,6 +3981,12 @@
                                 const newPmh = parsed.pmh.filter(p => !existingPmh.some(ep => ep.toLowerCase() === p.toLowerCase()));
                                 updated.pmh = [...existingPmh, ...newPmh];
                             }
+                            // Merge antibiotics
+                            if (parsed.antibiotics && parsed.antibiotics.length > 0) {
+                                const existingAbx = updated.antibiotics || [];
+                                const newAbx = parsed.antibiotics.filter(a => !existingAbx.some(ea => ea.name.toLowerCase() === a.name.toLowerCase()));
+                                updated.antibiotics = [...existingAbx, ...newAbx];
+                            }
 
                             await DB.put('patients', updated);
                             patientId = existing.id;
@@ -3590,6 +3998,7 @@
                                 procedures: parsed.procedures,
                                 problems: parsed.problems,
                                 pmh: parsed.pmh || [],
+                                antibiotics: parsed.antibiotics || [],
                                 treatmentPlan: parsed.treatmentPlan || parsed.overnightPlan || '',
                                 diet: parsed.diet || 'Regular',
                                 activity: parsed.activity || 'Ambulate TID',
