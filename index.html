@@ -4410,8 +4410,6 @@
             const [error, setError] = React.useState('');
             const [loading, setLoading] = React.useState(false);
 
-            // Note: redirect result is handled in the App component
-
             const handleEmailLogin = async (e) => {
                 e.preventDefault();
                 setError('');
@@ -4434,25 +4432,16 @@
                 setLoading(true);
                 try {
                     const provider = new firebase.auth.GoogleAuthProvider();
-                    // Use redirect on mobile (popups are often blocked), popup on desktop
-                    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-                    if (isMobile) {
-                        await auth.signInWithRedirect(provider);
-                    } else {
-                        await auth.signInWithPopup(provider);
-                    }
+                    // Always use popup - signInWithRedirect has known issues on
+                    // iOS Safari due to Intelligent Tracking Prevention (ITP)
+                    // blocking cookies across redirects
+                    await auth.signInWithPopup(provider);
                 } catch (err) {
                     const code = err.code || '';
-                    if (code === 'auth/popup-blocked') {
-                        // Fallback to redirect if popup was blocked
-                        try {
-                            const provider = new firebase.auth.GoogleAuthProvider();
-                            await auth.signInWithRedirect(provider);
-                        } catch (redirectErr) {
-                            setError(redirectErr.message.replace('Firebase: ', ''));
-                        }
+                    if (code === 'auth/popup-blocked' || code === 'auth/popup-closed-by-browser') {
+                        setError('Popup was blocked. Please allow popups for this site and try again.');
                     } else if (code === 'auth/unauthorized-domain') {
-                        setError('This domain is not authorized for Google sign-in. Add it to Firebase Console > Authentication > Settings > Authorized domains.');
+                        setError('This domain is not authorized for Google sign-in. Please contact the administrator.');
                     } else {
                         setError(err.message.replace('Firebase: ', ''));
                     }
@@ -4682,9 +4671,7 @@
 
             // Listen for auth state changes (persisted login)
             React.useEffect(() => {
-                let unsubscribe = null;
-
-                const loadUserTeam = async (u) => {
+                const unsub = auth.onAuthStateChanged(async (u) => {
                     setUser(u);
                     if (u) {
                         try {
@@ -4704,25 +4691,8 @@
                         setTeamData(null);
                     }
                     setAuthLoading(false);
-                };
-
-                // Wait for any pending redirect result BEFORE listening to auth state.
-                // This prevents onAuthStateChanged from firing with null before the
-                // redirect sign-in has been processed by Firebase.
-                const initAuth = async () => {
-                    try {
-                        await auth.getRedirectResult();
-                    } catch (err) {
-                        console.error('Redirect result error:', err);
-                    }
-                    // Now that redirect is processed, listen for auth state
-                    unsubscribe = auth.onAuthStateChanged((u) => {
-                        loadUserTeam(u);
-                    });
-                };
-
-                initAuth();
-                return () => { if (unsubscribe) unsubscribe(); };
+                });
+                return () => unsub();
             }, []);
 
             React.useEffect(() => {
