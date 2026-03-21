@@ -1593,6 +1593,75 @@
                     .sort((a, b) => new Date(b.date) - new Date(a.date));
             };
 
+            const [copySuccess, setCopySuccess] = React.useState(false);
+
+            const exportText = () => {
+                let text = `CHIEFROUNDS SIGN-OUT\n${getCurrentDateTime()}\n`;
+                text += '━'.repeat(30) + '\n\n';
+
+                patients.forEach((patient) => {
+                    text += `Rm ${patient.room} | ${patient.diagnosis} | POD#${calculatePOD(patient.admitDate)} | ${patient.codeStatus}\n`;
+
+                    if (patient.problems?.length > 0) {
+                        text += 'Problems:\n';
+                        patient.problems.forEach(p => { text += `  - ${p}\n`; });
+                    }
+
+                    if (patient.treatmentPlan) {
+                        text += `Plan: ${patient.treatmentPlan}\n`;
+                    }
+
+                    text += `Diet: ${patient.diet} | Activity: ${patient.activity}\n`;
+                    text += `DVT: ${patient.dvtProphylaxis} | GI: ${patient.giProphylaxis}\n`;
+
+                    const patientLabs = getPatientLabs(patient.id).slice(0, 5);
+                    if (patientLabs.length > 0) {
+                        text += 'Labs: ';
+                        text += patientLabs.map(lab => {
+                            const range = LAB_RANGES[lab.type];
+                            const flag = isLabAbnormal(lab.type, lab.value) ? '*' : '';
+                            return `${lab.type} ${lab.value}${flag}`;
+                        }).join(', ') + '\n';
+                    }
+
+                    const patientOutputs = getPatientOutputs(patient.id).slice(0, 3);
+                    if (patientOutputs.length > 0) {
+                        text += 'I/O: ';
+                        text += patientOutputs.map(o => `${o.type} ${o.amount}mL`).join(', ') + '\n';
+                    }
+
+                    if (patient.concerns) {
+                        text += `⚠ CONCERNS: ${patient.concerns}\n`;
+                    }
+
+                    if (patient.dispositionPlan) {
+                        text += `Dispo: ${patient.dispositionPlan}\n`;
+                    }
+
+                    text += '\n';
+                });
+
+                text += '━'.repeat(30) + '\n';
+                text += `${patients.length} patient(s) | *abnormal lab`;
+
+                navigator.clipboard.writeText(text).then(() => {
+                    setCopySuccess(true);
+                    setTimeout(() => setCopySuccess(false), 2500);
+                }).catch(() => {
+                    // Fallback for mobile browsers
+                    const ta = document.createElement('textarea');
+                    ta.value = text;
+                    ta.style.position = 'fixed';
+                    ta.style.left = '-9999px';
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(ta);
+                    setCopySuccess(true);
+                    setTimeout(() => setCopySuccess(false), 2500);
+                });
+            };
+
             const exportPDF = () => {
                 const { jsPDF } = window;
                 const doc = new jsPDF('p', 'mm', 'a4');
@@ -1727,24 +1796,34 @@
                             <h2 className="text-lg font-bold">Attending Sign-Out</h2>
                             <p className="text-xs text-gray-500">Last refreshed: {formatTime(lastRefresh)}</p>
                         </div>
-                        <div className="flex gap-2 flex-col text-sm">
+                        <div className="flex gap-1.5 flex-wrap justify-end text-sm">
                             <button
                                 onClick={loadData}
-                                className="bg-medical-600 text-white hover:bg-medical-700 text-white px-3 py-1 rounded font-medium"
+                                className="bg-medical-600 text-white hover:bg-medical-700 px-3 py-1.5 rounded font-medium"
                             >
                                 Refresh
                             </button>
                             <button
                                 onClick={() => setPresentMode(true)}
-                                className="bg-emerald-600 hover:bg-emerald-700 px-3 py-1 rounded font-medium"
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded font-medium"
                             >
                                 Present
                             </button>
                             <button
                                 onClick={exportPDF}
-                                className="bg-amber-600 hover:bg-amber-700 px-3 py-1 rounded font-medium"
+                                className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded font-medium"
                             >
                                 PDF
+                            </button>
+                            <button
+                                onClick={exportText}
+                                className={`px-3 py-1.5 rounded font-medium transition ${
+                                    copySuccess
+                                        ? 'bg-green-600 text-white'
+                                        : 'bg-gray-700 hover:bg-gray-800 text-white'
+                                }`}
+                            >
+                                {copySuccess ? 'Copied!' : 'Copy Text'}
                             </button>
                         </div>
                     </div>
