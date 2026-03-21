@@ -275,6 +275,221 @@
             'PTT': { min: 25, max: 35, unit: 'sec', normal: '' }
         };
 
+        // ==================== MEDICAL ABBREVIATION DICTIONARY ====================
+        const MED_ABBREVS = {
+            // Surgical / procedural
+            'c/b': 'complicated by', 'c/o': 'complaining of', 's/p': 'status post',
+            'w/': 'with', 'w/o': 'without', 'b/l': 'bilateral', 'r/o': 'rule out',
+            'd/c': 'discharge', 'f/u': 'follow up', 'a/p': 'assessment and plan',
+            'h/o': 'history of', 'p/w': 'presents with', 'r/t': 'related to',
+            // Vitals / assessment
+            'VSS': 'vital signs stable', 'NAD': 'no acute distress', 'A&O': 'alert and oriented',
+            'AAOx3': 'alert and oriented x3', 'AAOx4': 'alert and oriented x4',
+            'WNL': 'within normal limits', 'NSTEMI': 'non-ST elevation MI',
+            'STEMI': 'ST elevation MI', 'NSR': 'normal sinus rhythm',
+            'Afib': 'atrial fibrillation', 'RVR': 'rapid ventricular response',
+            // Activity / mobility
+            'NWB': 'non-weight bearing', 'WBAT': 'weight bearing as tolerated',
+            'PWB': 'partial weight bearing', 'FWB': 'full weight bearing',
+            'TDWB': 'touch-down weight bearing', 'OOB': 'out of bed',
+            'BRP': 'bathroom privileges', 'BR': 'bed rest', 'ADLs': 'activities of daily living',
+            // Diet
+            'NPO': 'nothing by mouth', 'CLD': 'clear liquid diet',
+            'DAT': 'diet as tolerated', 'ADA': 'American Diabetes Association diet',
+            'TF': 'tube feeds', 'TPN': 'total parenteral nutrition',
+            // GI
+            'NGT': 'nasogastric tube', 'LCWS': 'low continuous wall suction',
+            'LIS': 'low intermittent suction', 'PEG': 'percutaneous endoscopic gastrostomy',
+            'SBO': 'small bowel obstruction', 'LBO': 'large bowel obstruction',
+            'BM': 'bowel movement', 'N/V': 'nausea/vomiting', 'GERD': 'gastroesophageal reflux',
+            'GIB': 'GI bleed', 'UGIB': 'upper GI bleed', 'LGIB': 'lower GI bleed',
+            // Respiratory
+            'SOB': 'shortness of breath', 'DOE': 'dyspnea on exertion',
+            'RA': 'room air', 'NC': 'nasal cannula', 'HFNC': 'high-flow nasal cannula',
+            'BiPAP': 'bilevel positive airway pressure', 'CPAP': 'continuous positive airway pressure',
+            'CXR': 'chest x-ray', 'CTA': 'CT angiogram', 'PE': 'pulmonary embolism',
+            'PNA': 'pneumonia', 'ARDS': 'acute respiratory distress syndrome',
+            'PTX': 'pneumothorax', 'CT': 'chest tube',
+            // Cardiovascular
+            'HTN': 'hypertension', 'HoTN': 'hypotension', 'CHF': 'congestive heart failure',
+            'HFrEF': 'heart failure with reduced ejection fraction',
+            'HFpEF': 'heart failure with preserved ejection fraction',
+            'EF': 'ejection fraction', 'CAD': 'coronary artery disease',
+            'PVD': 'peripheral vascular disease', 'PAD': 'peripheral arterial disease',
+            'DVT': 'deep vein thrombosis', 'VTE': 'venous thromboembolism',
+            'AAA': 'abdominal aortic aneurysm', 'MVP': 'mitral valve prolapse',
+            // Renal / GU
+            'AKI': 'acute kidney injury', 'CKD': 'chronic kidney disease',
+            'ESRD': 'end-stage renal disease', 'UTI': 'urinary tract infection',
+            'UOP': 'urine output', 'BUN': 'blood urea nitrogen', 'Cr': 'creatinine',
+            'HD': 'hemodialysis', 'CRRT': 'continuous renal replacement therapy',
+            // Endocrine / metabolic
+            'DM': 'diabetes mellitus', 'DM2': 'type 2 diabetes', 'DM1': 'type 1 diabetes',
+            'IDDM': 'insulin-dependent diabetes', 'NIDDM': 'non-insulin-dependent diabetes',
+            'DKA': 'diabetic ketoacidosis', 'HHS': 'hyperosmolar hyperglycemic state',
+            'TSH': 'thyroid-stimulating hormone', 'HLD': 'hyperlipidemia',
+            // Neuro
+            'CVA': 'cerebrovascular accident', 'TIA': 'transient ischemic attack',
+            'LOC': 'loss of consciousness', 'GCS': 'Glasgow Coma Scale',
+            'SDH': 'subdural hematoma', 'EDH': 'epidural hematoma', 'SAH': 'subarachnoid hemorrhage',
+            'ICP': 'intracranial pressure', 'EVD': 'external ventricular drain',
+            // Heme / ID
+            'WBC': 'white blood cell count', 'HgB': 'hemoglobin', 'Hct': 'hematocrit',
+            'PLT': 'platelets', 'INR': 'international normalized ratio',
+            'MRSA': 'methicillin-resistant staph aureus', 'VRE': 'vancomycin-resistant enterococcus',
+            'SIRS': 'systemic inflammatory response syndrome', 'BCx': 'blood cultures',
+            'Abx': 'antibiotics', 'SSI': 'surgical site infection',
+            // Medications
+            'PCA': 'patient-controlled analgesia', 'IVF': 'IV fluids',
+            'LR': 'lactated Ringers', 'NS': 'normal saline', 'D5': 'dextrose 5%',
+            'PRN': 'as needed', 'PO': 'by mouth', 'IV': 'intravenous',
+            'IM': 'intramuscular', 'SQ': 'subcutaneous', 'SubQ': 'subcutaneous',
+            'BID': 'twice daily', 'TID': 'three times daily', 'QID': 'four times daily',
+            'QHS': 'at bedtime', 'QAM': 'every morning', 'QPM': 'every evening',
+            'Q4H': 'every 4 hours', 'Q6H': 'every 6 hours', 'Q8H': 'every 8 hours',
+            'AC': 'before meals', 'PC': 'after meals',
+            'SCD': 'sequential compression device', 'SCDs': 'sequential compression devices',
+            'LMWH': 'low molecular weight heparin',
+            // Code status / dispo
+            'DNR': 'do not resuscitate', 'DNI': 'do not intubate',
+            'CMO': 'comfort measures only', 'GOC': 'goals of care',
+            'SNF': 'skilled nursing facility', 'LTAC': 'long-term acute care',
+            'SAR': 'subacute rehab', 'IPR': 'inpatient rehab', 'AMA': 'against medical advice',
+            // Surgical procedures (common abbreviations)
+            'lap': 'laparoscopic', 'appy': 'appendectomy', 'chole': 'cholecystectomy',
+            'ex-lap': 'exploratory laparotomy', 'LOA': 'lysis of adhesions',
+            'I&D': 'incision and drainage', 'ORIF': 'open reduction internal fixation',
+            'THR': 'total hip replacement', 'TKR': 'total knee replacement',
+            'THA': 'total hip arthroplasty', 'TKA': 'total knee arthroplasty',
+            'CABG': 'coronary artery bypass graft', 'AVR': 'aortic valve replacement',
+            'CEA': 'carotid endarterectomy', 'fem-pop': 'femoral-popliteal bypass',
+            'BKA': 'below-knee amputation', 'AKA': 'above-knee amputation',
+            'colectomy': 'colectomy', 'hemicolectomy': 'hemicolectomy',
+            'RHC': 'right hemicolectomy', 'LHC': 'left hemicolectomy',
+            'LAR': 'low anterior resection', 'APR': 'abdominoperineal resection',
+            'Whipple': 'pancreaticoduodenectomy',
+            // Past medical history common
+            'PMH': 'past medical history', 'PMHx': 'past medical history',
+            'PSH': 'past surgical history', 'PSHx': 'past surgical history',
+            'FH': 'family history', 'SH': 'social history',
+            'COPD': 'chronic obstructive pulmonary disease',
+            'OSA': 'obstructive sleep apnea', 'ESLD': 'end-stage liver disease',
+            'EtOH': 'alcohol', 'IVDU': 'IV drug use', 'BMI': 'body mass index',
+            'OA': 'osteoarthritis', 'RA': 'rheumatoid arthritis',
+            'CLD': 'chronic liver disease', 'Cirrhosis': 'cirrhosis',
+            'HCV': 'hepatitis C', 'HBV': 'hepatitis B',
+            // Imaging / labs
+            'CT': 'computed tomography', 'MRI': 'magnetic resonance imaging',
+            'US': 'ultrasound', 'KUB': 'kidney ureter bladder x-ray',
+            'AXR': 'abdominal x-ray', 'HIDA': 'hepatobiliary iminodiacetic acid scan',
+            'MRCP': 'magnetic resonance cholangiopancreatography',
+            'ERCP': 'endoscopic retrograde cholangiopancreatography',
+            'EGD': 'esophagogastroduodenoscopy',
+            // Drains / lines
+            'JP': 'Jackson-Pratt drain', 'IR': 'interventional radiology',
+            'PICC': 'peripherally inserted central catheter',
+            'CVC': 'central venous catheter', 'A-line': 'arterial line',
+            'Foley': 'Foley catheter',
+        };
+
+        // Reverse lookup: full term -> abbreviation (for normalizing signout text)
+        const MED_TERM_TO_ABBREV = {};
+        Object.entries(MED_ABBREVS).forEach(([abbr, full]) => {
+            MED_TERM_TO_ABBREV[full.toLowerCase()] = abbr;
+        });
+
+        // Normalize medical text: recognize abbreviations, clean up, standardize
+        function normalizeMedicalText(text) {
+            if (!text) return text;
+            let t = text;
+            // Standardize common written-out terms to abbreviations
+            const termReplacements = [
+                [/\bcomplicated by\b/gi, 'c/b'],
+                [/\bcomplaining of\b/gi, 'c/o'],
+                [/\bstatus post\b/gi, 's/p'],
+                [/\bwithout\b/gi, 'w/o'],
+                [/\brule out\b/gi, 'r/o'],
+                [/\bfollow[- ]?up\b/gi, 'f/u'],
+                [/\bhistory of\b/gi, 'h/o'],
+                [/\bpresents with\b/gi, 'p/w'],
+                [/\bnon[- ]?weight[- ]?bearing\b/gi, 'NWB'],
+                [/\bweight[- ]?bearing as tolerated\b/gi, 'WBAT'],
+                [/\bpartial weight[- ]?bearing\b/gi, 'PWB'],
+                [/\bfull weight[- ]?bearing\b/gi, 'FWB'],
+                [/\bnothing by mouth\b/gi, 'NPO'],
+                [/\bnasogastric tube\b/gi, 'NGT'],
+                [/\bsmall bowel obstruction\b/gi, 'SBO'],
+                [/\blarge bowel obstruction\b/gi, 'LBO'],
+                [/\bshortness of breath\b/gi, 'SOB'],
+                [/\bchest x[- ]?ray\b/gi, 'CXR'],
+                [/\bpulmonary embolism\b/gi, 'PE'],
+                [/\bdeep vein thrombosis\b/gi, 'DVT'],
+                [/\bacute kidney injury\b/gi, 'AKI'],
+                [/\burinary tract infection\b/gi, 'UTI'],
+                [/\bdiabetes mellitus\b/gi, 'DM'],
+                [/\btype 2 diabetes\b/gi, 'DM2'],
+                [/\bhypertension\b/gi, 'HTN'],
+                [/\bhyperlipidemia\b/gi, 'HLD'],
+                [/\bcoronary artery disease\b/gi, 'CAD'],
+                [/\bcongestive heart failure\b/gi, 'CHF'],
+                [/\batrial fibrillation\b/gi, 'Afib'],
+                [/\bchronic obstructive pulmonary disease\b/gi, 'COPD'],
+                [/\bobstructive sleep apnea\b/gi, 'OSA'],
+                [/\bdo not resuscitate\b/gi, 'DNR'],
+                [/\bdo not intubate\b/gi, 'DNI'],
+                [/\bskilled nursing facility\b/gi, 'SNF'],
+                [/\blong[- ]?term acute care\b/gi, 'LTAC'],
+                [/\bpatient[- ]?controlled analgesia\b/gi, 'PCA'],
+                [/\bsequential compression devices?\b/gi, 'SCDs'],
+                [/\blaparoscopic\b/gi, 'lap'],
+                [/\bappendectomy\b/gi, 'appy'],
+                [/\bcholecystectomy\b/gi, 'chole'],
+                [/\bexploratory laparotomy\b/gi, 'ex-lap'],
+                [/\blysis of adhesions\b/gi, 'LOA'],
+                [/\bincision and drainage\b/gi, 'I&D'],
+            ];
+            termReplacements.forEach(([pattern, replacement]) => {
+                t = t.replace(pattern, replacement);
+            });
+            return t;
+        }
+
+        // Procedure-to-diagnosis mapping for smart prediction
+        const PROCEDURE_DIAGNOSIS_MAP = {
+            // General surgery
+            'lap appy': 'Appendicitis', 'appy': 'Appendicitis', 'appendectomy': 'Appendicitis',
+            'lap chole': 'Cholelithiasis', 'chole': 'Cholelithiasis', 'cholecystectomy': 'Cholelithiasis',
+            'ex-lap': 'Acute abdomen', 'exploratory laparotomy': 'Acute abdomen',
+            'LOA': 'Small bowel obstruction', 'lysis of adhesions': 'Small bowel obstruction',
+            'colectomy': 'Colon pathology', 'right hemicolectomy': 'Colon cancer',
+            'left hemicolectomy': 'Colon cancer/Diverticulitis', 'RHC': 'Colon cancer',
+            'LHC': 'Colon cancer/Diverticulitis',
+            'LAR': 'Rectal cancer', 'low anterior resection': 'Rectal cancer',
+            'APR': 'Rectal cancer', 'Whipple': 'Pancreatic mass',
+            'pancreaticoduodenectomy': 'Pancreatic mass',
+            'I&D': 'Abscess', 'incision and drainage': 'Abscess',
+            'hernia repair': 'Hernia', 'inguinal hernia repair': 'Inguinal hernia',
+            'ventral hernia repair': 'Ventral hernia', 'umbilical hernia repair': 'Umbilical hernia',
+            'Nissen': 'GERD', 'fundoplication': 'GERD',
+            'gastrectomy': 'Gastric pathology', 'sleeve gastrectomy': 'Morbid obesity',
+            'gastric bypass': 'Morbid obesity', 'RYGB': 'Morbid obesity',
+            // Vascular
+            'CEA': 'Carotid stenosis', 'carotid endarterectomy': 'Carotid stenosis',
+            'fem-pop': 'Peripheral arterial disease', 'femoral-popliteal bypass': 'PAD',
+            'BKA': 'Critical limb ischemia', 'AKA': 'Critical limb ischemia',
+            'AAA repair': 'Abdominal aortic aneurysm', 'EVAR': 'Abdominal aortic aneurysm',
+            // Trauma
+            'damage control laparotomy': 'Trauma', 'splenectomy': 'Splenic injury/pathology',
+            'chest tube': 'Pneumothorax/Hemothorax',
+            // Ortho
+            'ORIF': 'Fracture', 'THA': 'Hip osteoarthritis', 'TKA': 'Knee osteoarthritis',
+            'THR': 'Hip fracture/OA', 'TKR': 'Knee OA',
+            // Cardiothoracic
+            'CABG': 'Coronary artery disease', 'AVR': 'Aortic stenosis',
+            'MVR': 'Mitral valve disease', 'lobectomy': 'Lung mass',
+            'VATS': 'Thoracic pathology', 'VATS lobectomy': 'Lung cancer',
+        };
+
         // ==================== TIMEZONE & UTILITY FUNCTIONS ====================
         const APP_TIMEZONE = 'America/Chicago'; // Central Time
 
@@ -899,7 +1114,7 @@
         // ==================== MODAL COMPONENTS ====================
         function PatientFormModal({ onClose, onSave, editingPatient }) {
             const [formData, setFormData] = React.useState(editingPatient || {
-                room: '', diagnosis: '', problems: [], procedures: [],
+                room: '', diagnosis: '', problems: [], procedures: [], pmh: [],
                 treatmentPlan: '', diet: 'Regular', activity: 'Ambulate TID',
                 dvtProphylaxis: 'Heparin 5000 TID', giProphylaxis: 'Pantoprazole',
                 dispositionPlan: '', concerns: '', codeStatus: 'Full Code',
@@ -943,7 +1158,9 @@
                         problems: typeof formData.problems === 'string'
                             ? formData.problems.split(',').map(p => p.trim()).filter(Boolean) : formData.problems,
                         procedures: typeof formData.procedures === 'string'
-                            ? formData.procedures.split(',').map(p => p.trim()).filter(Boolean) : formData.procedures
+                            ? formData.procedures.split(',').map(p => p.trim()).filter(Boolean) : formData.procedures,
+                        pmh: typeof formData.pmh === 'string'
+                            ? formData.pmh.split(',').map(p => p.trim()).filter(Boolean) : (formData.pmh || [])
                     });
                 }
             };
@@ -1031,6 +1248,15 @@
                                     value={typeof formData.procedures === 'string' ? formData.procedures : formData.procedures.join(', ')}
                                     onChange={handleInputChange} placeholder="Lap Chole, EGD"
                                     className={`w-full bg-gray-50 border border-gray-300 rounded px-3 py-2 text-gray-800 transition ${fieldHighlight('procedures')}`} />
+                            </div>
+
+                            {/* Past Medical History */}
+                            <div>
+                                <label className={`block text-sm font-semibold mb-1 ${labelHighlight('pmh')}`}>Past Medical History (comma-separated)</label>
+                                <input type="text" name="pmh"
+                                    value={typeof formData.pmh === 'string' ? formData.pmh : (formData.pmh || []).join(', ')}
+                                    onChange={handleInputChange} placeholder="HTN, DM2, COPD, CAD"
+                                    className={`w-full bg-gray-50 border border-gray-300 rounded px-3 py-2 text-gray-800 transition ${fieldHighlight('pmh')}`} />
                             </div>
 
                             {/* Treatment Plan */}
@@ -1622,6 +1848,17 @@
                                         </div>
                                     )}
 
+                                    {patient.pmh?.length > 0 && (
+                                        <div className="mb-2">
+                                            <p className="text-xs font-semibold text-gray-500 uppercase">PMH:</p>
+                                            <div className="flex flex-wrap gap-1">
+                                                {patient.pmh.map((p, i) => (
+                                                    <span key={i} className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded">{p}</span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
                                     {/* Concerns */}
                                     {patient.concerns && (
                                         <div className="mb-2 p-2 bg-red-50 border border-red-500/50 rounded text-sm text-red-600">
@@ -2017,6 +2254,14 @@
                                     <div className="text-lg text-gray-500 font-medium mt-0.5">
                                         POD {calculatePOD(patient.admitDate)}
                                     </div>
+
+                                    {/* PMH */}
+                                    {patient.pmh?.length > 0 && (
+                                        <div className="mt-2 text-base">
+                                            <span className="font-semibold text-gray-500">PMH:</span>{' '}
+                                            <span className="text-gray-600">{patient.pmh.join(', ')}</span>
+                                        </div>
+                                    )}
 
                                     {/* Active Problems */}
                                     {patient.problems?.length > 0 && (
@@ -2974,8 +3219,9 @@
         function parseSignoutText(rawText) {
             if (!rawText || !rawText.trim()) return [];
 
-            // Normalize line endings
-            const text = rawText.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+            // First normalize medical abbreviations throughout the text
+            let text = rawText.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+            text = normalizeMedicalText(text);
 
             // Split into patient blocks. Common delimiters:
             // - "Room ###" or "Rm ###" at start of line
@@ -3033,6 +3279,7 @@
                     diagnosis: '',
                     procedures: [],
                     problems: [],
+                    pmh: [],
                     treatmentPlan: '',
                     diet: '',
                     activity: '',
@@ -3169,6 +3416,61 @@
                     });
                 }
 
+                // Extract PMH (Past Medical History)
+                const pmhMatch = b.match(/(?:PMH|PMHx|past medical(?: history)?|medical history|comorbidities|h\/o)\s*[:\-]\s*(.+?)(?=\n\s*(?:PSH|PSHx|past surgical|dx|diagnosis|s\/p|procedures?|problems?|plan|todo|to[- ]?do|tasks?|if[/ ]then|overnight|diet|activity|code|dispo|contact|meds|medications?|allergies?|$))/is);
+                if (pmhMatch) {
+                    const pmhText = pmhMatch[1].trim();
+                    patient.pmh = pmhText.split(/[,;\n•\-]+/).map(p => p.trim()).filter(p => p.length > 1);
+                }
+                // Also try to pick up PMH from "h/o HTN, DM2, COPD" patterns
+                if (patient.pmh.length === 0) {
+                    const hoMatch = b.match(/\bh\/o\s+(.+?)(?=\n|(?:\s*(?:s\/p|dx|procedures?|problems?|plan|$)))/i);
+                    if (hoMatch) {
+                        patient.pmh = hoMatch[1].split(/[,;&]+/).map(p => p.trim()).filter(p => p.length > 1);
+                    }
+                }
+
+                // Smart diagnosis prediction from procedure if no explicit diagnosis found
+                if (!patient.diagnosis && patient.procedures.length > 0) {
+                    // Try to match procedure text against known procedure-diagnosis pairs
+                    for (const proc of patient.procedures) {
+                        const procLower = proc.toLowerCase().trim();
+                        // Direct match
+                        if (PROCEDURE_DIAGNOSIS_MAP[procLower]) {
+                            patient.diagnosis = PROCEDURE_DIAGNOSIS_MAP[procLower] + ' s/p ' + proc;
+                            break;
+                        }
+                        // Partial match: check if any key is contained in the procedure text
+                        for (const [key, dx] of Object.entries(PROCEDURE_DIAGNOSIS_MAP)) {
+                            if (procLower.includes(key.toLowerCase()) || key.toLowerCase().includes(procLower)) {
+                                patient.diagnosis = dx + ' s/p ' + proc;
+                                break;
+                            }
+                        }
+                        if (patient.diagnosis) break;
+                    }
+                    // If still no match, just use "s/p [procedure]"
+                    if (!patient.diagnosis) {
+                        patient.diagnosis = 's/p ' + patient.procedures.join(', ');
+                    }
+                }
+
+                // If diagnosis mentions "c/b" (complicated by), extract complications as problems
+                if (patient.diagnosis) {
+                    const cbMatch = patient.diagnosis.match(/\bc\/b\s+(.+?)$/i);
+                    if (cbMatch && patient.problems.length === 0) {
+                        const complications = cbMatch[1].split(/[,;&]+/).map(c => c.trim()).filter(c => c.length > 1);
+                        patient.problems = [...patient.problems, ...complications];
+                    }
+                }
+
+                // If we see "c/b" in the block text, also check for complications to add to problems
+                const cbBlockMatch = b.match(/\bc\/b\s+(.+?)(?=\n|(?:\s*(?:plan|todo|overnight|diet|$)))/i);
+                if (cbBlockMatch && patient.problems.length === 0) {
+                    const complications = cbBlockMatch[1].split(/[,;&]+/).map(c => c.trim()).filter(c => c.length > 1);
+                    patient.problems = [...patient.problems, ...complications];
+                }
+
                 return patient;
             }).filter(p => p.room); // Only keep patients with a room number
 
@@ -3260,6 +3562,12 @@
                             if (parsed.concerns) updated.concerns = parsed.concerns;
                             // Always update admitDate if the signout had a date or POD
                             if (parsed.admitDate && parsed.admitDate !== getTodayISO()) updated.admitDate = parsed.admitDate;
+                            // Merge PMH without duplicates
+                            if (parsed.pmh && parsed.pmh.length > 0) {
+                                const existingPmh = updated.pmh || [];
+                                const newPmh = parsed.pmh.filter(p => !existingPmh.some(ep => ep.toLowerCase() === p.toLowerCase()));
+                                updated.pmh = [...existingPmh, ...newPmh];
+                            }
 
                             await DB.put('patients', updated);
                             patientId = existing.id;
@@ -3270,6 +3578,7 @@
                                 diagnosis: parsed.diagnosis,
                                 procedures: parsed.procedures,
                                 problems: parsed.problems,
+                                pmh: parsed.pmh || [],
                                 treatmentPlan: parsed.treatmentPlan || parsed.overnightPlan || '',
                                 diet: parsed.diet || 'Regular',
                                 activity: parsed.activity || 'Ambulate TID',
@@ -3507,20 +3816,23 @@
                                     {!parsedImport ? (
                                         <React.Fragment>
                                             <p className="text-sm text-gray-600">
-                                                Paste a text signout below. The parser will identify patients by room number and extract diagnoses, procedures, problems, plans, and to-do items.
+                                                Paste a text signout below. The parser recognizes medical abbreviations (c/b, NWB, s/p, etc.), extracts diagnoses, procedures, PMH, problems, plans, dates/POD, and to-do items. It also predicts diagnoses from procedures automatically.
                                             </p>
                                             <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
                                                 <p className="text-xs text-gray-400 mb-2 font-semibold">Example format:</p>
                                                 <pre className="text-xs text-gray-500 whitespace-pre-wrap font-mono leading-relaxed">
-{`512 - 65M - Appendicitis s/p lap appy POD2
+{`512 - 65M s/p lap appy 3/18 c/b ileus
+PMH: HTN, DM2, COPD
 Problems: Ileus, pain control
 Plan: Advance diet, check AM labs
 Code: Full
 To-do: F/U CT results, check NGT output
 
-514 - 45F - SBO s/p ex-lap with LOA POD1
-Problems: High NGT output
-Plan: NPO, IV fluids, NGT to LCWS
+514 - 45F SBO s/p ex-lap w/ LOA POD1
+PMH: h/o Afib, HLD, prior SBO
+Problems: High NGT output, AKI
+Plan: NPO, IVF, NGT to LCWS
+Activity: NWB
 To-do: Check AM labs, I/Os q4h`}
                                                 </pre>
                                             </div>
@@ -3561,6 +3873,11 @@ To-do: Check AM labs, I/Os q4h`}
                                                         {p.problems.length > 0 && (
                                                             <div className="text-xs text-gray-600 mb-1">
                                                                 <span className="font-semibold">Problems:</span> {p.problems.join(', ')}
+                                                            </div>
+                                                        )}
+                                                        {p.pmh && p.pmh.length > 0 && (
+                                                            <div className="text-xs text-gray-600 mb-1">
+                                                                <span className="font-semibold">PMH:</span> {p.pmh.join(', ')}
                                                             </div>
                                                         )}
                                                         {p.treatmentPlan && (
