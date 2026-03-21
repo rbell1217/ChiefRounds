@@ -314,9 +314,98 @@
 
         function calculatePOD(admitDate) {
             if (!admitDate) return 0;
-            const admit = new Date(admitDate);
-            const now = new Date();
-            return Math.floor((now - admit) / (1000 * 60 * 60 * 24)) + 1;
+            // Use Central Time for both dates to get accurate day count
+            const todayStr = getTodayISO(); // YYYY-MM-DD in Central Time
+            const todayParts = todayStr.split('-');
+            const todayMs = Date.UTC(parseInt(todayParts[0]), parseInt(todayParts[1]) - 1, parseInt(todayParts[2]));
+            // Parse admit date (could be ISO string or YYYY-MM-DD)
+            const admitStr = typeof admitDate === 'string' && admitDate.length >= 10 ? admitDate.substring(0, 10) : new Date(admitDate).toISOString().substring(0, 10);
+            const admitParts = admitStr.split('-');
+            const admitMs = Date.UTC(parseInt(admitParts[0]), parseInt(admitParts[1]) - 1, parseInt(admitParts[2]));
+            const days = Math.floor((todayMs - admitMs) / (1000 * 60 * 60 * 24));
+            return Math.max(0, days);
+        }
+
+        // Smart date parser: understands "3/18", "3/18/26", "3/18/2026", "March 18", "Mar 18", etc.
+        // Returns YYYY-MM-DD string or null if no date found
+        function parseFlexibleDate(text) {
+            if (!text) return null;
+            const t = text.trim();
+            const todayParts = getTodayISO().split('-');
+            const currentYear = parseInt(todayParts[0]);
+            const currentMonth = parseInt(todayParts[1]);
+
+            const monthNames = { jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3, apr: 4, april: 4, may: 5, jun: 6, june: 6, jul: 7, july: 7, aug: 8, august: 8, sep: 9, september: 9, oct: 10, october: 10, nov: 11, november: 11, dec: 12, december: 12 };
+
+            let month, day, year;
+
+            // M/D/YY or M/D/YYYY
+            const slashFull = t.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+            if (slashFull) {
+                month = parseInt(slashFull[1]);
+                day = parseInt(slashFull[2]);
+                year = parseInt(slashFull[3]);
+                if (year < 100) year += 2000;
+            }
+            // M/D (no year)
+            if (!month) {
+                const slashShort = t.match(/(\d{1,2})[\/\-](\d{1,2})(?!\d)/);
+                if (slashShort) {
+                    month = parseInt(slashShort[1]);
+                    day = parseInt(slashShort[2]);
+                    year = currentYear;
+                    // If the date is more than 6 months in the future, assume last year
+                    if (month > currentMonth + 6) year--;
+                }
+            }
+            // "March 18" or "Mar 18" or "18 March"
+            if (!month) {
+                const namedMonth = t.match(/([a-zA-Z]+)\s+(\d{1,2})(?:\s*,?\s*(\d{2,4}))?/);
+                if (namedMonth && monthNames[namedMonth[1].toLowerCase()]) {
+                    month = monthNames[namedMonth[1].toLowerCase()];
+                    day = parseInt(namedMonth[2]);
+                    year = namedMonth[3] ? parseInt(namedMonth[3]) : currentYear;
+                    if (year < 100) year += 2000;
+                }
+            }
+            if (!month) {
+                const dayFirst = t.match(/(\d{1,2})\s+([a-zA-Z]+)(?:\s*,?\s*(\d{2,4}))?/);
+                if (dayFirst && monthNames[dayFirst[2].toLowerCase()]) {
+                    day = parseInt(dayFirst[1]);
+                    month = monthNames[dayFirst[2].toLowerCase()];
+                    year = dayFirst[3] ? parseInt(dayFirst[3]) : currentYear;
+                    if (year < 100) year += 2000;
+                }
+            }
+
+            if (month && day && year && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+                return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            }
+            return null;
+        }
+
+        // Extract a date from signout text near date-related keywords
+        function extractDateFromContext(text) {
+            // Look for explicit date labels
+            const datePatterns = [
+                /(?:admit(?:ted)?|admission|admitted on|date of admission|DOA)\s*[:\-]?\s*(.+?)(?:\n|,|;|\s{2,}|$)/i,
+                /(?:surgery|op|operation|procedure)\s*(?:date|on)?\s*[:\-]?\s*(.+?)(?:\n|,|;|\s{2,}|$)/i,
+                /(?:date)\s*[:\-]\s*(.+?)(?:\n|,|;|\s{2,}|$)/i,
+            ];
+            for (const pattern of datePatterns) {
+                const match = text.match(pattern);
+                if (match) {
+                    const parsed = parseFlexibleDate(match[1]);
+                    if (parsed) return parsed;
+                }
+            }
+            // Look for standalone date patterns in the text
+            const inlineDateMatch = text.match(/\b(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)\b/);
+            if (inlineDateMatch) {
+                const parsed = parseFlexibleDate(inlineDateMatch[1]);
+                if (parsed) return parsed;
+            }
+            return null;
         }
 
         function isLabAbnormal(type, value) {
@@ -429,6 +518,25 @@
             // Concerns / Red Flags
             const concernMatch = transcript.match(/(?:concern|red flag|worried about|watch for|flag)s?\s+(?:(?:is|are|about|for)\s+)?(.+?)$/i);
             if (concernMatch) result.concerns = concernMatch[1].replace(/\s+/g, ' ').trim();
+
+            // Admit date - support "admitted 3/18", "admit date March 18", "surgery 3/19/26", "POD 2"
+            const admitDateMatch = transcript.match(/(?:admit(?:ted)?|admission|surgery|operation|op date|date)\s*(?:on|of|is)?\s*[:\-]?\s*(.+?)(?=\s*(?:diagnosis|dx|problems?|diet|plan|code|$))/i);
+            if (admitDateMatch) {
+                const parsed = parseFlexibleDate(admitDateMatch[1]);
+                if (parsed) result.admitDate = parsed;
+            }
+            // Also handle "POD 3" in dictation to back-calculate admit date
+            if (!result.admitDate) {
+                const podDictMatch = transcript.match(/\bPOD\s*#?\s*(\d+)/i) || transcript.match(/post[- ]?op(?:erative)?\s*day\s*#?\s*(\d+)/i);
+                if (podDictMatch) {
+                    const pod = parseInt(podDictMatch[1] || podDictMatch[2]);
+                    const todayStr = getTodayISO();
+                    const todayParts = todayStr.split('-');
+                    const todayDate = new Date(parseInt(todayParts[0]), parseInt(todayParts[1]) - 1, parseInt(todayParts[2]));
+                    todayDate.setDate(todayDate.getDate() - pod);
+                    result.admitDate = `${todayDate.getFullYear()}-${String(todayDate.getMonth() + 1).padStart(2, '0')}-${String(todayDate.getDate()).padStart(2, '0')}`;
+                }
+            }
 
             return result;
         }
@@ -2515,7 +2623,7 @@
                     room: '0',
                     age: 0,
                     gender: 'M',
-                    admitDate: new Date().toISOString(),
+                    admitDate: getTodayISO(),
                     diagnosis: templateName,
                     procedure: template.procedures[0] || '',
                     problems: template.problems,
@@ -2870,14 +2978,23 @@
                     }
                 }
 
-                // Extract POD
+                // Extract dates - try explicit admit/surgery dates first
+                const extractedDate = extractDateFromContext(b);
+                if (extractedDate) {
+                    patient.admitDate = extractedDate;
+                }
+
+                // Extract POD - if present, use it to back-calculate admit date relative to today
                 const podMatch = b.match(/POD\s*#?\s*(\d+)/i) || b.match(/post[- ]?op(?:erative)?\s*day\s*#?\s*(\d+)/i);
                 if (podMatch) {
-                    // Calculate admit date from POD
-                    const pod = parseInt(podMatch[1]);
-                    const admitDate = new Date();
-                    admitDate.setDate(admitDate.getDate() - pod);
-                    patient.admitDate = admitDate.toISOString().split('T')[0];
+                    const pod = parseInt(podMatch[1] || podMatch[2]);
+                    // Back-calculate admit date from POD using today in Central Time
+                    const todayStr = getTodayISO();
+                    const todayParts = todayStr.split('-');
+                    const todayDate = new Date(parseInt(todayParts[0]), parseInt(todayParts[1]) - 1, parseInt(todayParts[2]));
+                    todayDate.setDate(todayDate.getDate() - pod);
+                    patient.admitDate = `${todayDate.getFullYear()}-${String(todayDate.getMonth() + 1).padStart(2, '0')}-${String(todayDate.getDate()).padStart(2, '0')}`;
+                    patient._parsedPOD = pod; // store for preview display
                 }
 
                 // Extract problems/issues - look for labeled sections
@@ -3326,6 +3443,7 @@ To-do: Check AM labs, I/Os q4h`}
                                                             <span className="text-sm font-semibold text-gray-800">
                                                                 {p.diagnosis || 'No diagnosis'}{p.procedures.length > 0 ? ` s/p ${p.procedures.join(', ')}` : ''}
                                                             </span>
+                                                            {p.admitDate && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">POD {calculatePOD(p.admitDate)}</span>}
                                                             {p.codeStatus && <span className="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded">{p.codeStatus}</span>}
                                                         </div>
                                                         {p.problems.length > 0 && (
