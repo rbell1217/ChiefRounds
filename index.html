@@ -4410,18 +4410,7 @@
             const [error, setError] = React.useState('');
             const [loading, setLoading] = React.useState(false);
 
-            // Handle redirect result when page reloads after Google sign-in redirect
-            React.useEffect(() => {
-                auth.getRedirectResult().then(result => {
-                    // result.user will be null if no redirect happened
-                }).catch(err => {
-                    if (err.code === 'auth/unauthorized-domain') {
-                        setError('This domain is not authorized for Google sign-in. Add it to Firebase Console > Authentication > Settings > Authorized domains.');
-                    } else if (err.code) {
-                        setError(err.message.replace('Firebase: ', ''));
-                    }
-                });
-            }, []);
+            // Note: redirect result is handled in the App component
 
             const handleEmailLogin = async (e) => {
                 e.preventDefault();
@@ -4693,18 +4682,43 @@
 
             // Listen for auth state changes (persisted login)
             React.useEffect(() => {
+                let redirectChecked = false;
+
+                // First, check for redirect result (from Google sign-in on mobile)
+                auth.getRedirectResult().then(result => {
+                    redirectChecked = true;
+                    // If redirect returned a user, onAuthStateChanged will handle it
+                }).catch(err => {
+                    redirectChecked = true;
+                    console.error('Redirect result error:', err);
+                });
+
                 const unsub = auth.onAuthStateChanged(async (u) => {
+                    // If user is null and redirect hasn't been checked yet, wait briefly
+                    // This prevents flashing the login screen before redirect completes
+                    if (!u && !redirectChecked) {
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        // If still no user after waiting, proceed
+                        if (auth.currentUser) {
+                            u = auth.currentUser;
+                        }
+                    }
+
                     setUser(u);
                     if (u) {
-                        // Check if user has a team
-                        const userDoc = await db.collection('users').doc(u.uid).get();
-                        if (userDoc.exists && userDoc.data().teamId) {
-                            const tid = userDoc.data().teamId;
-                            setTeamId(tid);
-                            DB.setTeamId(tid);
-                            // Load team data
-                            const teamDoc = await db.collection('teams').doc(tid).get();
-                            if (teamDoc.exists) setTeamData({ id: tid, ...teamDoc.data() });
+                        try {
+                            // Check if user has a team
+                            const userDoc = await db.collection('users').doc(u.uid).get();
+                            if (userDoc.exists && userDoc.data().teamId) {
+                                const tid = userDoc.data().teamId;
+                                setTeamId(tid);
+                                DB.setTeamId(tid);
+                                // Load team data
+                                const teamDoc = await db.collection('teams').doc(tid).get();
+                                if (teamDoc.exists) setTeamData({ id: tid, ...teamDoc.data() });
+                            }
+                        } catch (err) {
+                            console.error('Error loading user/team data:', err);
                         }
                     } else {
                         setTeamId(null);
