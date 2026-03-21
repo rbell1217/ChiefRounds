@@ -1198,210 +1198,232 @@
         }
 
         function parsePreRoundSpeech(transcript) {
-            const t = transcript;
+            // Normalize: fix common speech-to-text issues (words run together, etc.)
+            let t = transcript
+                .replace(/IV(?=[a-z])/g, 'IV ')        // "IVfluids" -> "IV fluids"
+                .replace(/(?<=[a-z])IV/g, ' IV')        // "painIV" -> "pain IV"
+                .replace(/(\d)(?=[a-zA-Z])/g, '$1 ')    // "120over80" -> "120 over 80"
+                .replace(/(?<=[a-zA-Z])(\d)/g, ' $1')   // "WBC12" -> "WBC 12"
+                .replace(/\bpayments?\b/gi, 'pain meds') // common STT error
+                .replace(/\boral\s*payments?\b/gi, 'oral pain meds')
+                .replace(/\bover\s*(\d)/gi, '/$1')      // "120 over 80" -> "120/80"
+                .replace(/\bby\s*mouth\b/gi, 'PO')
+                .replace(/\bintravenous\b/gi, 'IV');
+
             const result = { checkedItems: [], sectionNotes: {}, patientUpdates: {}, examFindings: '' };
 
-            // ---- Step 1: Extract structured vitals into clean format ----
-            const vitals = {};
-            const bpMatch = t.match(/(?:bp|blood pressure)\s*(?:is|was|of|:)?\s*(\d{2,3}\s*\/\s*\d{2,3})/i);
-            const hrMatch = t.match(/(?:hr|heart rate|pulse)\s*(?:is|was|of|:)?\s*(\d{2,3})/i);
-            const tempMatch = t.match(/(?:temp|temperature|t-?max)\s*(?:is|was|of|:)?\s*(\d{2,3}\.?\d*)/i);
-            const satMatch = t.match(/(?:sat(?:s|uration)?|o2|spo2)\s*(?:is|was|of|:)?\s*(\d{2,3})%?/i);
-            const rrMatch = t.match(/(?:rr|resp(?:iratory)? rate|respirations)\s*(?:is|was|of|:)?\s*(\d{1,2})/i);
-            if (tempMatch) vitals.T = tempMatch[1];
-            if (hrMatch) vitals.HR = hrMatch[1];
-            if (bpMatch) vitals.BP = bpMatch[1].replace(/\s/g, '');
-            if (rrMatch) vitals.RR = rrMatch[1];
-            if (satMatch) vitals.SpO2 = satMatch[1] + '%';
+            // ---- VITALS: scan entire transcript for any vital signs ----
+            const vitals = [];
+            if (/\b(afebrile|no fever|not febrile)\b/i.test(t)) vitals.push('Afebrile');
+            else if (/\b(febrile|fever|spiked|temp\s*(?:of\s*)?\d)/i.test(t)) {
+                const tv = t.match(/temp(?:erature|s)?\s*(?:is|was|of|:)?\s*(\d{2,3}\.?\d*)/i);
+                vitals.push(tv ? `T ${tv[1]}` : 'Febrile');
+            }
+            const hrV = t.match(/(?:heart rate|hr|pulse)\s*(?:is|was|of|:)?\s*(\d{2,3})/i);
+            if (hrV) vitals.push(`HR ${hrV[1]}`);
+            else if (/\btachycardic\b/i.test(t)) vitals.push('Tachy');
+            else if (/\bbradycardic\b/i.test(t)) vitals.push('Brady');
+            const bpV = t.match(/(?:bp|blood pressure)\s*(?:is|was|of|:)?\s*(\d{2,3}\s*\/\s*\d{2,3})/i);
+            if (bpV) vitals.push(`BP ${bpV[1].replace(/\s/g, '')}`);
+            else if (/\bhypotensive\b/i.test(t)) vitals.push('Hypotensive');
+            else if (/\bhypertensive\b/i.test(t)) vitals.push('Hypertensive');
+            const rrV = t.match(/(?:rr|resp(?:iratory)?\s*rate|respirations?)\s*(?:is|was|of|:)?\s*(\d{1,2})/i);
+            if (rrV) vitals.push(`RR ${rrV[1]}`);
+            const satV = t.match(/(?:sat(?:s|uration)?|o2|spo2|pulse ox)\s*(?:is|was|of|:)?\s*(\d{2,3})\s*%?/i);
+            if (satV) vitals.push(`SpO2 ${satV[1]}%`);
+            if (/\b(hemodynamically stable|hd stable|vitals?\s*(?:are\s*)?stable|vitals?\s*(?:are\s*)?(?:within )?normal|vitals?\s*(?:look\s*)?good|vitals?\s*wnl|stable vitals?)\b/i.test(t)) {
+                if (vitals.length === 0) vitals.push('Stable');
+            }
+            if (/\b(vitals?\s*(?:reviewed|checked|looked at|look good|are fine|unremarkable))\b/i.test(t) && vitals.length === 0) vitals.push('Reviewed');
 
-            // Qualitative vitals
-            if (/\b(afebrile|no fever)\b/i.test(t)) vitals.Temp = vitals.T || 'Afebrile';
-            if (/\b(febrile|fever|spiked)\b/i.test(t) && !vitals.T) vitals.Temp = 'Febrile';
-            if (/\b(hemodynamically stable|hd stable)\b/i.test(t)) vitals.HD = 'Stable';
-            if (/\btachycardic\b/i.test(t)) vitals.HR = (vitals.HR || '') + ' (tachy)';
-            if (/\bhypotensive\b/i.test(t)) vitals.BP = (vitals.BP || '') + ' (low)';
-
-            if (Object.keys(vitals).length > 0) {
-                result.sectionNotes.vitals = Object.entries(vitals).map(([k, v]) => `${k} ${v}`).join(', ');
-                result.checkedItems.push('vitals');
-            } else if (/\b(vitals?\s+(?:stable|wnl|normal|within normal|unremarkable|reviewed))\b/i.test(t)) {
-                result.sectionNotes.vitals = 'Vitals stable/WNL';
+            if (vitals.length > 0) {
+                result.sectionNotes.vitals = vitals.join(', ');
                 result.checkedItems.push('vitals');
             }
 
-            // ---- Step 2: Extract structured lab values ----
-            const labNorm = { 'white count': 'WBC', 'wbc': 'WBC', 'hemoglobin': 'Hgb', 'hgb': 'Hgb', 'hematocrit': 'Hct', 'hct': 'Hct',
+            // ---- LABS: scan for any lab values or lab-related words ----
+            const labNorm = { 'white count': 'WBC', 'white blood cell': 'WBC', 'wbc': 'WBC', 'hemoglobin': 'Hgb', 'hgb': 'Hgb', 'hematocrit': 'Hct', 'hct': 'Hct',
                 'platelets': 'Plt', 'plt': 'Plt', 'sodium': 'Na', 'na': 'Na', 'potassium': 'K', 'k': 'K',
                 'chloride': 'Cl', 'cl': 'Cl', 'co2': 'CO2', 'bicarb': 'CO2', 'bun': 'BUN', 'creatinine': 'Cr', 'cr': 'Cr',
                 'glucose': 'Glucose', 'calcium': 'Ca', 'ca': 'Ca', 'magnesium': 'Mg', 'mg': 'Mg',
                 'phosphorus': 'Phos', 'phos': 'Phos', 'inr': 'INR', 'ptt': 'PTT', 'pt': 'PT',
                 'lactate': 'Lactate', 'lactic': 'Lactate', 'troponin': 'Troponin', 'lipase': 'Lipase',
                 'bilirubin': 'Tbili', 'tbili': 'Tbili', 'ast': 'AST', 'alt': 'ALT', 'alk phos': 'Alk Phos', 'albumin': 'Albumin' };
-            const labPattern = /\b(wbc|white count|hemoglobin|hgb|hct|hematocrit|platelets?|plt|sodium|na|potassium|k|chloride|cl|co2|bicarb|bun|creatinine|cr|glucose|calcium|ca|magnesium|mg|phosphorus|phos|inr|ptt|pt|lactate|lactic|troponin|lipase|bilirubin|tbili|ast|alt|alk phos|albumin)\s*(?:is|was|of|at|:| )?\s*(\d+\.?\d*)/gi;
+            const labPattern = /\b(wbc|white (?:blood )?count|hemoglobin|hgb|hct|hematocrit|platelets?|plt|sodium|na|potassium|k|chloride|cl|co2|bicarb|bun|creatinine|cr|glucose|calcium|ca|magnesium|mg|phosphorus|phos|inr|ptt|pt|lactate|lactic|troponin|lipase|bilirubin|tbili|ast|alt|alk phos|albumin)\s*(?:is|was|of|at|came back|:)?\s*(\d+\.?\d*)/gi;
             let lm;
             const labEntries = [];
             while ((lm = labPattern.exec(t)) !== null) {
                 const name = labNorm[lm[1].toLowerCase()] || lm[1].toUpperCase();
                 labEntries.push(`${name} ${lm[2]}`);
             }
-            // Qualitative lab mentions
-            if (/\b(labs?\s+(?:stable|wnl|normal|within normal|unremarkable|improved|trending down|trending up))\b/i.test(t)) {
-                const qualMatch = t.match(/labs?\s+(stable|wnl|normal|within normal|unremarkable|improved|trending (?:down|up))/i);
-                if (qualMatch && labEntries.length === 0) labEntries.push(`Labs ${qualMatch[1]}`);
+            if (/\b(leukocytosis|elevated wbc|wbc\s*(?:is\s*)?(?:up|rising|elevated|high|trending up))\b/i.test(t)) labEntries.push('WBC elevated');
+            if (/\b(anemia|low\s*(?:hgb|hemoglobin)|hgb\s*(?:is\s*)?(?:down|dropping|low|decreased))\b/i.test(t)) labEntries.push('Hgb low');
+            if (/\b(aki|acute kidney|creatinine\s*(?:is\s*)?(?:up|rising|elevated|bumped))\b/i.test(t)) labEntries.push('Cr elevated');
+            if (/\b(labs?\s+(?:are\s*)?(?:stable|wnl|normal|within normal|unremarkable|improved|look(?:ing)?\s*good|look(?:ing)?\s*better|trending\s*(?:down|up|better)))\b/i.test(t)) {
+                const ql = t.match(/labs?\s+(?:are\s*)?(stable|wnl|normal|within normal|unremarkable|improved|look(?:ing)?\s*good|look(?:ing)?\s*better|trending\s*(?:down|up|better))/i);
+                if (ql && labEntries.length === 0) labEntries.push(`Labs ${ql[1]}`);
             }
-            if (/\b(leukocytosis|elevated wbc|wbc (?:up|rising|elevated|trending up))\b/i.test(t)) labEntries.push('WBC elevated');
-            if (/\b(anemia|low (?:hgb|hemoglobin)|hgb (?:down|dropping|low))\b/i.test(t)) labEntries.push('Hgb low');
-            if (/\b(aki|acute kidney|creatinine (?:up|rising|elevated|bumped))\b/i.test(t)) labEntries.push('Cr elevated (AKI concern)');
+            if (/\b(labs?\s*(?:reviewed|checked|looked at))\b/i.test(t) && labEntries.length === 0) labEntries.push('Labs reviewed');
+            if (/\b(cbc|bmp|cmp|lfts?|coags?)\s*(?:is|was|are|were|looks?|came back)?\s*(normal|wnl|stable|unremarkable|within normal)/i.test(t)) {
+                const panelMatch = t.match(/(cbc|bmp|cmp|lfts?|coags?)\s*(?:is|was|are|were|looks?|came back)?\s*(normal|wnl|stable|unremarkable|within normal)/i);
+                labEntries.push(`${panelMatch[1].toUpperCase()} ${panelMatch[2]}`);
+            }
 
             if (labEntries.length > 0) {
                 result.sectionNotes.labs = labEntries.join(', ');
                 result.checkedItems.push('labs');
             }
 
-            // ---- Step 3: I/Os ----
+            // ---- I/Os ----
             const ioNotes = [];
-            const uopMatch = t.match(/(?:uop|urine output|put out|voided?|foley)\s*(?:is|was|of|:)?\s*(\d+)\s*(?:ml|cc|mls)?/i);
+            const uopMatch = t.match(/(?:uop|urine output|put out|making|voided?|foley)\s*(?:is|was|of|about|:)?\s*(\d+)\s*(?:ml|cc|mls|milliliters?)?/i);
             if (uopMatch) ioNotes.push(`UOP ${uopMatch[1]}mL`);
-            if (/\b(net positive|positive fluid|fluid positive)\b/i.test(t)) ioNotes.push('Net positive');
-            if (/\b(net negative|negative fluid|fluid negative)\b/i.test(t)) ioNotes.push('Net negative');
-            if (/\b(net even|even fluid|fluid even)\b/i.test(t)) ioNotes.push('Net even');
-            if (/\b(good uop|adequate uop|making urine|good output)\b/i.test(t)) ioNotes.push('Adequate UOP');
-            if (/\b(low uop|poor output|oliguric|not making urine|decreased uop)\b/i.test(t)) ioNotes.push('Low UOP');
-            const drainMatch = t.match(/(?:jp|drain|ng|ngt|chest tube)\s*(?:output|put out|is|was|:)?\s*(\d+)\s*(?:ml|cc|mls)?/i);
-            if (drainMatch) ioNotes.push(`Drain ${drainMatch[1]}mL`);
-            if (/\b(i(?:\/| and |&)o(?:s)?\s+(?:reviewed|even|balanced|wnl))\b/i.test(t)) ioNotes.push('I/Os reviewed');
+            if (/\b(net\s*positive|positive\s*(?:fluid|balance)|fluid\s*positive)\b/i.test(t)) ioNotes.push('Net positive');
+            if (/\b(net\s*negative|negative\s*(?:fluid|balance)|fluid\s*negative)\b/i.test(t)) ioNotes.push('Net negative');
+            if (/\b(net\s*even|even\s*(?:fluid|balance)|fluid\s*even|balanced)\b/i.test(t)) ioNotes.push('Net even');
+            if (/\b(good\s*(?:urine\s*)?output|adequate\s*(?:urine\s*)?output|making\s*(?:good\s*)?urine|good\s*uop)\b/i.test(t)) ioNotes.push('Adequate UOP');
+            if (/\b(low\s*(?:urine\s*)?output|poor\s*output|oliguric|not\s*making\s*(?:much\s*)?urine|decreased\s*(?:urine\s*)?output|low\s*uop)\b/i.test(t)) ioNotes.push('Low UOP');
+            const drainOut = t.match(/(?:jp|drain|ng|ngt|chest tube)\s*(?:output|put out|is|was|:)?\s*(\d+)\s*(?:ml|cc)?/i);
+            if (drainOut) ioNotes.push(`Drain ${drainOut[1]}mL`);
+            if (/\b(i\s*(?:and|&)\s*o(?:s)?|i\/o(?:s)?|ins?\s*and\s*outs?)\s*(?:are\s*|look\s*)?(reviewed|even|balanced|wnl|good|fine|look\s*good)\b/i.test(t)) ioNotes.push('I/Os reviewed');
+            if (/\b(stop(?:ping)?\s*(?:the\s*)?(?:iv|IV)\s*fluids?|d\/?c\s*(?:the\s*)?(?:iv|IV)\s*fluids?|off\s*(?:iv|IV)\s*fluids?)\b/i.test(t)) ioNotes.push('D/C IV fluids');
+            if (/\b((?:iv|IV)\s*fluids?\s*(?:running|at|infusing))\b/i.test(t)) ioNotes.push('IVF running');
 
             if (ioNotes.length > 0) {
                 result.sectionNotes.ios = ioNotes.join(', ');
                 result.checkedItems.push('ios');
             }
 
-            // ---- Step 4: Overnight events ----
+            // ---- OVERNIGHT ----
             const overnightNotes = [];
-            if (/\b(uneventful|no (?:overnight )?events?|quiet night|slept well|no issues|no concerns overnight)\b/i.test(t)) {
-                overnightNotes.push('Uneventful night');
+            if (/\b(uneventful|no\s*(?:overnight\s*)?events?|quiet\s*night|slept\s*well|no\s*issues|no\s*concerns?|nothing\s*overnight|good\s*night|no\s*complaints?)\b/i.test(t)) overnightNotes.push('Uneventful night');
+            if (/\b(nurs(?:e|ing)\s+(?:called|reports?|says?|said|noted|mentioned))\b/i.test(t)) {
+                const nm = t.match(/nurs(?:e|ing)\s+(?:called|reports?|says?|said|noted|mentioned)\s+(.+?)(?:\.|,\s*(?:vitals|labs|plan|pain|i\/o|lines)|$)/i);
+                overnightNotes.push(nm ? `Nursing: ${nm[1].trim().substring(0, 60)}` : 'Nursing called');
             }
-            if (/\b(nurse called|nursing called|nursing reports?|nurse says?|nurse noted)\b/i.test(t)) {
-                const nurseMatch = t.match(/nurs(?:e|ing)\s+(?:called|reports?|says?|noted)\s+(.+?)(?:\.|$)/i);
-                overnightNotes.push(nurseMatch ? `Nursing: ${nurseMatch[1].trim()}` : 'Nursing called');
-            }
-            if (/\b(poor sleep|restless|agitated|confused|delirium|sundowning)\b/i.test(t)) overnightNotes.push('Restless/poor sleep');
-            if (/\b(nausea|vomiting|emesis|n\/v)\b/i.test(t)) overnightNotes.push('N/V overnight');
-            if (/\b(desatted|desaturation|hypoxic|required o2|oxygen requirement)\b/i.test(t)) overnightNotes.push('Desaturation event');
+            if (/\b(poor\s*sleep|restless|agitated|confused|delirium|sundowner|sundowning|didn't sleep|couldn't sleep)\b/i.test(t)) overnightNotes.push('Restless/poor sleep');
+            if (/\b(nausea|vomiting|vomited|emesis|threw up|n\/?v)\b/i.test(t)) overnightNotes.push('N/V');
+            if (/\b(desatted|desaturation|desaturated|hypoxic|required\s*(?:more\s*)?o2|oxygen\s*requirement|o2\s*requirement)\b/i.test(t)) overnightNotes.push('Desaturation event');
+            if (/\b(tachycardi(?:a|c)\s*(?:overnight|last night|episode)|had\s*(?:an?\s*)?episode)\b/i.test(t)) overnightNotes.push('Episode overnight');
 
             if (overnightNotes.length > 0) {
                 result.sectionNotes.overnight = overnightNotes.join('; ');
                 result.checkedItems.push('overnight');
             }
 
-            // ---- Step 5: Lines/drains/tubes ----
+            // ---- LINES/DRAINS/TUBES ----
             const lineNotes = [];
-            if (/\b(piv|peripheral iv|peripheral line)\s*(?:x\s*\d+|intact|working|in place)?/i.test(t)) lineNotes.push('PIV intact');
-            if (/\b(central line|triple lumen|tlc|quad lumen|picc)\s*(?:intact|in place|working|d\/c|discontinued|removed)?/i.test(t)) {
-                const clType = t.match(/(central line|triple lumen|tlc|quad lumen|picc)/i)[1];
-                const clAction = /\b(d\/c|discontinued|removed|pulled)\b/i.test(t) ? ' - d/c' : ' intact';
-                lineNotes.push(clType.toUpperCase() + clAction);
+            if (/\b(piv|peripheral\s*(?:iv|line)|(?:iv|IV)\s*(?:in place|intact|working|x\s*\d+|site\s*(?:looks?\s*)?(?:good|clean)))\b/i.test(t)) lineNotes.push('PIV intact');
+            if (/\b(central\s*line|triple\s*lumen|tlc|quad\s*lumen|picc)\b/i.test(t)) {
+                const cl = t.match(/(central\s*line|triple\s*lumen|tlc|quad\s*lumen|picc)/i)[1];
+                lineNotes.push(/\b(d\/?c|removed|pulled|discontinued|out)\b/i.test(t) ? `${cl} d/c` : `${cl} intact`);
             }
-            if (/\b(foley)\s*(?:intact|in place|d\/c|out|removed|discontinued)?/i.test(t)) {
-                const foleyAction = /\b(d\/c|out|removed|discontinued)\b/i.test(t) ? 'Foley d/c' : 'Foley in place';
-                lineNotes.push(foleyAction);
+            if (/\bfoley\b/i.test(t)) lineNotes.push(/\b(d\/?c|removed|pulled|out|discontinued)\b/i.test(t) ? 'Foley d/c' : 'Foley in place');
+            if (/\b(jp|jackson[\s-]?pratt)\b/i.test(t)) lineNotes.push('JP in place');
+            if (/\b(ng\s*tube|ngt|nasogastric)\b/i.test(t)) {
+                lineNotes.push(/\b(d\/?c|removed|out)\b/i.test(t) ? 'NGT d/c' : /\b(suction|lcws|wall)\b/i.test(t) ? 'NGT to LCWS' : 'NGT in place');
             }
-            if (/\b(jp|jackson.?pratt)\s*(?:\d+)?\s*(?:intact|in place|output)?/i.test(t)) lineNotes.push('JP intact');
-            if (/\b(ngt?|ng tube|nasogastric)\s*(?:in place|to (?:lcws|low|wall|suction)|d\/c|removed)?/i.test(t)) {
-                const ngtAction = /\b(d\/c|removed)\b/i.test(t) ? 'NGT d/c' : /\b(lcws|suction|wall)\b/i.test(t) ? 'NGT to LCWS' : 'NGT in place';
-                lineNotes.push(ngtAction);
+            if (/\b(chest\s*tube)\b/i.test(t)) lineNotes.push('Chest tube in place');
+            if (/\b(wound\s*vac)\b/i.test(t)) lineNotes.push('Wound vac intact');
+            if (/\b(lines?\s*(?:are\s*)?(?:all\s*)?intact|no\s*(?:lines|drains|tubes)|lines?\s*(?:look\s*)?good)\b/i.test(t)) {
+                if (lineNotes.length === 0) lineNotes.push('Lines intact');
             }
-            if (/\b(chest tube)\s*(?:intact|in place|d\/c|removed|to water seal|to suction)?/i.test(t)) lineNotes.push('Chest tube noted');
-            if (/\b(wound vac)\s*(?:intact|in place|functioning)?/i.test(t)) lineNotes.push('Wound vac intact');
-            if (/\b(lines?\s+(?:all\s+)?intact|no (?:lines|drains|tubes))\b/i.test(t)) lineNotes.push('Lines intact');
+            if (/\b(drain(?:s|age)?|draining)\b/i.test(t) && lineNotes.length === 0) lineNotes.push('Drains noted');
 
             if (lineNotes.length > 0) {
                 result.sectionNotes.lines = lineNotes.join(', ');
                 result.checkedItems.push('lines');
             }
 
-            // ---- Step 6: Medications ----
+            // ---- MEDICATIONS ----
             const medNotes = [];
-            if (/\b(on\s+(?:vanco|vancomycin|zosyn|pip.?tazo|flagyl|metronidazole|ancef|cefazolin|cipro|ciprofloxacin|meropenem|unasyn|augmentin|levofloxacin|levaquin|doxycycline|bactrim|clindamycin))\b/i.test(t)) {
-                const abxName = t.match(/on\s+(\w+)/i);
-                medNotes.push(`Abx: ${abxName ? abxName[1] : 'noted'}`);
+            // Specific antibiotics
+            const abxNames = t.match(/\b(vanco(?:mycin)?|zosyn|pip(?:eracillin)?(?:\s*tazo(?:bactam)?)?|flagyl|metronidazole|ancef|cefazolin|cipro(?:floxacin)?|meropenem|unasyn|augmentin|levo(?:floxacin)?|levaquin|doxy(?:cycline)?|bactrim|clindamycin|ceftriaxone|rocephin|cefepime|amp(?:icillin)?(?:\s*sulbactam)?|keflex|cephalexin)\b/gi);
+            if (abxNames) {
+                const unique = [...new Set(abxNames.map(n => n.charAt(0).toUpperCase() + n.slice(1).toLowerCase()))];
+                medNotes.push(`Abx: ${unique.join(', ')}`);
             }
-            if (/\b(heparin|lovenox|enoxaparin)\s*(?:for dvt|prophylaxis|subq)?\b/i.test(t)) medNotes.push('DVT ppx noted');
-            if (/\b(pca|dilaudid|morphine|oxycodone|tylenol|toradol|ketorolac|gabapentin|ibuprofen)\b/i.test(t)) {
-                const painMed = t.match(/(pca|dilaudid|morphine|oxycodone|tylenol|toradol|ketorolac|gabapentin|ibuprofen)/i);
-                medNotes.push(`Pain: ${painMed[1]}`);
+            // Pain meds
+            const painMeds = t.match(/\b(dilaudid|hydromorphone|morphine|oxycodone|percocet|tylenol|acetaminophen|toradol|ketorolac|gabapentin|ibuprofen|motrin|advil|norco|tramadol|fentanyl)\b/gi);
+            if (painMeds) {
+                const unique = [...new Set(painMeds.map(n => n.charAt(0).toUpperCase() + n.slice(1).toLowerCase()))];
+                medNotes.push(`Pain meds: ${unique.join(', ')}`);
             }
+            if (/\b(heparin|lovenox|enoxaparin)\b/i.test(t)) medNotes.push('DVT ppx');
             if (/\b(insulin|sliding scale|iss)\b/i.test(t)) medNotes.push('Insulin/SSI');
-            if (/\b(home meds?\s*(?:resumed|restarted|held|on hold))\b/i.test(t)) {
-                medNotes.push(/resumed|restarted/i.test(t) ? 'Home meds resumed' : 'Home meds held');
+            if (/\b(pca)\b/i.test(t)) medNotes.push('PCA');
+            if (/\b(home\s*meds?\s*(?:resumed|restarted|back on|taking))\b/i.test(t)) medNotes.push('Home meds resumed');
+            if (/\b(home\s*meds?\s*(?:held|on hold|not taking|stopped))\b/i.test(t)) medNotes.push('Home meds held');
+            if (/\b(meds?\s*(?:reviewed|unchanged|continued|no\s*changes?|same)|no\s*med\s*changes?|continue\s*(?:current\s*)?meds?)\b/i.test(t)) {
+                if (medNotes.length === 0) medNotes.push('Meds reviewed, no changes');
             }
-            if (/\b(meds?\s+(?:reviewed|unchanged|continued|no changes))\b/i.test(t)) medNotes.push('Meds reviewed, no changes');
+            // Catch "switch from IV to oral" or "transition to PO"
+            if (/\bswitch\b.*\bIV\b.*\b(?:oral|po)\b/i.test(t) || /\btransition\b.*\b(?:oral|po)\b/i.test(t) || /\bIV\s*to\s*(?:oral|po)\b/i.test(t)) medNotes.push('Transition IV to PO');
+            if (/\b(stop(?:ping)?\s*(?:the\s*)?(?:iv|IV)\s*(?:pain\s*)?meds?)\b/i.test(t)) medNotes.push('D/C IV pain meds');
+            if (/\b(oral\s*pain\s*meds?|po\s*pain\s*(?:meds?|control))\b/i.test(t)) medNotes.push('Start PO pain meds');
 
             if (medNotes.length > 0) {
                 result.sectionNotes.meds = medNotes.join(', ');
                 result.checkedItems.push('meds');
             }
 
-            // ---- Step 7: Pain ----
+            // ---- PAIN ----
             const painNotes = [];
-            const painScore = t.match(/(?:pain\s*(?:score|level|scale|is|was|of|:)?\s*|reports?\s*)(\d{1,2})\s*(?:\/|out of)\s*10/i) ||
-                              t.match(/(\d{1,2})\s*(?:\/|out of)\s*10\s*(?:pain|for pain)/i);
+            const painScore = t.match(/(?:pain\s*(?:(?:score|level|scale|is|was|of|at|:)\s*)?)(\d{1,2})\s*(?:\/|out of)\s*10/i) ||
+                              t.match(/(\d{1,2})\s*(?:\/|out of)\s*10\s*(?:for\s*)?pain/i);
             if (painScore) painNotes.push(`Pain ${painScore[1]}/10`);
-            if (/\b(well.?controlled|controlled|comfortable|no pain|pain free|minimal pain)\b/i.test(t)) painNotes.push('Well controlled');
-            if (/\b(poorly controlled|uncontrolled|significant pain|severe pain|requesting pain med)\b/i.test(t)) painNotes.push('Poorly controlled');
-            if (/\b(epidural|nerve block|pca)\s*(?:working|in place|effective|running)?\b/i.test(t)) {
-                const modality = t.match(/(epidural|nerve block|pca)/i);
-                painNotes.push(`${modality[1].toUpperCase()} in place`);
-            }
+            if (/\b(well\s*controlled|pain\s*(?:is\s*)?controlled|comfortable|no\s*pain|pain\s*free|minimal\s*pain|pain\s*(?:is\s*)?good|tolerable|managing\s*(?:well|okay|ok)|doing\s*(?:well|okay|ok)\s*(?:with\s*)?pain)\b/i.test(t)) painNotes.push('Well controlled');
+            if (/\b(poorly\s*controlled|uncontrolled|significant\s*pain|severe\s*pain|requesting\s*(?:more\s*)?pain\s*med|in\s*(?:a\s*lot\s*of\s*)?pain|hurting|not\s*controlled)\b/i.test(t)) painNotes.push('Poorly controlled');
+            if (/\b(epidural)\b/i.test(t)) painNotes.push('Epidural');
+            if (/\b(nerve\s*block)\b/i.test(t)) painNotes.push('Nerve block');
 
             if (painNotes.length > 0) {
                 result.sectionNotes.pain = painNotes.join(', ');
                 result.checkedItems.push('pain');
             }
 
-            // ---- Step 8: Plan ----
+            // ---- PLAN ----
             const planNotes = [];
-            const planMatch = t.match(/(?:the )?plan\s+(?:is|for today)?\s*(?:is|to)?\s*(.+?)(?:\.|$)/i);
-            if (planMatch) planNotes.push(planMatch[1].trim());
-            if (/\b(advance diet|advancing diet)\b/i.test(t)) planNotes.push('Advance diet');
-            if (/\b(dc\s+(?:today|tomorrow|in the morning)|discharge\s+(?:today|tomorrow|pending|home))\b/i.test(t)) planNotes.push('D/C planning');
-            if (/\b(to (?:the )?or|back to or|surgery today|operative|procedure today|scope today)\b/i.test(t)) planNotes.push('OR/procedure today');
-            if (/\b(continue current|continue plan|stay the course|same plan)\b/i.test(t)) planNotes.push('Continue current plan');
-            if (/\b(consult|get (?:a )?consult|call (?:a )?consult)\b/i.test(t)) {
-                const consultMatch = t.match(/consult\s+(\w+)/i);
-                planNotes.push(consultMatch ? `Consult ${consultMatch[1]}` : 'Consult pending');
+            // Capture "plan is to..." or "the plan for today is..."
+            const planMatch = t.match(/(?:the\s*)?plan\s*(?:is|for today(?:'?s)?|today(?:'?s)?\s*plan\s*is)?\s*(?:is\s*)?(?:to\s*)?(.+?)(?:(?:\.\s*(?:vitals|labs|pain|overnight|lines|i\/o|exam))|$)/i);
+            if (planMatch && planMatch[1].trim().length > 3) planNotes.push(planMatch[1].trim().substring(0, 120));
+            if (/\b(advance\s*(?:the\s*)?diet|advancing\s*diet|advance\s*to)\b/i.test(t)) planNotes.push('Advance diet');
+            if (/\b(d\/?c\s*(?:today|tomorrow|in the morning|home|when)|discharge\s*(?:today|tomorrow|pending|home|when)|going\s*home|ready\s*for\s*discharge|send\s*(?:them?\s*)?home)\b/i.test(t)) planNotes.push('D/C planning');
+            if (/\b(to\s*(?:the\s*)?or|back\s*to\s*or|surgery\s*today|procedure\s*today|scope\s*today|operative|taking\s*(?:them?\s*)?(?:to|back))\b/i.test(t)) planNotes.push('OR/procedure');
+            if (/\b(continue\s*(?:current|same|the)?\s*(?:plan|management)|stay\s*the\s*course|same\s*plan|no\s*changes?\s*(?:to\s*(?:the\s*)?plan)?)\b/i.test(t)) planNotes.push('Continue current plan');
+            if (/\b(consult|get\s*(?:a\s*)?consult|call\s*(?:a\s*)?consult)\b/i.test(t)) {
+                const cm = t.match(/consult\s+(\w+)/i);
+                planNotes.push(cm ? `Consult ${cm[1]}` : 'Consult pending');
+            }
+            if (/\b(remove|pull|take\s*out|d\/?c)\s*(?:the\s*)?(?:foley|jp|drain|ngt?|ng\s*tube|chest\s*tube|picc|central\s*line)\b/i.test(t)) {
+                const rm = t.match(/(?:remove|pull|take\s*out|d\/?c)\s*(?:the\s*)?(foley|jp|drain|ngt?|ng\s*tube|chest\s*tube|picc|central\s*line)/i);
+                planNotes.push(`D/C ${rm[1]}`);
             }
 
             if (planNotes.length > 0) {
-                result.sectionNotes.plan = planNotes.join('; ');
+                result.sectionNotes.plan = [...new Set(planNotes)].join('; ');
                 result.checkedItems.push('plan');
             }
 
-            // ---- Physical exam only (for examFindings) ----
+            // ---- PHYSICAL EXAM only (for examFindings profile field) ----
             const examParts = [];
-            const examRules = [
-                { pat: /(?:abdomen|abd(?:ominal)?)\s+(?:is\s+)?(.+?)(?:\.|;|,\s*(?:wound|lung|heart|chest|ext|neuro|mental)|$)/i, prefix: 'Abd' },
-                { pat: /(?:wound|incision|surgical site)\s+(?:is\s+)?(.+?)(?:\.|;|,\s*(?:abd|lung|heart|chest|ext|neuro|mental)|$)/i, prefix: 'Wound' },
-                { pat: /(?:lungs?|breath sounds?|ctab?)\s+(?:are\s+|is\s+)?(.+?)(?:\.|;|,\s*(?:abd|wound|heart|chest|ext|neuro|mental)|$)/i, prefix: 'Lungs' },
-                { pat: /(?:heart|cardiac|rrr|murmur)\s+(?:is\s+)?(.+?)(?:\.|;|,\s*(?:abd|wound|lung|chest|ext|neuro|mental)|$)/i, prefix: 'Heart' },
-                { pat: /(?:extremit(?:ies|y)|legs?|lower extrem|edema|calf|calves)\s+(?:are\s+|is\s+|with\s+|no\s+)?(.+?)(?:\.|;|$)/i, prefix: 'Ext' },
-                { pat: /(?:neuro(?:logically?)?|mental status|a(?:lert)?\s*(?:and|&)\s*o(?:riented)?)\s*(?:is\s+|:)?\s*(.+?)(?:\.|;|$)/i, prefix: 'Neuro' }
-            ];
-            // Also catch shorthand: "CTAB", "RRR", "S/NT/ND", "CDI"
-            if (/\bCTAB\b/i.test(t)) examParts.push('Lungs: CTAB');
-            if (/\bRRR\b/i.test(t)) examParts.push('Heart: RRR');
-            if (/\bS\/?NT\/?ND\b/i.test(t)) examParts.push('Abd: S/NT/ND');
-            if (/\bCDI\b/i.test(t) || /\bc\/?d\/?i\b/.test(t)) examParts.push('Wound: CDI');
-            if (/\bA&?O\s*x?\s*3\b/i.test(t) || /\balert and oriented\b/i.test(t)) examParts.push('Neuro: A&Ox3');
+            if (/\bCTAB\b/i.test(t)) examParts.push('Lungs CTAB');
+            if (/\bRRR\b/i.test(t)) examParts.push('Heart RRR');
+            if (/\bS\/?NT\/?ND\b/i.test(t)) examParts.push('Abd S/NT/ND');
+            if (/\bCDI\b/i.test(t) || /\bclean\s*dry\s*(?:and\s*)?intact\b/i.test(t)) examParts.push('Wound CDI');
+            if (/\bA\s*&?\s*O\s*x?\s*3\b/i.test(t) || /\balert\s*(?:and\s*)?oriented\b/i.test(t)) examParts.push('Neuro A&Ox3');
 
+            const examRules = [
+                { pat: /(?:abdomen|abd(?:omen)?)\s+(?:is\s+)?((?:soft|distended|tender|non[\s-]?tender|non[\s-]?distended|flat|firm|rigid|guarding|diffuse|peritoneal|rebound).{0,40})/i, prefix: 'Abd' },
+                { pat: /(?:wound|incision|surgical\s*site|staples|sutures?)\s+(?:is\s+|are\s+|looks?\s+)?((?:clean|dry|intact|open|draining|healing|well|erythema|no erythema|red|pink|closed).{0,40})/i, prefix: 'Wound' },
+                { pat: /(?:lungs?|breath\s*sounds?)\s+(?:are\s+|is\s+)?((?:clear|diminished|crackles|wheezing|bilateral|equal|rhonchi|coarse).{0,40})/i, prefix: 'Lungs' },
+                { pat: /(?:extremit(?:ies|y)|legs?|(?:lower|upper)\s*extrem)\s+(?:are\s+|is\s+|with\s+|no\s+|have\s+)?((?:no edema|edema|swelling|warm|cool|trace|pitting|pulses|symmetric).{0,40})/i, prefix: 'Ext' }
+            ];
             examRules.forEach(({ pat, prefix }) => {
                 const m = t.match(pat);
-                // Avoid duplicating shorthand already captured
-                if (m && !examParts.some(e => e.startsWith(prefix + ':'))) {
-                    const finding = m[1].trim().replace(/,$/, '');
-                    if (finding.length > 1 && finding.length < 80) {
-                        examParts.push(`${prefix}: ${finding}`);
-                    }
+                if (m && !examParts.some(e => e.startsWith(prefix))) {
+                    const finding = m[1].trim().replace(/[,.]$/, '').substring(0, 50);
+                    if (finding.length > 1) examParts.push(`${prefix} ${finding}`);
                 }
             });
 
@@ -1410,12 +1432,15 @@
             }
 
             // ---- Diet/Activity for patient profile updates ----
-            const dietMatch = t.match(/(?:advance|change|switch)\s+(?:to\s+|diet\s+(?:to\s+)?)(regular|clears?|full liquids?|npo|mechanical soft|cardiac|renal|diabetic)/i) ||
-                              t.match(/diet\s+(?:is|:)\s*(regular|clears?|full liquids?|npo|mechanical soft|cardiac|renal|diabetic)/i);
+            const dietMatch = t.match(/(?:advance|change|switch|start)\s+(?:(?:the\s*)?diet\s+)?(?:to\s+)?(regular|clears?|full\s*liquids?|npo|mechanical\s*soft|cardiac|renal|diabetic)/i) ||
+                              t.match(/diet\s*(?:is|to|:)\s*(regular|clears?|full\s*liquids?|npo|mechanical\s*soft|cardiac|renal|diabetic)/i);
             if (dietMatch) {
                 const dietMap = { 'npo': 'NPO', 'clears': 'Clears', 'clear': 'Clears', 'full liquids': 'Full Liquids', 'full liquid': 'Full Liquids', 'regular': 'Regular', 'mechanical soft': 'Mechanical Soft', 'cardiac': 'Cardiac', 'renal': 'Renal', 'diabetic': 'Diabetic' };
-                result.patientUpdates.diet = dietMap[dietMatch[1].toLowerCase()] || dietMatch[1];
+                result.patientUpdates.diet = dietMap[dietMatch[1].toLowerCase().trim()] || dietMatch[1];
             }
+
+            // De-duplicate checkedItems
+            result.checkedItems = [...new Set(result.checkedItems)];
 
             return result;
         }
