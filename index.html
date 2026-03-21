@@ -1198,22 +1198,129 @@
         }
 
         function parsePreRoundSpeech(transcript) {
-            const t = transcript.toLowerCase();
-            const result = { notes: transcript };
-            const checks = {
-                vitals: /\b(vitals|vital signs|temp|temperature|blood pressure|bp|heart rate|hr|o2 sat|febrile|afebrile)\b/i,
-                ios: /\b(i\/o|ins and outs|input|output|urine|foley|drain|ng|chest tube)\b/i,
-                labs: /\b(labs|lab|wbc|hemoglobin|hgb|creatinine|bmp|cmp|cbc|potassium|sodium)\b/i,
-                overnight: /\b(overnight|last night|during the night|nursing|nurse called|event)\b/i,
-                lines: /\b(line|lines|drain|drains|tube|tubes|iv|central line|picc|foley|jp)\b/i,
-                meds: /\b(medication|medications|med|meds|antibiotic|pain med|pca|drip|infusion)\b/i,
-                pain: /\b(pain|comfort|hurting|sore|analgesic|pca|epidural|nerve block)\b/i,
-                plan: /\b(plan|today|goal|discharge|dispo|surgery|procedure|scope)\b/i
-            };
-            result.checkedItems = [];
-            for (const [key, regex] of Object.entries(checks)) {
-                if (regex.test(t)) result.checkedItems.push(key);
+            const t = transcript;
+            const result = { notes: transcript, checkedItems: [], sectionNotes: {} };
+
+            // Section keyword patterns: each maps to the checklist key
+            const sectionPatterns = [
+                { key: 'vitals', start: /\b(vitals?|vital signs?|temps?|temperature|blood pressure|bp|heart rate|hr|o2 sat(?:uration)?|sats?|febrile|afebrile|hemodynamic(?:ally)?|tachycardic|bradycardic|hypertensive|hypotensive|normotensive|t-?max)\b/i },
+                { key: 'ios', start: /\b(i(?:\/| and |&)o(?:s)?|ins? and outs?|input|output|urine|uop|foley|void(?:ing)?|net (?:positive|negative|even|fluid)|fluid balance|total intake)\b/i },
+                { key: 'labs', start: /\b(labs?|wbc|white (?:blood )?count|hemoglobin|hgb|hematocrit|hct|creatinine|cr|bmp|cmp|cbc|potassium|sodium|bun|glucose|lactate|lactic|troponin|inr|plt|platelets|lfts?|liver function)\b/i },
+                { key: 'overnight', start: /\b(overnight|last night|over ?night|during the night|nurs(?:e|ing) (?:called|report|noted|says?)|event(?:s)?|no (?:overnight )?events?|uneventful|slept well|poor sleep|restless)\b/i },
+                { key: 'lines', start: /\b(line(?:s)?|drain(?:s)?|tube(?:s)?|(?:peripheral )?iv(?:s)?|central line|picc|(?:triple |quad )?lumen|foley|jp|jackson.?pratt|ng(?:t| tube)|chest tube|penrose|wound vac|ostomy)\b/i },
+                { key: 'meds', start: /\b(medication(?:s)?|med(?:s)?|antibiotic(?:s)?|abx|pain med(?:s)?|pca|drip|infusion|heparin|lovenox|insulin|vanco(?:mycin)?|zosyn|pip(?:eracillin)?|flagyl|ancef|home med(?:s)?|current med(?:s)?)\b/i },
+                { key: 'pain', start: /\b(pain|comfort(?:able)?|hurting|sore|analges(?:ic|ia)|pca|epidural|nerve block|pain (?:score|level|scale|control|management|well.?controlled|poorly controlled)|(\d+)(?:\/| out of )10)\b/i },
+                { key: 'plan', start: /\b(plan|today(?:'s plan)?|goal(?:s)?|discharge|dispo(?:sition)?|surgery|procedure|scope|(?:the )?plan (?:is|for) today|advance diet|progress|anticipate|dc plan)\b/i }
+            ];
+
+            // Split transcript into sentences for better parsing
+            const sentences = t.split(/[.;!?]+/).map(s => s.trim()).filter(s => s.length > 2);
+
+            // For each sentence, find which section(s) it matches and assign the full sentence as a note
+            const sectionSentences = { vitals: [], ios: [], labs: [], overnight: [], lines: [], meds: [], pain: [], plan: [] };
+
+            sentences.forEach(sentence => {
+                let matched = false;
+                for (const { key, start } of sectionPatterns) {
+                    if (start.test(sentence)) {
+                        sectionSentences[key].push(sentence);
+                        matched = true;
+                    }
+                }
+                // If not matched to any section, check for common patterns
+                if (!matched) {
+                    // Numbers with units often relate to vitals or labs
+                    if (/\d+\s*\/\s*\d+/.test(sentence) && /bp|blood pressure/i.test(t)) {
+                        sectionSentences.vitals.push(sentence);
+                    }
+                }
+            });
+
+            // Also do a single-pass extraction for common structured data
+            // Extract vitals values
+            const bpMatch = t.match(/(?:bp|blood pressure)\s*(?:is|was|of|:)?\s*(\d{2,3}\s*\/\s*\d{2,3})/i);
+            const hrMatch = t.match(/(?:hr|heart rate|pulse)\s*(?:is|was|of|:)?\s*(\d{2,3})/i);
+            const tempMatch = t.match(/(?:temp|temperature|t-?max)\s*(?:is|was|of|:)?\s*(\d{2,3}\.?\d*)/i);
+            const satMatch = t.match(/(?:sat(?:s|uration)?|o2|spo2)\s*(?:is|was|of|:)?\s*(\d{2,3})%?/i);
+            const rrMatch = t.match(/(?:rr|resp(?:iratory)? rate|respirations)\s*(?:is|was|of|:)?\s*(\d{1,2})/i);
+
+            if (bpMatch || hrMatch || tempMatch || satMatch || rrMatch) {
+                const vitalParts = [];
+                if (tempMatch) vitalParts.push(`T ${tempMatch[1]}`);
+                if (hrMatch) vitalParts.push(`HR ${hrMatch[1]}`);
+                if (bpMatch) vitalParts.push(`BP ${bpMatch[1]}`);
+                if (rrMatch) vitalParts.push(`RR ${rrMatch[1]}`);
+                if (satMatch) vitalParts.push(`SpO2 ${satMatch[1]}%`);
+                if (sectionSentences.vitals.length === 0) {
+                    sectionSentences.vitals.push(vitalParts.join(', '));
+                }
             }
+
+            // Extract lab values mentioned
+            const labValuePattern = /\b(wbc|white count|hemoglobin|hgb|hct|hematocrit|platelets?|plt|sodium|na|potassium|k|chloride|cl|co2|bicarb|bun|creatinine|cr|glucose|calcium|ca|magnesium|mg|phosphorus|phos|inr|ptt|pt|lactate|lactic|troponin|lipase|bilirubin|tbili|ast|alt|alk phos|albumin)\s*(?:is|was|of|:| )?\s*(\d+\.?\d*)/gi;
+            let labMatch;
+            const labValues = [];
+            while ((labMatch = labValuePattern.exec(t)) !== null) {
+                labValues.push(`${labMatch[1].toUpperCase()} ${labMatch[2]}`);
+            }
+            if (labValues.length > 0 && sectionSentences.labs.length === 0) {
+                sectionSentences.labs.push(labValues.join(', '));
+            }
+
+            // Extract pain score
+            const painScore = t.match(/pain\s*(?:score|level|scale|is|was|of|:)?\s*(\d{1,2})\s*(?:\/|out of)\s*10/i) ||
+                              t.match(/(\d{1,2})\s*(?:\/|out of)\s*10\s*(?:pain|for pain)/i);
+            if (painScore && sectionSentences.pain.length === 0) {
+                sectionSentences.pain.push(`Pain ${painScore[1]}/10`);
+            }
+
+            // Build final section notes and checked items
+            for (const key of Object.keys(sectionSentences)) {
+                if (sectionSentences[key].length > 0) {
+                    result.sectionNotes[key] = sectionSentences[key].join('. ');
+                    result.checkedItems.push(key);
+                }
+            }
+
+            // Also extract data that should update the patient profile
+            result.patientUpdates = {};
+
+            // Exam findings from the dictation
+            const examPhrases = [];
+            const examPatterns = [
+                /(?:abdomen|abd)\s+(?:is\s+)?(.+?)(?:\.|$)/i,
+                /(?:wound|incision|surgical site)\s+(?:is\s+)?(.+?)(?:\.|$)/i,
+                /(?:lungs?|chest)\s+(?:are\s+|is\s+)?(.+?)(?:\.|$)/i,
+                /(?:heart|cardiac)\s+(?:is\s+)?(.+?)(?:\.|$)/i,
+                /(?:extremities|legs?|edema)\s+(?:are\s+|is\s+)?(.+?)(?:\.|$)/i,
+                /(?:mental status|neuro|neurological(?:ly)?|alert|oriented)\s*(?:is\s+)?(.+?)(?:\.|$)/i
+            ];
+            examPatterns.forEach(pat => {
+                const m = t.match(pat);
+                if (m) examPhrases.push(m[0].trim().replace(/\.$/, ''));
+            });
+            if (examPhrases.length > 0) {
+                result.patientUpdates.examFindings = examPhrases.join('; ');
+            }
+
+            // Plan updates
+            const planMatch = t.match(/(?:the )?plan\s+(?:is|for today(?:'s plan)?)\s*(?:is|to)?\s*(.+?)(?:\.|$)/i);
+            if (planMatch) {
+                result.patientUpdates.treatmentPlan = planMatch[1].trim();
+            }
+
+            // Diet changes
+            const dietMatch = t.match(/(?:advance|change|switch)\s+(?:to\s+|diet\s+(?:to\s+)?)(regular|clears?|full liquids?|npo|mechanical soft|cardiac|renal|diabetic)/i) ||
+                              t.match(/diet\s+(?:is|:)\s*(regular|clears?|full liquids?|npo|mechanical soft|cardiac|renal|diabetic)/i);
+            if (dietMatch) {
+                const dietMap = { 'npo': 'NPO', 'clears': 'Clears', 'clear': 'Clears', 'full liquids': 'Full Liquids', 'full liquid': 'Full Liquids', 'regular': 'Regular', 'mechanical soft': 'Mechanical Soft', 'cardiac': 'Cardiac', 'renal': 'Renal', 'diabetic': 'Diabetic' };
+                result.patientUpdates.diet = dietMap[dietMatch[1].toLowerCase()] || dietMatch[1];
+            }
+
+            // Activity changes
+            const actMatch = t.match(/(?:activity\s+(?:is|:)|up\s+(?:to|ad lib)|out of bed|oob|ambulate|ambulating|weight bearing)\s*(.+?)(?:\.|$)/i);
+            if (actMatch) result.patientUpdates.activity = actMatch[0].trim().replace(/\.$/, '');
+
             return result;
         }
 
@@ -4726,38 +4833,61 @@ To-do: Check AM labs, I/Os q4h`}
             const uncheckedCount = patients.length * 8 - checkedItems;
             const timeRemaining = Math.ceil((uncheckedCount / 8) * 3);
 
-            const handleParsePreRoundDictation = (transcript) => {
+            const handleParsePreRoundDictation = async (transcript) => {
                 const parsed = parsePreRoundSpeech(transcript);
+
+                // Determine which patient this applies to
+                let targetPatientId = null;
                 const roomMatch = transcript.match(/room\s+(\d+)/i);
                 if (roomMatch) {
-                    const room = roomMatch[1];
-                    const patient = patients.find(p => p.room === room);
-                    if (patient) {
-                        const patientId = patient.id;
-                        setChecklist(prev => {
-                            const updated = { ...prev, [patientId]: { ...prev[patientId] } };
-                            parsed.checkedItems.forEach(item => {
-                                updated[patientId][item] = true;
-                            });
-                            if (parsed.notes) {
-                                updated[patientId].notes = { ...updated[patientId].notes, general: parsed.notes };
-                            }
-                            return updated;
-                        });
-                    }
+                    const patient = patients.find(p => p.room === roomMatch[1]);
+                    if (patient) targetPatientId = patient.id;
                 } else {
-                    const patientId = expandedPatient;
-                    if (patientId) {
-                        setChecklist(prev => {
-                            const updated = { ...prev, [patientId]: { ...prev[patientId] } };
-                            parsed.checkedItems.forEach(item => {
-                                updated[patientId][item] = true;
-                            });
-                            if (parsed.notes) {
-                                updated[patientId].notes = { ...updated[patientId].notes, general: parsed.notes };
+                    targetPatientId = expandedPatient;
+                }
+
+                if (targetPatientId) {
+                    // Update checklist: check items AND fill in section notes
+                    setChecklist(prev => {
+                        const updated = { ...prev, [targetPatientId]: { ...prev[targetPatientId] } };
+                        updated[targetPatientId].notes = { ...updated[targetPatientId].notes };
+                        parsed.checkedItems.forEach(item => {
+                            updated[targetPatientId][item] = true;
+                            // Append to existing notes rather than overwrite
+                            if (parsed.sectionNotes[item]) {
+                                const existing = updated[targetPatientId].notes[item] || '';
+                                const newNote = parsed.sectionNotes[item];
+                                updated[targetPatientId].notes[item] = existing
+                                    ? existing + '; ' + newNote
+                                    : newNote;
                             }
-                            return updated;
                         });
+                        return updated;
+                    });
+
+                    // Update the patient profile in Firestore if we extracted relevant data
+                    if (parsed.patientUpdates && Object.keys(parsed.patientUpdates).length > 0) {
+                        const patient = patients.find(p => p.id === targetPatientId);
+                        if (patient) {
+                            const updates = { ...patient };
+                            if (parsed.patientUpdates.examFindings) {
+                                // Append to existing exam findings for the day
+                                updates.examFindings = patient.examFindings
+                                    ? patient.examFindings + '; ' + parsed.patientUpdates.examFindings
+                                    : parsed.patientUpdates.examFindings;
+                            }
+                            if (parsed.patientUpdates.treatmentPlan) {
+                                updates.treatmentPlan = parsed.patientUpdates.treatmentPlan;
+                            }
+                            if (parsed.patientUpdates.diet) {
+                                updates.diet = parsed.patientUpdates.diet;
+                            }
+                            if (parsed.patientUpdates.activity) {
+                                updates.activity = parsed.patientUpdates.activity;
+                            }
+                            await DB.put('patients', updates);
+                            loadPatients();
+                        }
                     }
                 }
                 dictation.clear();
@@ -4775,7 +4905,7 @@ To-do: Check AM labs, I/Os q4h`}
                         </div>
                     </div>
 
-                    <DictationBar dictation={dictation} onParse={handleParsePreRoundDictation} parseLabel="Auto-Check Items" />
+                    <DictationBar dictation={dictation} onParse={handleParsePreRoundDictation} parseLabel="Auto-Fill Pre-Round" />
 
                     <div className="space-y-3">
                         {patients.map(patient => {
@@ -4802,7 +4932,7 @@ To-do: Check AM labs, I/Os q4h`}
                                     {isExpanded && (
                                         <div className="p-4 border-t border-gray-200 space-y-3">
                                             <div className="bg-gray-50 rounded p-3 mb-2">
-                                                <DictationBar dictation={dictation} onParse={handleParsePreRoundDictation} parseLabel="Check Items" compact={true} />
+                                                <DictationBar dictation={dictation} onParse={handleParsePreRoundDictation} parseLabel="Auto-Fill" compact={true} />
                                             </div>
                                             {items.map((item, idx) => (
                                                 <div key={item}>
@@ -4810,12 +4940,13 @@ To-do: Check AM labs, I/Os q4h`}
                                                         <input type="checkbox" checked={c[item] || false} onChange={() => toggleItem(patient.id, item)}
                                                             className="mt-1 w-4 h-4 cursor-pointer"/>
                                                         <div className="flex-1">
-                                                            <label className="text-sm text-gray-600 cursor-pointer font-medium">
+                                                            <label className={`text-sm cursor-pointer font-medium ${c[item] ? 'text-emerald-700' : 'text-gray-600'}`}>
                                                                 {itemLabels[idx]}
+                                                                {c[item] && c.notes?.[item] && <span className="ml-1 text-xs text-emerald-500 font-normal">(noted)</span>}
                                                             </label>
-                                                            <textarea value={c.notes[item] || ''} onChange={(e) => updateNote(patient.id, item, e.target.value)}
-                                                                className="w-full mt-1 px-2 py-1 bg-gray-50 border border-gray-300 rounded text-gray-600 text-xs"
-                                                                rows="2" placeholder="Add notes..."/>
+                                                            <textarea value={c.notes?.[item] || ''} onChange={(e) => updateNote(patient.id, item, e.target.value)}
+                                                                className={`w-full mt-1 px-2 py-1 border rounded text-xs transition ${c.notes?.[item] ? 'bg-emerald-50 border-emerald-300 text-gray-800' : 'bg-gray-50 border-gray-300 text-gray-600'}`}
+                                                                rows="2" placeholder="Add notes... (or dictate to auto-fill)"/>
                                                         </div>
                                                     </div>
 
