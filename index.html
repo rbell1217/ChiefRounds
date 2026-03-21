@@ -96,6 +96,9 @@
             background: linear-gradient(90deg, rgb(37, 99, 235), rgb(59, 130, 246));
             transition: width 0.3s ease;
         }
+        /* Hide scrollbar on mobile nav */
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
         /* Mobile touch-friendly overrides */
         @media (max-width: 768px) {
             button, select, input, textarea {
@@ -104,6 +107,11 @@
             }
             select {
                 padding: 10px 12px;
+            }
+            /* Keep bottom nav tabs compact */
+            nav button {
+                min-height: 40px !important;
+                font-size: 11px !important;
             }
         }
     </style>
@@ -4800,44 +4808,21 @@
                             {renderContent()}
                         </div>
 
-                        <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex justify-around text-xs shadow-[0_-2px_8px_rgba(0,0,0,0.06)]" style={{paddingBottom: 'env(safe-area-inset-bottom)'}}>
-                            {tabs.slice(0, 5).map(tab => (
-                                <button
-                                    key={tab}
-                                    onClick={() => setActiveTab(tab)}
-                                    className={`flex-1 py-3.5 px-2 text-[11px] font-medium transition ${
-                                        activeTab === tab
-                                            ? 'text-medical-600 border-t-2 border-medical-500 bg-blue-50/50'
-                                            : 'text-gray-400 hover:text-gray-600'
-                                    }`}
-                                >
-                                    {tab}
-                                </button>
-                            ))}
-                            <div className="relative">
-                                <button
-                                    onClick={() => setActiveTab(activeTab === 'More' ? 'Patients' : 'More')}
-                                    className={`py-3.5 px-3 text-[11px] font-medium transition ${
-                                        activeTab === 'More'
-                                            ? 'text-medical-600 border-t-2 border-medical-500 bg-blue-50/50'
-                                            : 'text-gray-400 hover:text-gray-600'
-                                    }`}
-                                >
-                                    More
-                                </button>
-                                {activeTab === 'More' && (
-                                    <div className="absolute bottom-full right-0 bg-white border border-gray-200 rounded mb-1 shadow-lg">
-                                        {tabs.slice(5).map(tab => (
-                                            <button
-                                                key={tab}
-                                                onClick={() => setActiveTab(tab)}
-                                                className="block w-full text-left px-4 py-2 text-sm text-gray-600 hover:bg-gray-50"
-                                            >
-                                                {tab}
-                                            </button>
-                                        ))}
-                                    </div>
-                                )}
+                        <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-[0_-2px_8px_rgba(0,0,0,0.06)] z-30" style={{paddingBottom: 'env(safe-area-inset-bottom)'}}>
+                            <div className="flex overflow-x-auto scrollbar-hide" style={{WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', msOverflowStyle: 'none'}}>
+                                {tabs.map(tab => (
+                                    <button
+                                        key={tab}
+                                        onClick={() => setActiveTab(tab)}
+                                        className={`flex-shrink-0 py-3.5 px-4 text-[11px] font-medium transition whitespace-nowrap ${
+                                            activeTab === tab
+                                                ? 'text-medical-600 border-t-2 border-medical-500 bg-blue-50/50'
+                                                : 'text-gray-400 hover:text-gray-600'
+                                        }`}
+                                    >
+                                        {tab}
+                                    </button>
+                                ))}
                             </div>
                         </nav>
                     </div>
