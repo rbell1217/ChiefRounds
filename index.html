@@ -1991,6 +1991,85 @@
         }
 
         // ==================== TEAM TASKS COMPONENT ====================
+        // ==================== QUICK TASK PANEL ====================
+        function QuickTaskPanel({ patientId, tasks, quickTaskGroups, onSave }) {
+            const [expanded, setExpanded] = React.useState(true);
+            const [expandedGroup, setExpandedGroup] = React.useState('Common');
+
+            const allPatientTasks = tasks.filter(t => t.patientId === patientId);
+            const addedDescriptions = allPatientTasks.map(t => t.description);
+
+            const totalAvailable = Object.values(quickTaskGroups).flat()
+                .filter(qt => !addedDescriptions.includes(qt.description)).length;
+
+            if (totalAvailable === 0) return null;
+
+            const addTask = async (qt) => {
+                await onSave({
+                    patientId,
+                    category: qt.category,
+                    description: qt.description,
+                    priority: 'Medium',
+                    assignee: '',
+                    completed: false,
+                    createdAt: new Date().toISOString()
+                });
+            };
+
+            return (
+                <div className="mb-3">
+                    <button
+                        onClick={() => setExpanded(!expanded)}
+                        className="text-xs text-medical-600 font-medium mb-1.5 flex items-center gap-1"
+                    >
+                        <span>{expanded ? '▾' : '▸'}</span>
+                        Quick Tasks ({totalAvailable})
+                    </button>
+                    {expanded && (
+                        <div className="space-y-2">
+                            {/* Group tabs */}
+                            <div className="flex gap-1 overflow-x-auto text-[11px]" style={{WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none'}}>
+                                {Object.keys(quickTaskGroups).map(group => {
+                                    const available = quickTaskGroups[group].filter(qt => !addedDescriptions.includes(qt.description));
+                                    if (available.length === 0) return null;
+                                    return (
+                                        <button
+                                            key={group}
+                                            onClick={() => setExpandedGroup(expandedGroup === group ? null : group)}
+                                            className={`px-2 py-1 rounded-full whitespace-nowrap border transition ${
+                                                expandedGroup === group
+                                                    ? 'bg-medical-600 text-white border-medical-600'
+                                                    : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+                                            }`}
+                                        >
+                                            {group} ({available.length})
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            {/* Tasks in selected group */}
+                            {expandedGroup && quickTaskGroups[expandedGroup] && (
+                                <div className="flex flex-wrap gap-1.5">
+                                    {quickTaskGroups[expandedGroup]
+                                        .filter(qt => !addedDescriptions.includes(qt.description))
+                                        .map((qt, i) => (
+                                            <button
+                                                key={i}
+                                                onClick={() => addTask(qt)}
+                                                className="bg-gray-50 hover:bg-gray-100 border border-gray-200 px-2.5 py-1 rounded-full text-xs text-gray-600 active:bg-medical-50 active:border-medical-300 transition"
+                                            >
+                                                + {qt.description}
+                                            </button>
+                                        ))
+                                    }
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
         function TeamTasks({ teamData, currentUser }) {
             const [patients, setPatients] = React.useState([]);
             const [tasks, setTasks] = React.useState([]);
@@ -2090,13 +2169,46 @@
                 return baseColors[colors[category] || 'gray'];
             };
 
-            const quickTasks = [
-                { category: 'Labs', description: 'Check AM labs' },
-                { category: 'Activity', description: 'PT Evaluation' },
-                { category: 'Activity', description: 'Wound Care' },
-                { category: 'Discharge', description: 'DC Planning' },
-                { category: 'Other', description: 'Family Update' }
-            ];
+            const quickTaskGroups = {
+                'Common': [
+                    { category: 'Labs', description: 'Check AM labs' },
+                    { category: 'Diet', description: 'Diet check' },
+                    { category: 'Activity', description: 'Ambulate' },
+                    { category: 'Activity', description: 'PT Evaluation' },
+                    { category: 'Activity', description: 'Wound Care' },
+                    { category: 'Other', description: 'Family Update' },
+                    { category: 'Discharge', description: 'DC Planning' },
+                ],
+                'Orders': [
+                    { category: 'Other', description: 'Check NGT output' },
+                    { category: 'Other', description: 'NGT clamp trial' },
+                    { category: 'Medications', description: 'Start antibiotics' },
+                    { category: 'Medications', description: 'Switch to oral anticoagulant' },
+                    { category: 'Medications', description: 'Switch to oral pain meds' },
+                    { category: 'Medications', description: 'Stop all IV infusions' },
+                ],
+                'Social/Dispo': [
+                    { category: 'Discharge', description: 'Call Social Work' },
+                ],
+                'Follow-up': [
+                    { category: 'Consults', description: 'F/U Medicine' },
+                    { category: 'Consults', description: 'F/U Vascular' },
+                    { category: 'Consults', description: 'F/U Neurosurgery' },
+                    { category: 'Consults', description: 'F/U Trauma Surgery' },
+                    { category: 'Consults', description: 'F/U Colorectal Surgery' },
+                    { category: 'Consults', description: 'F/U MIS' },
+                    { category: 'Consults', description: 'F/U SICU' },
+                    { category: 'Consults', description: 'F/U MICU' },
+                    { category: 'Consults', description: 'F/U PMR' },
+                    { category: 'Consults', description: 'F/U Ortho' },
+                    { category: 'Consults', description: 'F/U Cardiac' },
+                    { category: 'Consults', description: 'F/U Thoracic' },
+                    { category: 'Consults', description: 'F/U Plastic Surgery' },
+                    { category: 'Consults', description: 'F/U Endocrine' },
+                    { category: 'Consults', description: 'F/U Nephrology' },
+                ],
+            };
+            const allQuickTasks = Object.values(quickTaskGroups).flat();
 
             const filteredTasks = tasks.filter(t => {
                 // Status filter
@@ -2228,35 +2340,13 @@
                                             </div>
                                         )}
 
-                                        {/* Quick Task Buttons - always visible, hide ones already added */}
-                                        {(() => {
-                                            const allPatientTasks = tasks.filter(t => t.patientId === patient.id);
-                                            const addedDescriptions = allPatientTasks.map(t => t.description);
-                                            const available = quickTasks.filter(qt => !addedDescriptions.includes(qt.description));
-                                            return available.length > 0 && (
-                                                <div className="mb-3 flex flex-wrap gap-1.5">
-                                                    {available.map((qt, i) => (
-                                                        <button
-                                                            key={i}
-                                                            onClick={async () => {
-                                                                await handleSaveTask({
-                                                                    patientId: patient.id,
-                                                                    category: qt.category,
-                                                                    description: qt.description,
-                                                                    priority: 'Medium',
-                                                                    assignee: '',
-                                                                    completed: false,
-                                                                    createdAt: new Date().toISOString()
-                                                                });
-                                                            }}
-                                                            className="bg-gray-50 hover:bg-gray-100 border border-gray-200 px-2.5 py-1 rounded-full text-xs text-gray-600"
-                                                        >
-                                                            + {qt.description}
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            );
-                                        })()}
+                                        {/* Quick Task Buttons - grouped, collapsible */}
+                                        <QuickTaskPanel
+                                            patientId={patient.id}
+                                            tasks={tasks}
+                                            quickTaskGroups={quickTaskGroups}
+                                            onSave={handleSaveTask}
+                                        />
 
                                         {/* Task List */}
                                         {patientTasks.length === 0 ? (
