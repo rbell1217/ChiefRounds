@@ -1236,7 +1236,8 @@
             const [formData, setFormData] = React.useState(editingPatient || {
                 room: '', diagnosis: '', problems: [], procedures: [], pmh: [],
                 psh: [], homeMeds: [], allergies: [],
-                antibiotics: [], treatmentPlan: '', diet: 'Regular', activity: 'Ambulate TID',
+                antibiotics: [], examFindings: '',
+                treatmentPlan: '', diet: 'Regular', activity: 'Ambulate TID',
                 dvtProphylaxis: 'Heparin 5000 TID', giProphylaxis: 'Pantoprazole',
                 dispositionPlan: '', concerns: '', codeStatus: 'Full Code',
                 admitDate: getTodayISO()
@@ -1460,6 +1461,14 @@
                                         setFormData(prev => ({ ...prev, antibiotics: [...(prev.antibiotics || []), { name: '', startDate: getTodayISO(), stopDate: '' }] }));
                                     }} className="text-xs text-medical-600 hover:text-medical-700 font-medium">+ Add Antibiotic</button>
                                 </div>
+                            </div>
+
+                            {/* Notable Exam Findings */}
+                            <div>
+                                <label className={`block text-sm font-semibold mb-1 ${labelHighlight('examFindings')}`}>Notable Exam Findings</label>
+                                <textarea name="examFindings" value={formData.examFindings || ''} onChange={handleInputChange} rows="2"
+                                    placeholder="e.g. Abdomen soft, mildly distended, +BS, incision C/D/I, no erythema"
+                                    className={`w-full bg-gray-50 border border-gray-300 rounded px-3 py-2 text-gray-800 text-sm transition ${fieldHighlight('examFindings')}`} />
                             </div>
 
                             {/* Treatment Plan */}
@@ -2261,6 +2270,14 @@
                                         </div>
                                     )}
 
+                                    {/* Notable Exam Findings */}
+                                    {patient.examFindings && (
+                                        <div className="mb-2">
+                                            <p className="text-xs font-semibold text-gray-500 uppercase">Exam:</p>
+                                            <p className="text-sm text-gray-700">{patient.examFindings}</p>
+                                        </div>
+                                    )}
+
                                     {/* Plan - always visible */}
                                     {patient.treatmentPlan && (
                                         <div className="mb-2">
@@ -2674,6 +2691,11 @@
                         });
                     }
 
+                    if (patient.examFindings) {
+                        doc.text('Exam: ' + patient.examFindings, margin, yPos, { maxWidth: 180 });
+                        yPos += doc.getTextDimensions(patient.examFindings).h + 4;
+                    }
+
                     if (patient.treatmentPlan) {
                         doc.text('Plan: ' + patient.treatmentPlan, margin, yPos, { maxWidth: 180 });
                         yPos += doc.getTextDimensions(patient.treatmentPlan).h + 4;
@@ -2773,6 +2795,14 @@
                                             {patient.problems.map((p, i) => (
                                                 <div key={i} className="text-gray-600 ml-2">- {p}</div>
                                             ))}
+                                        </div>
+                                    )}
+
+                                    {/* Exam Findings */}
+                                    {patient.examFindings && (
+                                        <div className="mt-3 text-lg">
+                                            <div className="font-semibold text-gray-700">Exam:</div>
+                                            <div className="text-gray-600">{patient.examFindings}</div>
                                         </div>
                                     )}
 
@@ -2881,6 +2911,12 @@
                                                     <div key={i} className="text-sm">• {p}</div>
                                                 ))}
                                             </div>
+                                        </div>
+                                    )}
+
+                                    {patient.examFindings && (
+                                        <div className="mb-2 text-sm">
+                                            <span className="font-semibold">Exam:</span> {patient.examFindings}
                                         </div>
                                     )}
 
@@ -3794,6 +3830,7 @@
                     psh: [],
                     homeMeds: [],
                     allergies: [],
+                    examFindings: '',
                     treatmentPlan: '',
                     diet: '',
                     activity: '',
@@ -4001,6 +4038,12 @@
                     patient.allergies = ['NKDA'];
                 }
 
+                // Extract Exam Findings
+                const examMatch = b.match(/(?:exam|notable exam|exam findings?|physical exam|PE|phys(?:ical)?)\s*[:\-]\s*(.+?)(?=\n\s*(?:PMH|PMHx|PSH|PSHx|past medical|past surgical|dx|diagnosis|s\/p|procedures?|problems?|plan|todo|to[- ]?do|tasks?|if[/ ]then|overnight|diet|activity|code|dispo|contact|meds|medications?|allergies?|home meds|abx|antibiotics?|$))/is);
+                if (examMatch) {
+                    patient.examFindings = examMatch[1].trim().replace(/\n/g, '; ');
+                }
+
                 // Smart diagnosis prediction from procedure if no explicit diagnosis found
                 // NOTE: diagnosis is stored separately from procedures. The display template
                 // shows "Diagnosis s/p Procedure" so we should NOT include "s/p" in the diagnosis field.
@@ -4137,6 +4180,7 @@
                             if (parsed.concerns) updated.concerns = parsed.concerns;
                             // Always update admitDate if the signout had a date or POD
                             if (parsed.admitDate && parsed.admitDate !== getTodayISO()) updated.admitDate = parsed.admitDate;
+                            if (parsed.examFindings) updated.examFindings = parsed.examFindings;
                             // Merge PMH without duplicates
                             if (parsed.pmh && parsed.pmh.length > 0) {
                                 const existingPmh = updated.pmh || [];
@@ -4181,6 +4225,7 @@
                                 psh: parsed.psh || [],
                                 homeMeds: parsed.homeMeds || [],
                                 allergies: parsed.allergies || [],
+                                examFindings: parsed.examFindings || '',
                                 antibiotics: parsed.antibiotics || [],
                                 treatmentPlan: parsed.treatmentPlan || parsed.overnightPlan || '',
                                 diet: parsed.diet || 'Regular',
@@ -4502,6 +4547,11 @@ To-do: Check AM labs, I/Os q4h`}
                                                         {p.allergies && p.allergies.length > 0 && (
                                                             <div className="text-xs text-red-600 mb-1">
                                                                 <span className="font-semibold">Allergies:</span> {p.allergies.join(', ')}
+                                                            </div>
+                                                        )}
+                                                        {p.examFindings && (
+                                                            <div className="text-xs text-gray-600 mb-1">
+                                                                <span className="font-semibold">Exam:</span> {p.examFindings}
                                                             </div>
                                                         )}
                                                         {p.treatmentPlan && (
