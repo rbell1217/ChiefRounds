@@ -1235,6 +1235,7 @@
         function PatientFormModal({ onClose, onSave, editingPatient }) {
             const [formData, setFormData] = React.useState(editingPatient || {
                 room: '', diagnosis: '', problems: [], procedures: [], pmh: [],
+                psh: [], homeMeds: [], allergies: [],
                 antibiotics: [], treatmentPlan: '', diet: 'Regular', activity: 'Ambulate TID',
                 dvtProphylaxis: 'Heparin 5000 TID', giProphylaxis: 'Pantoprazole',
                 dispositionPlan: '', concerns: '', codeStatus: 'Full Code',
@@ -1280,7 +1281,13 @@
                         procedures: typeof formData.procedures === 'string'
                             ? formData.procedures.split(',').map(p => p.trim()).filter(Boolean) : formData.procedures,
                         pmh: typeof formData.pmh === 'string'
-                            ? formData.pmh.split(',').map(p => p.trim()).filter(Boolean) : (formData.pmh || [])
+                            ? formData.pmh.split(',').map(p => p.trim()).filter(Boolean) : (formData.pmh || []),
+                        psh: typeof formData.psh === 'string'
+                            ? formData.psh.split(',').map(p => p.trim()).filter(Boolean) : (formData.psh || []),
+                        homeMeds: typeof formData.homeMeds === 'string'
+                            ? formData.homeMeds.split(',').map(p => p.trim()).filter(Boolean) : (formData.homeMeds || []),
+                        allergies: typeof formData.allergies === 'string'
+                            ? formData.allergies.split(',').map(p => p.trim()).filter(Boolean) : (formData.allergies || [])
                     });
                 }
             };
@@ -1377,6 +1384,33 @@
                                     value={typeof formData.pmh === 'string' ? formData.pmh : (formData.pmh || []).join(', ')}
                                     onChange={handleInputChange} placeholder="HTN, DM2, COPD, CAD"
                                     className={`w-full bg-gray-50 border border-gray-300 rounded px-3 py-2 text-gray-800 transition ${fieldHighlight('pmh')}`} />
+                            </div>
+
+                            {/* Past Surgical History */}
+                            <div>
+                                <label className={`block text-sm font-semibold mb-1 ${labelHighlight('psh')}`}>Past Surgical History (comma-separated)</label>
+                                <input type="text" name="psh"
+                                    value={typeof formData.psh === 'string' ? formData.psh : (formData.psh || []).join(', ')}
+                                    onChange={handleInputChange} placeholder="Appy, Chole, R hip replacement"
+                                    className={`w-full bg-gray-50 border border-gray-300 rounded px-3 py-2 text-gray-800 transition ${fieldHighlight('psh')}`} />
+                            </div>
+
+                            {/* Home Medications */}
+                            <div>
+                                <label className={`block text-sm font-semibold mb-1 ${labelHighlight('homeMeds')}`}>Home Medications (comma-separated)</label>
+                                <input type="text" name="homeMeds"
+                                    value={typeof formData.homeMeds === 'string' ? formData.homeMeds : (formData.homeMeds || []).join(', ')}
+                                    onChange={handleInputChange} placeholder="Metformin, Lisinopril, Atorvastatin"
+                                    className={`w-full bg-gray-50 border border-gray-300 rounded px-3 py-2 text-gray-800 transition ${fieldHighlight('homeMeds')}`} />
+                            </div>
+
+                            {/* Allergies */}
+                            <div>
+                                <label className={`block text-sm font-semibold mb-1 ${labelHighlight('allergies')}`}>Allergies (comma-separated)</label>
+                                <input type="text" name="allergies"
+                                    value={typeof formData.allergies === 'string' ? formData.allergies : (formData.allergies || []).join(', ')}
+                                    onChange={handleInputChange} placeholder="PCN, Sulfa, NKDA"
+                                    className={`w-full bg-gray-50 border border-gray-300 rounded px-3 py-2 text-gray-800 transition ${fieldHighlight('allergies')}`} />
                             </div>
 
                             {/* Antibiotics */}
@@ -2194,6 +2228,39 @@
                                         </div>
                                     )}
 
+                                    {patient.psh?.length > 0 && (
+                                        <div className="mb-2">
+                                            <p className="text-xs font-semibold text-gray-500 uppercase">PSH:</p>
+                                            <div className="flex flex-wrap gap-1">
+                                                {patient.psh.map((p, i) => (
+                                                    <span key={i} className="text-xs bg-purple-50 text-purple-700 px-2 py-1 rounded">{p}</span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {patient.homeMeds?.length > 0 && (
+                                        <div className="mb-2">
+                                            <p className="text-xs font-semibold text-gray-500 uppercase">Home Meds:</p>
+                                            <div className="flex flex-wrap gap-1">
+                                                {patient.homeMeds.map((m, i) => (
+                                                    <span key={i} className="text-xs bg-teal-50 text-teal-700 px-2 py-1 rounded">{m}</span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {patient.allergies?.length > 0 && (
+                                        <div className="mb-2">
+                                            <p className="text-xs font-semibold text-gray-500 uppercase">Allergies:</p>
+                                            <div className="flex flex-wrap gap-1">
+                                                {patient.allergies.map((a, i) => (
+                                                    <span key={i} className="text-xs bg-red-50 text-red-700 border border-red-200 px-2 py-1 rounded font-medium">{a}</span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
                                     {/* Plan - always visible */}
                                     {patient.treatmentPlan && (
                                         <div className="mb-2">
@@ -2677,6 +2744,27 @@
                                             <span className="text-gray-600">{patient.pmh.join(', ')}</span>
                                         </div>
                                     )}
+                                    {/* PSH */}
+                                    {patient.psh?.length > 0 && (
+                                        <div className="mt-1 text-base">
+                                            <span className="font-semibold text-gray-500">PSH:</span>{' '}
+                                            <span className="text-gray-600">{patient.psh.join(', ')}</span>
+                                        </div>
+                                    )}
+                                    {/* Home Meds */}
+                                    {patient.homeMeds?.length > 0 && (
+                                        <div className="mt-1 text-base">
+                                            <span className="font-semibold text-gray-500">Home Meds:</span>{' '}
+                                            <span className="text-gray-600">{patient.homeMeds.join(', ')}</span>
+                                        </div>
+                                    )}
+                                    {/* Allergies */}
+                                    {patient.allergies?.length > 0 && (
+                                        <div className="mt-1 text-base">
+                                            <span className="font-semibold text-red-500">Allergies:</span>{' '}
+                                            <span className="text-red-600 font-medium">{patient.allergies.join(', ')}</span>
+                                        </div>
+                                    )}
 
                                     {/* Active Problems */}
                                     {patient.problems?.length > 0 && (
@@ -2775,6 +2863,14 @@
                                 >
                                     <div className="font-bold text-lg text-medical-500 mb-2">
                                         Room {patient.room} | {patient.diagnosis}{patient.procedures?.length > 0 ? ` s/p ${patient.procedures.join(', ')}` : ''} | POD {calculatePOD(patient.admitDate)} | {patient.codeStatus}
+                                    </div>
+
+                                    {/* PMH/PSH/Meds/Allergies row */}
+                                    <div className="text-sm mb-2 space-y-0.5">
+                                        {patient.pmh?.length > 0 && <div><span className="font-semibold">PMH:</span> {patient.pmh.join(', ')}</div>}
+                                        {patient.psh?.length > 0 && <div><span className="font-semibold">PSH:</span> {patient.psh.join(', ')}</div>}
+                                        {patient.homeMeds?.length > 0 && <div><span className="font-semibold">Home Meds:</span> {patient.homeMeds.join(', ')}</div>}
+                                        {patient.allergies?.length > 0 && <div><span className="font-semibold text-red-600">Allergies:</span> <span className="text-red-600">{patient.allergies.join(', ')}</span></div>}
                                     </div>
 
                                     {patient.problems?.length > 0 && (
@@ -3695,6 +3791,9 @@
                     procedures: [],
                     problems: [],
                     pmh: [],
+                    psh: [],
+                    homeMeds: [],
+                    allergies: [],
                     treatmentPlan: '',
                     diet: '',
                     activity: '',
@@ -3875,6 +3974,33 @@
                     }
                 }
 
+                // Extract PSH (Past Surgical History)
+                const pshMatch = b.match(/(?:PSH|PSHx|past surgical(?: history)?|surgical history|prior surgeries|prior ops)\s*[:\-]\s*(.+?)(?=\n\s*(?:PMH|PMHx|past medical|dx|diagnosis|s\/p|procedures?|problems?|plan|todo|to[- ]?do|tasks?|if[/ ]then|overnight|diet|activity|code|dispo|contact|meds|medications?|allergies?|home meds|abx|antibiotics?|$))/is);
+                if (pshMatch) {
+                    patient.psh = pshMatch[1].split(/[,;\n•\-]+/).map(p => p.trim()).filter(p => p.length > 1);
+                }
+
+                // Extract Home Medications
+                const medsMatch = b.match(/(?:home meds|home medications?|meds|medications?|med(?:\s*list)?)\s*[:\-]\s*(.+?)(?=\n\s*(?:PMH|PMHx|PSH|PSHx|past medical|past surgical|dx|diagnosis|s\/p|procedures?|problems?|plan|todo|to[- ]?do|tasks?|if[/ ]then|overnight|diet|activity|code|dispo|contact|allergies?|abx|antibiotics?|$))/is);
+                if (medsMatch) {
+                    patient.homeMeds = medsMatch[1].split(/[,;\n•]+/).map(m => m.trim()).filter(m => m.length > 1);
+                }
+
+                // Extract Allergies
+                const allergyMatch = b.match(/(?:allergies|allergy|NKDA|NKA)\s*[:\-]?\s*(.+?)(?=\n\s*(?:PMH|PMHx|PSH|PSHx|past medical|past surgical|dx|diagnosis|s\/p|procedures?|problems?|plan|todo|to[- ]?do|tasks?|if[/ ]then|overnight|diet|activity|code|dispo|contact|meds|medications?|home meds|abx|antibiotics?|$))/is);
+                if (allergyMatch) {
+                    const allergyText = allergyMatch[1].trim();
+                    if (/^NKDA$/i.test(allergyText) || /^NKA$/i.test(allergyText) || /^none$/i.test(allergyText)) {
+                        patient.allergies = ['NKDA'];
+                    } else {
+                        patient.allergies = allergyText.split(/[,;\n•]+/).map(a => a.trim()).filter(a => a.length > 1);
+                    }
+                }
+                // Handle standalone NKDA/NKA in text
+                if (patient.allergies.length === 0 && /\bNKDA\b/.test(b)) {
+                    patient.allergies = ['NKDA'];
+                }
+
                 // Smart diagnosis prediction from procedure if no explicit diagnosis found
                 // NOTE: diagnosis is stored separately from procedures. The display template
                 // shows "Diagnosis s/p Procedure" so we should NOT include "s/p" in the diagnosis field.
@@ -4017,6 +4143,24 @@
                                 const newPmh = parsed.pmh.filter(p => !existingPmh.some(ep => ep.toLowerCase() === p.toLowerCase()));
                                 updated.pmh = [...existingPmh, ...newPmh];
                             }
+                            // Merge PSH without duplicates
+                            if (parsed.psh && parsed.psh.length > 0) {
+                                const existingPsh = updated.psh || [];
+                                const newPsh = parsed.psh.filter(p => !existingPsh.some(ep => ep.toLowerCase() === p.toLowerCase()));
+                                updated.psh = [...existingPsh, ...newPsh];
+                            }
+                            // Merge Home Meds without duplicates
+                            if (parsed.homeMeds && parsed.homeMeds.length > 0) {
+                                const existingMeds = updated.homeMeds || [];
+                                const newMeds = parsed.homeMeds.filter(m => !existingMeds.some(em => em.toLowerCase() === m.toLowerCase()));
+                                updated.homeMeds = [...existingMeds, ...newMeds];
+                            }
+                            // Merge Allergies without duplicates
+                            if (parsed.allergies && parsed.allergies.length > 0) {
+                                const existingAll = updated.allergies || [];
+                                const newAll = parsed.allergies.filter(a => !existingAll.some(ea => ea.toLowerCase() === a.toLowerCase()));
+                                updated.allergies = [...existingAll, ...newAll];
+                            }
                             // Merge antibiotics
                             if (parsed.antibiotics && parsed.antibiotics.length > 0) {
                                 const existingAbx = updated.antibiotics || [];
@@ -4034,6 +4178,9 @@
                                 procedures: parsed.procedures,
                                 problems: parsed.problems,
                                 pmh: parsed.pmh || [],
+                                psh: parsed.psh || [],
+                                homeMeds: parsed.homeMeds || [],
+                                allergies: parsed.allergies || [],
                                 antibiotics: parsed.antibiotics || [],
                                 treatmentPlan: parsed.treatmentPlan || parsed.overnightPlan || '',
                                 diet: parsed.diet || 'Regular',
@@ -4279,6 +4426,10 @@
                                                 <pre className="text-xs text-gray-500 whitespace-pre-wrap font-mono leading-relaxed">
 {`512 - 65M s/p lap appy 3/18 c/b ileus
 PMH: HTN, DM2, COPD
+PSH: Prior chole, R inguinal hernia repair
+Meds: Metformin, Lisinopril, Atorvastatin
+Allergies: PCN, Sulfa
+Abx: Zosyn (started 3/18)
 Problems: Ileus, pain control
 Plan: Advance diet, check AM labs
 Code: Full
@@ -4286,6 +4437,8 @@ To-do: F/U CT results, check NGT output
 
 514 - 45F SBO s/p ex-lap w/ LOA POD1
 PMH: h/o Afib, HLD, prior SBO
+PSH: Appy, C-section x2
+Allergies: NKDA
 Problems: High NGT output, AKI
 Plan: NPO, IVF, NGT to LCWS
 Activity: NWB
@@ -4334,6 +4487,21 @@ To-do: Check AM labs, I/Os q4h`}
                                                         {p.pmh && p.pmh.length > 0 && (
                                                             <div className="text-xs text-gray-600 mb-1">
                                                                 <span className="font-semibold">PMH:</span> {p.pmh.join(', ')}
+                                                            </div>
+                                                        )}
+                                                        {p.psh && p.psh.length > 0 && (
+                                                            <div className="text-xs text-gray-600 mb-1">
+                                                                <span className="font-semibold">PSH:</span> {p.psh.join(', ')}
+                                                            </div>
+                                                        )}
+                                                        {p.homeMeds && p.homeMeds.length > 0 && (
+                                                            <div className="text-xs text-gray-600 mb-1">
+                                                                <span className="font-semibold">Home Meds:</span> {p.homeMeds.join(', ')}
+                                                            </div>
+                                                        )}
+                                                        {p.allergies && p.allergies.length > 0 && (
+                                                            <div className="text-xs text-red-600 mb-1">
+                                                                <span className="font-semibold">Allergies:</span> {p.allergies.join(', ')}
                                                             </div>
                                                         )}
                                                         {p.treatmentPlan && (
