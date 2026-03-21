@@ -1514,21 +1514,24 @@
 
         function LabFormModal({ patientId, onClose, onSave }) {
             const [labType, setLabType] = React.useState('WBC');
+            const [customLabType, setCustomLabType] = React.useState('');
             const [value, setValue] = React.useState('');
             const [shift, setShift] = React.useState('Day');
 
             const handleSubmit = (e) => {
                 e.preventDefault();
-                if (value) {
+                const finalType = labType === 'Other' ? customLabType.trim() : labType;
+                if (value && finalType) {
                     onSave({
                         patientId,
-                        type: labType,
+                        type: finalType,
                         value: parseFloat(value),
                         shift,
                         timestamp: new Date().toISOString()
                     });
                     setValue('');
                     setLabType('WBC');
+                    setCustomLabType('');
                     setShift('Day');
                 }
             };
@@ -1551,10 +1554,22 @@
                                     {Object.keys(LAB_RANGES).map(lab => (
                                         <option key={lab} value={lab}>{lab}</option>
                                     ))}
+                                    <option value="Other">Other...</option>
                                 </select>
+                                {labType === 'Other' && (
+                                    <input
+                                        type="text"
+                                        value={customLabType}
+                                        onChange={(e) => setCustomLabType(e.target.value)}
+                                        placeholder="Enter lab name (e.g. CRP, ESR, Procalcitonin)"
+                                        className="w-full bg-gray-50 border border-gray-300 rounded px-3 py-2 text-gray-800 mt-2"
+                                        required
+                                        autoFocus
+                                    />
+                                )}
                             </div>
                             <div>
-                                <label className="block text-sm font-semibold text-gray-600 mb-1">Value ({LAB_RANGES[labType]?.unit})</label>
+                                <label className="block text-sm font-semibold text-gray-600 mb-1">Value {labType !== 'Other' ? `(${LAB_RANGES[labType]?.unit})` : ''}</label>
                                 <input
                                     type="number"
                                     step="0.1"
