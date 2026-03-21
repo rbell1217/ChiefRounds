@@ -4682,38 +4682,17 @@
 
             // Listen for auth state changes (persisted login)
             React.useEffect(() => {
-                let redirectChecked = false;
+                let unsubscribe = null;
 
-                // First, check for redirect result (from Google sign-in on mobile)
-                auth.getRedirectResult().then(result => {
-                    redirectChecked = true;
-                    // If redirect returned a user, onAuthStateChanged will handle it
-                }).catch(err => {
-                    redirectChecked = true;
-                    console.error('Redirect result error:', err);
-                });
-
-                const unsub = auth.onAuthStateChanged(async (u) => {
-                    // If user is null and redirect hasn't been checked yet, wait briefly
-                    // This prevents flashing the login screen before redirect completes
-                    if (!u && !redirectChecked) {
-                        await new Promise(resolve => setTimeout(resolve, 1000));
-                        // If still no user after waiting, proceed
-                        if (auth.currentUser) {
-                            u = auth.currentUser;
-                        }
-                    }
-
+                const loadUserTeam = async (u) => {
                     setUser(u);
                     if (u) {
                         try {
-                            // Check if user has a team
                             const userDoc = await db.collection('users').doc(u.uid).get();
                             if (userDoc.exists && userDoc.data().teamId) {
                                 const tid = userDoc.data().teamId;
                                 setTeamId(tid);
                                 DB.setTeamId(tid);
-                                // Load team data
                                 const teamDoc = await db.collection('teams').doc(tid).get();
                                 if (teamDoc.exists) setTeamData({ id: tid, ...teamDoc.data() });
                             }
@@ -4725,8 +4704,25 @@
                         setTeamData(null);
                     }
                     setAuthLoading(false);
-                });
-                return () => unsub();
+                };
+
+                // Wait for any pending redirect result BEFORE listening to auth state.
+                // This prevents onAuthStateChanged from firing with null before the
+                // redirect sign-in has been processed by Firebase.
+                const initAuth = async () => {
+                    try {
+                        await auth.getRedirectResult();
+                    } catch (err) {
+                        console.error('Redirect result error:', err);
+                    }
+                    // Now that redirect is processed, listen for auth state
+                    unsubscribe = auth.onAuthStateChanged((u) => {
+                        loadUserTeam(u);
+                    });
+                };
+
+                initAuth();
+                return () => { if (unsubscribe) unsubscribe(); };
             }, []);
 
             React.useEffect(() => {
