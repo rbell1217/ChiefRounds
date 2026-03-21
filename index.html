@@ -1655,7 +1655,8 @@
                 text += '━'.repeat(30) + '\n\n';
 
                 patients.forEach((patient) => {
-                    text += `Rm ${patient.room} | ${patient.diagnosis} | POD#${calculatePOD(patient.admitDate)} | ${patient.codeStatus}\n`;
+                    const procText = patient.procedures?.length > 0 ? ` s/p ${patient.procedures.join(', ')}` : '';
+                    text += `Rm ${patient.room} | ${patient.diagnosis}${procText} | POD#${calculatePOD(patient.admitDate)} | ${patient.codeStatus}\n`;
 
                     if (patient.problems?.length > 0) {
                         text += 'Problems:\n';
@@ -1741,7 +1742,8 @@
 
                     doc.setFontSize(11);
                     doc.setTextColor(100, 165, 233);
-                    doc.text(`Room ${patient.room} | ${patient.diagnosis} | POD ${calculatePOD(patient.admitDate)} | ${patient.codeStatus}`, margin, yPos);
+                    const pdfProc = patient.procedures?.length > 0 ? ` s/p ${patient.procedures.join(', ')}` : '';
+                    doc.text(`Room ${patient.room} | ${patient.diagnosis}${pdfProc} | POD ${calculatePOD(patient.admitDate)} | ${patient.codeStatus}`, margin, yPos);
                     yPos += 6;
 
                     doc.setTextColor(200, 200, 200);
@@ -1811,15 +1813,10 @@
                                         Room {patient.room} | {patient.codeStatus}
                                     </div>
 
-                                    {/* Diagnosis and Procedure - prominent */}
+                                    {/* Diagnosis s/p Procedure - combined on one line */}
                                     <div className="text-2xl font-bold text-gray-800 leading-snug">
-                                        {patient.diagnosis}
+                                        {patient.diagnosis}{patient.procedures?.length > 0 ? ` s/p ${patient.procedures.join(', ')}` : ''}
                                     </div>
-                                    {patient.procedures?.length > 0 && (
-                                        <div className="text-xl text-gray-700 mt-0.5">
-                                            S/p {patient.procedures.join(', ')}
-                                        </div>
-                                    )}
                                     <div className="text-lg text-gray-500 font-medium mt-0.5">
                                         POD {calculatePOD(patient.admitDate)}
                                     </div>
@@ -1920,7 +1917,7 @@
                                     className={`bg-white border rounded-lg p-4 ${patient.concerns ? 'border-red-600' : 'border-gray-200'}`}
                                 >
                                     <div className="font-bold text-lg text-medical-500 mb-2">
-                                        Room {patient.room} | {patient.diagnosis} | POD {calculatePOD(patient.admitDate)} | {patient.codeStatus}
+                                        Room {patient.room} | {patient.diagnosis}{patient.procedures?.length > 0 ? ` s/p ${patient.procedures.join(', ')}` : ''} | POD {calculatePOD(patient.admitDate)} | {patient.codeStatus}
                                     </div>
 
                                     {patient.problems?.length > 0 && (
