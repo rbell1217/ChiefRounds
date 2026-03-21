@@ -2568,7 +2568,7 @@
             };
 
             const exportPDF = () => {
-                const { jsPDF } = window;
+                const { jsPDF } = window.jspdf;
                 const doc = new jsPDF('p', 'mm', 'a4');
                 let yPos = 20;
                 const pageHeight = doc.internal.pageSize.height;
