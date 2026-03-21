@@ -9,6 +9,9 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.1/jspdf.plugin.autotable.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -109,97 +112,58 @@
     <div id="root"></div>
 
     <script type="text/babel">
+        // ==================== FIREBASE CONFIG ====================
+        const firebaseConfig = {
+            apiKey: "AIzaSyAhkTvTSZRJ_QUzZ9GsEhzdyrDEJQZAKo0",
+            authDomain: "chiefrounds-9a746.firebaseapp.com",
+            projectId: "chiefrounds-9a746",
+            storageBucket: "chiefrounds-9a746.firebasestorage.app",
+            messagingSenderId: "263373809368",
+            appId: "1:263373829368:web:3ec023d568df4e728419ad",
+            measurementId: "G-XZL2H4GTQB"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+        // Persist auth state across browser sessions
+        auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+
         // ==================== DATABASE HELPER ====================
         const DB = {
-            db: null,
-            async init() {
-                return new Promise((resolve, reject) => {
-                    const request = indexedDB.open('ChiefRoundsDB', 2);
-                    request.onupgradeneeded = (e) => {
-                        const db = e.target.result;
-                        if (!db.objectStoreNames.contains('patients')) {
-                            const ps = db.createObjectStore('patients', { keyPath: 'id', autoIncrement: true });
-                            ps.createIndex('room', 'room');
-                            ps.createIndex('status', 'status');
-                        }
-                        if (!db.objectStoreNames.contains('labs')) {
-                            const ls = db.createObjectStore('labs', { keyPath: 'id', autoIncrement: true });
-                            ls.createIndex('patientId', 'patientId');
-                        }
-                        if (!db.objectStoreNames.contains('outputs')) {
-                            const os = db.createObjectStore('outputs', { keyPath: 'id', autoIncrement: true });
-                            os.createIndex('patientId', 'patientId');
-                        }
-                        if (!db.objectStoreNames.contains('tasks')) {
-                            const ts = db.createObjectStore('tasks', { keyPath: 'id', autoIncrement: true });
-                            ts.createIndex('patientId', 'patientId');
-                        }
-                        if (!db.objectStoreNames.contains('consults')) {
-                            const cs = db.createObjectStore('consults', { keyPath: 'id', autoIncrement: true });
-                            cs.createIndex('patientId', 'patientId');
-                            cs.createIndex('service', 'service');
-                            cs.createIndex('status', 'status');
-                        }
-                        if (!db.objectStoreNames.contains('traumas')) {
-                            const tr = db.createObjectStore('traumas', { keyPath: 'id', autoIncrement: true });
-                            tr.createIndex('status', 'status');
-                        }
-                    };
-                    request.onsuccess = (e) => {
-                        DB.db = e.target.result;
-                        resolve();
-                    };
-                    request.onerror = (e) => reject(e);
-                });
+            teamId: null,
+            setTeamId(id) { this.teamId = id; },
+            _col(store) {
+                if (!this.teamId) throw new Error('No team selected');
+                return db.collection('teams').doc(this.teamId).collection(store);
             },
+            async init() { /* Firestore is ready immediately */ },
             async getAll(store) {
-                return new Promise((resolve, reject) => {
-                    const tx = DB.db.transaction(store, 'readonly');
-                    const request = tx.objectStore(store).getAll();
-                    request.onsuccess = () => resolve(request.result);
-                    request.onerror = () => reject(request.error);
-                });
+                const snap = await this._col(store).get();
+                return snap.docs.map(d => ({ ...d.data(), id: d.id }));
             },
             async get(store, id) {
-                return new Promise((resolve, reject) => {
-                    const tx = DB.db.transaction(store, 'readonly');
-                    const request = tx.objectStore(store).get(id);
-                    request.onsuccess = () => resolve(request.result);
-                    request.onerror = () => reject(request.error);
-                });
+                const doc = await this._col(store).doc(String(id)).get();
+                return doc.exists ? { ...doc.data(), id: doc.id } : null;
             },
             async add(store, data) {
-                return new Promise((resolve, reject) => {
-                    const tx = DB.db.transaction(store, 'readwrite');
-                    const request = tx.objectStore(store).add(data);
-                    request.onsuccess = () => resolve(request.result);
-                    request.onerror = () => reject(request.error);
-                });
+                const { id, ...rest } = data; // strip any existing id
+                const ref = await this._col(store).add({ ...rest, createdAt: rest.createdAt || new Date().toISOString() });
+                return ref.id;
             },
             async put(store, data) {
-                return new Promise((resolve, reject) => {
-                    const tx = DB.db.transaction(store, 'readwrite');
-                    const request = tx.objectStore(store).put(data);
-                    request.onsuccess = () => resolve(request.result);
-                    request.onerror = () => reject(request.error);
-                });
+                if (data.id) {
+                    const { id, ...rest } = data;
+                    await this._col(store).doc(String(id)).set(rest, { merge: true });
+                    return id;
+                }
+                return this.add(store, data);
             },
             async delete(store, id) {
-                return new Promise((resolve, reject) => {
-                    const tx = DB.db.transaction(store, 'readwrite');
-                    const request = tx.objectStore(store).delete(id);
-                    request.onsuccess = () => resolve();
-                    request.onerror = () => reject(request.error);
-                });
+                await this._col(store).doc(String(id)).delete();
             },
             async getByIndex(store, indexName, value) {
-                return new Promise((resolve, reject) => {
-                    const tx = DB.db.transaction(store, 'readonly');
-                    const index = tx.objectStore(store).index(indexName);
-                    const request = index.getAll(value);
-                    request.onsuccess = () => resolve(request.result);
-                    request.onerror = () => reject(request.error);
-                });
+                const snap = await this._col(store).where(indexName, '==', value).get();
+                return snap.docs.map(d => ({ ...d.data(), id: d.id }));
             }
         };
 
@@ -1041,7 +1005,7 @@
             );
         }
 
-        function TaskFormModal({ patientId, onClose, onSave }) {
+        function TaskFormModal({ patientId, teamData, onClose, onSave }) {
             const [category, setCategory] = React.useState('Labs');
             const [description, setDescription] = React.useState('');
             const [priority, setPriority] = React.useState('Medium');
@@ -1124,14 +1088,14 @@
                                 </select>
                             </div>
                             <div>
-                                <label className="block text-sm font-semibold text-gray-600 mb-1">Assign To</label>
-                                <input
-                                    type="text"
-                                    value={assignee}
-                                    onChange={(e) => setAssignee(e.target.value)}
-                                    placeholder="Resident name"
-                                    className="w-full bg-gray-50 border border-gray-300 rounded px-3 py-2 text-gray-800"
-                                />
+                                <label className="text-sm text-gray-500 block mb-1">Assign To</label>
+                                <select value={assignee} onChange={e => setAssignee(e.target.value)}
+                                    className="w-full bg-gray-50 border border-gray-300 rounded px-3 py-2 text-sm">
+                                    <option value="">Unassigned</option>
+                                    {teamData?.members?.map((m, i) => (
+                                        <option key={i} value={m.name || m.email}>{m.name || m.email}</option>
+                                    ))}
+                                </select>
                             </div>
                             <div className="flex gap-2 pt-2">
                                 <button type="submit" className="flex-1 bg-emerald-600 hover:bg-emerald-700 font-bold py-2 rounded">Save</button>
@@ -1913,7 +1877,7 @@
         }
 
         // ==================== TEAM TASKS COMPONENT ====================
-        function TeamTasks() {
+        function TeamTasks({ teamData, currentUser }) {
             const [patients, setPatients] = React.useState([]);
             const [tasks, setTasks] = React.useState([]);
             const [filter, setFilter] = React.useState('All');
@@ -1933,7 +1897,7 @@
             };
 
             const handleSaveTask = async (taskData) => {
-                await DB.add('tasks', taskData);
+                await DB.add('tasks', { ...taskData, assignedBy: currentUser?.displayName || currentUser?.email });
                 setShowTaskForm(false);
                 setSelectedPatientForTask(null);
                 loadData();
@@ -1942,7 +1906,7 @@
             const toggleTaskComplete = async (taskId, currentState) => {
                 const task = tasks.find(t => t.id === taskId);
                 if (task) {
-                    await DB.put('tasks', { ...task, completed: !currentState });
+                    await DB.put('tasks', { ...task, completed: !currentState, completedBy: !currentState ? (currentUser?.displayName || currentUser?.email) : null, completedAt: !currentState ? new Date().toISOString() : null });
                     loadData();
                 }
             };
@@ -1970,7 +1934,8 @@
                     priority: parsed.priority || 'Medium',
                     assignee: '',
                     completed: false,
-                    createdAt: new Date().toISOString()
+                    createdAt: new Date().toISOString(),
+                    assignedBy: currentUser?.displayName || currentUser?.email
                 });
                 dictation.clear();
             };
@@ -2160,6 +2125,12 @@
                                                             {task.assignee && (
                                                                 <div className="text-xs opacity-75">→ {task.assignee}</div>
                                                             )}
+                                                            {task.assignedBy && (
+                                                                <div className="text-xs text-gray-400">added by {task.assignedBy}</div>
+                                                            )}
+                                                            {task.completed && task.completedBy && (
+                                                                <span className="text-xs text-green-600 ml-2">done by {task.completedBy}</span>
+                                                            )}
                                                             {task.priority === 'High' && (
                                                                 <div className="text-xs font-semibold text-red-600">🔴 High Priority</div>
                                                             )}
@@ -2184,6 +2155,7 @@
                     {showTaskForm && (
                         <TaskFormModal
                             patientId={selectedPatientForTask}
+                            teamData={teamData}
                             onClose={() => {
                                 setShowTaskForm(false);
                                 setSelectedPatientForTask(null);
@@ -4421,18 +4393,330 @@
             );
         }
 
+        // ==================== LOGIN SCREEN ====================
+        function LoginScreen({ onLogin }) {
+            const [mode, setMode] = React.useState('login'); // 'login', 'signup'
+            const [email, setEmail] = React.useState('');
+            const [password, setPassword] = React.useState('');
+            const [displayName, setDisplayName] = React.useState('');
+            const [error, setError] = React.useState('');
+            const [loading, setLoading] = React.useState(false);
+
+            const handleEmailLogin = async (e) => {
+                e.preventDefault();
+                setError('');
+                setLoading(true);
+                try {
+                    if (mode === 'signup') {
+                        const cred = await auth.createUserWithEmailAndPassword(email, password);
+                        await cred.user.updateProfile({ displayName: displayName || email.split('@')[0] });
+                    } else {
+                        await auth.signInWithEmailAndPassword(email, password);
+                    }
+                } catch (err) {
+                    setError(err.message.replace('Firebase: ', ''));
+                }
+                setLoading(false);
+            };
+
+            const handleGoogleLogin = async () => {
+                setError('');
+                setLoading(true);
+                try {
+                    const provider = new firebase.auth.GoogleAuthProvider();
+                    await auth.signInWithPopup(provider);
+                } catch (err) {
+                    setError(err.message.replace('Firebase: ', ''));
+                }
+                setLoading(false);
+            };
+
+            return (
+                <div className="min-h-screen bg-cream-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-sm">
+                        <div className="text-center mb-6">
+                            <h1 className="text-3xl font-bold text-medical-700">🩺 ChiefRounds</h1>
+                            <p className="text-gray-500 text-sm mt-1">Surgical Resident Tracker</p>
+                        </div>
+
+                        {error && (
+                            <div className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg p-3 mb-4">
+                                {error}
+                            </div>
+                        )}
+
+                        <button
+                            onClick={handleGoogleLogin}
+                            disabled={loading}
+                            className="w-full flex items-center justify-center gap-3 bg-white border-2 border-gray-200 hover:border-gray-300 hover:bg-gray-50 text-gray-700 font-medium py-3 px-4 rounded-lg transition mb-4"
+                        >
+                            <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z"/><path fill="#FBBC05" d="M3.964 10.71c-.18-.54-.282-1.117-.282-1.71s.102-1.17.282-1.71V4.958H.957C.347 6.173 0 7.548 0 9s.348 2.827.957 4.042l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"/></svg>
+                            Continue with Google
+                        </button>
+
+                        <div className="flex items-center gap-3 my-4">
+                            <div className="flex-1 h-px bg-gray-200"></div>
+                            <span className="text-xs text-gray-400 font-medium">OR</span>
+                            <div className="flex-1 h-px bg-gray-200"></div>
+                        </div>
+
+                        <form onSubmit={handleEmailLogin} className="space-y-3">
+                            {mode === 'signup' && (
+                                <input
+                                    type="text"
+                                    placeholder="Display name (e.g., Dr. Bell)"
+                                    value={displayName}
+                                    onChange={e => setDisplayName(e.target.value)}
+                                    className="w-full border border-gray-300 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-medical-500 focus:border-transparent"
+                                />
+                            )}
+                            <input
+                                type="email"
+                                placeholder="Email address"
+                                value={email}
+                                onChange={e => setEmail(e.target.value)}
+                                required
+                                className="w-full border border-gray-300 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-medical-500 focus:border-transparent"
+                            />
+                            <input
+                                type="password"
+                                placeholder="Password"
+                                value={password}
+                                onChange={e => setPassword(e.target.value)}
+                                required
+                                minLength={6}
+                                className="w-full border border-gray-300 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-medical-500 focus:border-transparent"
+                            />
+                            <button
+                                type="submit"
+                                disabled={loading}
+                                className="w-full bg-medical-600 text-white hover:bg-medical-700 font-semibold py-3 px-4 rounded-lg transition disabled:opacity-50"
+                            >
+                                {loading ? 'Please wait...' : mode === 'signup' ? 'Create Account' : 'Sign In'}
+                            </button>
+                        </form>
+
+                        <p className="text-center text-sm text-gray-500 mt-4">
+                            {mode === 'login' ? (
+                                <>No account? <button onClick={() => { setMode('signup'); setError(''); }} className="text-medical-600 font-medium">Sign up</button></>
+                            ) : (
+                                <>Already have one? <button onClick={() => { setMode('login'); setError(''); }} className="text-medical-600 font-medium">Sign in</button></>
+                            )}
+                        </p>
+                    </div>
+                </div>
+            );
+        }
+
+        // ==================== TEAM SETUP ====================
+        function TeamSetup({ user, onTeamReady }) {
+            const [mode, setMode] = React.useState(null); // null, 'create', 'join'
+            const [teamName, setTeamName] = React.useState('');
+            const [joinCode, setJoinCode] = React.useState('');
+            const [error, setError] = React.useState('');
+            const [loading, setLoading] = React.useState(false);
+
+            const generateCode = () => Math.random().toString(36).substring(2, 8).toUpperCase();
+
+            const handleCreate = async () => {
+                if (!teamName.trim()) return;
+                setLoading(true);
+                setError('');
+                try {
+                    const code = generateCode();
+                    const teamRef = await db.collection('teams').add({
+                        name: teamName.trim(),
+                        inviteCode: code,
+                        createdBy: user.uid,
+                        createdAt: new Date().toISOString(),
+                        members: [{ uid: user.uid, name: user.displayName || user.email, email: user.email, role: 'admin' }]
+                    });
+                    await db.collection('users').doc(user.uid).set({
+                        email: user.email,
+                        displayName: user.displayName || user.email.split('@')[0],
+                        teamId: teamRef.id,
+                        role: 'admin'
+                    }, { merge: true });
+                    onTeamReady(teamRef.id);
+                } catch (err) {
+                    setError(err.message);
+                }
+                setLoading(false);
+            };
+
+            const handleJoin = async () => {
+                if (!joinCode.trim()) return;
+                setLoading(true);
+                setError('');
+                try {
+                    const snap = await db.collection('teams').where('inviteCode', '==', joinCode.trim().toUpperCase()).get();
+                    if (snap.empty) {
+                        setError('Invalid invite code. Please check and try again.');
+                        setLoading(false);
+                        return;
+                    }
+                    const teamDoc = snap.docs[0];
+                    const teamData = teamDoc.data();
+                    const alreadyMember = teamData.members?.some(m => m.uid === user.uid);
+                    if (!alreadyMember) {
+                        await teamDoc.ref.update({
+                            members: firebase.firestore.FieldValue.arrayUnion({
+                                uid: user.uid,
+                                name: user.displayName || user.email,
+                                email: user.email,
+                                role: 'member'
+                            })
+                        });
+                    }
+                    await db.collection('users').doc(user.uid).set({
+                        email: user.email,
+                        displayName: user.displayName || user.email.split('@')[0],
+                        teamId: teamDoc.id,
+                        role: 'member'
+                    }, { merge: true });
+                    onTeamReady(teamDoc.id);
+                } catch (err) {
+                    setError(err.message);
+                }
+                setLoading(false);
+            };
+
+            return (
+                <div className="min-h-screen bg-cream-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-sm">
+                        <div className="text-center mb-6">
+                            <h1 className="text-2xl font-bold text-medical-700">🩺 Welcome!</h1>
+                            <p className="text-gray-500 text-sm mt-1">Hi {user.displayName || user.email}. Set up your team to get started.</p>
+                        </div>
+
+                        {error && (
+                            <div className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg p-3 mb-4">{error}</div>
+                        )}
+
+                        {!mode && (
+                            <div className="space-y-3">
+                                <button onClick={() => setMode('create')} className="w-full bg-medical-600 text-white hover:bg-medical-700 font-semibold py-3 px-4 rounded-lg transition">
+                                    Create a New Team
+                                </button>
+                                <button onClick={() => setMode('join')} className="w-full bg-white border-2 border-gray-200 hover:border-gray-300 text-gray-700 font-medium py-3 px-4 rounded-lg transition">
+                                    Join an Existing Team
+                                </button>
+                            </div>
+                        )}
+
+                        {mode === 'create' && (
+                            <div className="space-y-3">
+                                <input
+                                    type="text"
+                                    placeholder="Team name (e.g., Gen Surg Gold)"
+                                    value={teamName}
+                                    onChange={e => setTeamName(e.target.value)}
+                                    className="w-full border border-gray-300 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-medical-500"
+                                />
+                                <button onClick={handleCreate} disabled={loading} className="w-full bg-medical-600 text-white hover:bg-medical-700 font-semibold py-3 rounded-lg transition disabled:opacity-50">
+                                    {loading ? 'Creating...' : 'Create Team'}
+                                </button>
+                                <button onClick={() => setMode(null)} className="w-full text-sm text-gray-500 hover:text-gray-700">Back</button>
+                            </div>
+                        )}
+
+                        {mode === 'join' && (
+                            <div className="space-y-3">
+                                <input
+                                    type="text"
+                                    placeholder="Enter invite code"
+                                    value={joinCode}
+                                    onChange={e => setJoinCode(e.target.value.toUpperCase())}
+                                    maxLength={6}
+                                    className="w-full border border-gray-300 rounded-lg px-4 py-3 text-sm tracking-widest text-center font-mono uppercase focus:outline-none focus:ring-2 focus:ring-medical-500"
+                                />
+                                <button onClick={handleJoin} disabled={loading} className="w-full bg-medical-600 text-white hover:bg-medical-700 font-semibold py-3 rounded-lg transition disabled:opacity-50">
+                                    {loading ? 'Joining...' : 'Join Team'}
+                                </button>
+                                <button onClick={() => setMode(null)} className="w-full text-sm text-gray-500 hover:text-gray-700">Back</button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
         // ==================== MAIN APP ====================
         function App() {
+            const [user, setUser] = React.useState(null);
+            const [teamId, setTeamId] = React.useState(null);
+            const [teamData, setTeamData] = React.useState(null);
+            const [authLoading, setAuthLoading] = React.useState(true);
             const [activeTab, setActiveTab] = React.useState('Patients');
             const [isMobile, setIsMobile] = React.useState(window.innerWidth < 768);
+            const [showProfile, setShowProfile] = React.useState(false);
+
+            // Listen for auth state changes (persisted login)
+            React.useEffect(() => {
+                const unsub = auth.onAuthStateChanged(async (u) => {
+                    setUser(u);
+                    if (u) {
+                        // Check if user has a team
+                        const userDoc = await db.collection('users').doc(u.uid).get();
+                        if (userDoc.exists && userDoc.data().teamId) {
+                            const tid = userDoc.data().teamId;
+                            setTeamId(tid);
+                            DB.setTeamId(tid);
+                            // Load team data
+                            const teamDoc = await db.collection('teams').doc(tid).get();
+                            if (teamDoc.exists) setTeamData({ id: tid, ...teamDoc.data() });
+                        }
+                    } else {
+                        setTeamId(null);
+                        setTeamData(null);
+                    }
+                    setAuthLoading(false);
+                });
+                return () => unsub();
+            }, []);
 
             React.useEffect(() => {
-                const handleResize = () => {
-                    setIsMobile(window.innerWidth < 768);
-                };
+                const handleResize = () => setIsMobile(window.innerWidth < 768);
                 window.addEventListener('resize', handleResize);
                 return () => window.removeEventListener('resize', handleResize);
             }, []);
+
+            const handleTeamReady = async (tid) => {
+                setTeamId(tid);
+                DB.setTeamId(tid);
+                const teamDoc = await db.collection('teams').doc(tid).get();
+                if (teamDoc.exists) setTeamData({ id: tid, ...teamDoc.data() });
+            };
+
+            const handleSignOut = () => {
+                auth.signOut();
+                setUser(null);
+                setTeamId(null);
+                setTeamData(null);
+                setShowProfile(false);
+            };
+
+            // Loading state
+            if (authLoading) {
+                return (
+                    <div className="min-h-screen bg-cream-50 flex items-center justify-center">
+                        <div className="text-center">
+                            <h1 className="text-2xl font-bold text-medical-700 mb-2">🩺 ChiefRounds</h1>
+                            <p className="text-gray-500">Loading...</p>
+                        </div>
+                    </div>
+                );
+            }
+
+            // Not logged in
+            if (!user) {
+                return <LoginScreen />;
+            }
+
+            // Logged in but no team
+            if (!teamId) {
+                return <TeamSetup user={user} onTeamReady={handleTeamReady} />;
+            }
 
             const tabs = ['Patients', 'Attending', 'Tasks', 'Consults', 'Trauma', 'Census', 'Handoff', 'Pre-Round', 'Rounds'];
 
@@ -4440,7 +4724,7 @@
                 switch (activeTab) {
                     case 'Patients': return <PatientTracker />;
                     case 'Attending': return <AttendingView />;
-                    case 'Tasks': return <TeamTasks />;
+                    case 'Tasks': return <TeamTasks teamData={teamData} currentUser={user} />;
                     case 'Consults': return <ConsultsTracker />;
                     case 'Trauma': return <TraumaActivations />;
                     case 'Census': return <CensusManagement />;
@@ -4451,25 +4735,71 @@
                 }
             };
 
+            // Profile dropdown component
+            const ProfileMenu = () => (
+                <div className="relative">
+                    <button
+                        onClick={() => setShowProfile(!showProfile)}
+                        className="flex items-center gap-2 bg-gray-50 hover:bg-gray-100 rounded-full py-1.5 px-3 transition"
+                    >
+                        <div className="w-7 h-7 rounded-full bg-medical-600 text-white flex items-center justify-center text-xs font-bold">
+                            {(user.displayName || user.email || '?')[0].toUpperCase()}
+                        </div>
+                        <span className="text-sm font-medium text-gray-700 hidden md:inline">{user.displayName || user.email?.split('@')[0]}</span>
+                    </button>
+                    {showProfile && (
+                        <div className="absolute right-0 top-full mt-2 bg-white border border-gray-200 rounded-lg shadow-lg w-72 z-50 overflow-hidden">
+                            <div className="p-4 border-b border-gray-100">
+                                <p className="font-semibold text-gray-800">{user.displayName || 'User'}</p>
+                                <p className="text-xs text-gray-500">{user.email}</p>
+                            </div>
+                            {teamData && (
+                                <div className="p-4 border-b border-gray-100">
+                                    <p className="text-xs text-gray-400 font-medium uppercase tracking-wide mb-1">Team</p>
+                                    <p className="font-semibold text-gray-800">{teamData.name}</p>
+                                    <div className="flex items-center gap-2 mt-2">
+                                        <span className="text-xs text-gray-500">Invite code:</span>
+                                        <code className="text-xs font-mono bg-gray-100 px-2 py-0.5 rounded font-bold tracking-widest">{teamData.inviteCode}</code>
+                                    </div>
+                                    <p className="text-xs text-gray-400 mt-2">{teamData.members?.length || 1} member(s)</p>
+                                    <div className="mt-2 space-y-1">
+                                        {teamData.members?.map((m, i) => (
+                                            <div key={i} className="flex items-center gap-2 text-xs text-gray-600">
+                                                <div className="w-5 h-5 rounded-full bg-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-500">{(m.name || m.email || '?')[0].toUpperCase()}</div>
+                                                <span>{m.name || m.email}</span>
+                                                {m.role === 'admin' && <span className="text-[10px] bg-medical-600 text-white px-1.5 py-0.5 rounded">Admin</span>}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                            <div className="p-2">
+                                <button onClick={handleSignOut} className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-md transition">
+                                    Sign Out
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+
             if (isMobile) {
                 return (
                     <div className="min-h-screen bg-cream-50 flex flex-col">
-                        {/* Header */}
                         <div className="bg-white border-b border-gray-200 p-3 sticky top-0 z-20 shadow-sm">
                             <div className="flex justify-between items-center">
                                 <div>
                                     <h1 className="text-xl font-bold text-medical-600">🩺 ChiefRounds</h1>
                                     <p className="text-xs text-gray-500">{getTodayDateString()}</p>
                                 </div>
+                                <ProfileMenu />
                             </div>
                         </div>
 
-                        {/* Content */}
-                        <div className="flex-1 overflow-y-auto pb-20">
+                        <div className="flex-1 overflow-y-auto pb-20" onClick={() => showProfile && setShowProfile(false)}>
                             {renderContent()}
                         </div>
 
-                        {/* Mobile Bottom Navigation */}
                         <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex justify-around text-xs shadow-[0_-2px_8px_rgba(0,0,0,0.06)]" style={{paddingBottom: 'env(safe-area-inset-bottom)'}}>
                             {tabs.slice(0, 5).map(tab => (
                                 <button
@@ -4496,7 +4826,7 @@
                                     More
                                 </button>
                                 {activeTab === 'More' && (
-                                    <div className="absolute bottom-full right-0 bg-white border border-gray-200 rounded mb-1">
+                                    <div className="absolute bottom-full right-0 bg-white border border-gray-200 rounded mb-1 shadow-lg">
                                         {tabs.slice(5).map(tab => (
                                             <button
                                                 key={tab}
@@ -4517,15 +4847,16 @@
             // Desktop Layout
             return (
                 <div className="min-h-screen bg-cream-50 flex flex-col">
-                    {/* Header */}
                     <div className="bg-white border-b border-gray-200 p-4 sticky top-0 z-20 shadow-sm">
                         <div className="flex justify-between items-center">
                             <h1 className="text-2xl font-bold text-medical-700">🩺 ChiefRounds</h1>
-                            <p className="text-sm text-gray-500">{getCurrentDateTime()}</p>
+                            <div className="flex items-center gap-4">
+                                <p className="text-sm text-gray-500">{getCurrentDateTime()}</p>
+                                <ProfileMenu />
+                            </div>
                         </div>
                     </div>
 
-                    {/* Top Navigation */}
                     <div className="bg-white border-b border-gray-200 flex overflow-x-auto shadow-sm">
                         {tabs.map(tab => (
                             <button
@@ -4542,8 +4873,7 @@
                         ))}
                     </div>
 
-                    {/* Content */}
-                    <div className="flex-1 overflow-y-auto">
+                    <div className="flex-1 overflow-y-auto" onClick={() => showProfile && setShowProfile(false)}>
                         {renderContent()}
                     </div>
                 </div>
