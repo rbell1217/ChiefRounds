@@ -1221,7 +1221,8 @@
 
             const loadPatients = async () => {
                 const patientsData = await DB.getAll('patients');
-                setPatients(patientsData.sort((a, b) => {
+                const active = patientsData.filter(p => p.status !== 'discharged');
+                setPatients(active.sort((a, b) => {
                     if (sortBy === 'room') return parseInt(a.room) - parseInt(b.room);
                     if (sortBy === 'pod') return calculatePOD(b.admitDate) - calculatePOD(a.admitDate);
                     if (sortBy === 'flags') return (b.concerns ? 1 : 0) - (a.concerns ? 1 : 0);
@@ -1624,8 +1625,8 @@
                 const labsData = await DB.getAll('labs');
                 const outputsData = await DB.getAll('outputs');
 
-                // Sort: red flags first, then by room
-                const sorted = patientsData.sort((a, b) => {
+                // Filter out discharged, sort: red flags first, then by room
+                const sorted = patientsData.filter(p => p.status !== 'discharged').sort((a, b) => {
                     if ((b.concerns ? 1 : 0) !== (a.concerns ? 1 : 0)) {
                         return (b.concerns ? 1 : 0) - (a.concerns ? 1 : 0);
                     }
@@ -2088,7 +2089,7 @@
             const loadData = async () => {
                 const patientsData = await DB.getAll('patients');
                 const tasksData = await DB.getAll('tasks');
-                setPatients(patientsData.sort((a, b) => parseInt(a.room) - parseInt(b.room)));
+                setPatients(patientsData.filter(p => p.status !== 'discharged').sort((a, b) => parseInt(a.room) - parseInt(b.room)));
                 setTasks(tasksData);
             };
 
