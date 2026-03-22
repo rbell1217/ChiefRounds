@@ -2720,6 +2720,107 @@
                                                 );
                                             })()}
 
+                                            {/* Today's Rounds Summary */}
+                                            {(() => {
+                                                const today = getTodayISO();
+                                                const todayRounds = patient.roundsHistory?.[today];
+                                                if (!todayRounds) return null;
+                                                const p = todayRounds.parsed || todayRounds;
+                                                const hasContent = p.vitals || p.labNotes || p.examFindings || p.summary ||
+                                                    (p.orders && p.orders.length > 0) || p.diet || p.activity || p.plan ||
+                                                    p.concerns || p.disposition || p.dvtProphylaxis || p.giProphylaxis ||
+                                                    (p.problems && p.problems.length > 0);
+                                                if (!hasContent) return null;
+                                                return (
+                                                    <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+                                                        <div className="flex justify-between items-center mb-2">
+                                                            <p className="text-xs font-bold text-emerald-700 uppercase">Today's Rounds Summary</p>
+                                                            <span className="text-xs text-emerald-400">{todayRounds.timestamp ? new Date(todayRounds.timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : ''}</span>
+                                                        </div>
+                                                        <div className="space-y-1">
+                                                            {p.vitals && (
+                                                                <div className="text-xs">
+                                                                    <span className="font-semibold text-emerald-600">Vitals:</span>{' '}
+                                                                    <span className="text-gray-700">{p.vitals}</span>
+                                                                </div>
+                                                            )}
+                                                            {p.labNotes && (
+                                                                <div className="text-xs">
+                                                                    <span className="font-semibold text-emerald-600">Labs:</span>{' '}
+                                                                    <span className="text-gray-700">{p.labNotes}</span>
+                                                                </div>
+                                                            )}
+                                                            {p.examFindings && (
+                                                                <div className="text-xs">
+                                                                    <span className="font-semibold text-emerald-600">Exam:</span>{' '}
+                                                                    <span className="text-gray-700">{p.examFindings}</span>
+                                                                </div>
+                                                            )}
+                                                            {p.diet && (
+                                                                <div className="text-xs">
+                                                                    <span className="font-semibold text-emerald-600">Diet:</span>{' '}
+                                                                    <span className="text-gray-700">{p.diet}</span>
+                                                                </div>
+                                                            )}
+                                                            {p.activity && (
+                                                                <div className="text-xs">
+                                                                    <span className="font-semibold text-emerald-600">Activity:</span>{' '}
+                                                                    <span className="text-gray-700">{p.activity}</span>
+                                                                </div>
+                                                            )}
+                                                            {p.dvtProphylaxis && (
+                                                                <div className="text-xs">
+                                                                    <span className="font-semibold text-emerald-600">DVT Ppx:</span>{' '}
+                                                                    <span className="text-gray-700">{p.dvtProphylaxis}</span>
+                                                                </div>
+                                                            )}
+                                                            {p.giProphylaxis && (
+                                                                <div className="text-xs">
+                                                                    <span className="font-semibold text-emerald-600">GI Ppx:</span>{' '}
+                                                                    <span className="text-gray-700">{p.giProphylaxis}</span>
+                                                                </div>
+                                                            )}
+                                                            {(p.orders || []).length > 0 && (
+                                                                <div className="text-xs">
+                                                                    <span className="font-semibold text-emerald-600">Orders:</span>{' '}
+                                                                    <span className="text-gray-700">{p.orders.join(', ')}</span>
+                                                                </div>
+                                                            )}
+                                                            {p.plan && (
+                                                                <div className="text-xs">
+                                                                    <span className="font-semibold text-emerald-600">Plan:</span>{' '}
+                                                                    <span className="text-gray-700">{p.plan}</span>
+                                                                </div>
+                                                            )}
+                                                            {p.concerns && (
+                                                                <div className="text-xs">
+                                                                    <span className="font-semibold text-red-600">Concerns:</span>{' '}
+                                                                    <span className="text-red-600">{p.concerns}</span>
+                                                                </div>
+                                                            )}
+                                                            {(p.problems || []).length > 0 && (
+                                                                <div className="text-xs">
+                                                                    <span className="font-semibold text-orange-600">New Problems:</span>{' '}
+                                                                    <span className="text-gray-700">{p.problems.join(', ')}</span>
+                                                                </div>
+                                                            )}
+                                                            {p.disposition && (
+                                                                <div className="text-xs">
+                                                                    <span className="font-semibold text-emerald-600">Dispo:</span>{' '}
+                                                                    <span className="text-gray-700">{p.disposition}</span>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                        {p.summary && (
+                                                            <div className="mt-2 pt-2 border-t border-emerald-200 text-xs">
+                                                                <span className="font-semibold text-emerald-600">Summary:</span>{' '}
+                                                                <span className="text-gray-600">{p.summary}</span>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })()}
+
                                             {/* Disposition */}
                                             {patient.dispositionPlan && (
                                                 <div className="text-sm">
@@ -5367,7 +5468,7 @@ To-do: Check AM labs, I/Os q4h`}
             const [isRecording, setIsRecording] = React.useState(false);
             const [transcript, setTranscript] = React.useState('');
             const [liveTranscript, setLiveTranscript] = React.useState('');
-            const [parsedItems, setParsedItems] = React.useState({ diet: null, activity: null, orders: [], disposition: null, plan: null, dvtProphylaxis: null, giProphylaxis: null, concerns: null, problems: [], examFindings: null });
+            const [parsedItems, setParsedItems] = React.useState({ diet: null, activity: null, orders: [], disposition: null, plan: null, dvtProphylaxis: null, giProphylaxis: null, concerns: null, problems: [], examFindings: null, vitals: null, labNotes: null, summary: null });
             const [recordingsList, setRecordingsList] = React.useState({});
             const recordingRef = React.useRef(null);
             const recognitionRef = React.useRef(null);
@@ -5432,7 +5533,7 @@ To-do: Check AM labs, I/Os q4h`}
             };
 
             const parseTranscript = () => {
-                // Normalize STT text
+                // Normalize STT text (same approach as pre-round parser)
                 let t = transcript
                     .replace(/IV(?=[a-z])/g, 'IV ')
                     .replace(/(?<=[a-z])IV/g, ' IV')
@@ -5442,95 +5543,277 @@ To-do: Check AM labs, I/Os q4h`}
                     .replace(/\boral\s*payments?\b/gi, 'oral pain meds')
                     .replace(/\bover\s*(\d)/gi, '/$1')
                     .replace(/\bby\s*mouth\b/gi, 'PO')
-                    .replace(/\bintravenous\b/gi, 'IV');
+                    .replace(/\bintravenous\b/gi, 'IV')
+                    .replace(/\bblood\s*pressure/gi, 'BP')
+                    .replace(/\bheart\s*rate/gi, 'HR')
+                    .replace(/\brespiratory\s*rate/gi, 'RR')
+                    .replace(/\bsat(?:uration)?s?\s*(\d)/gi, 'SpO2 $1')
+                    .replace(/\bo2\s*sat/gi, 'SpO2')
+                    .replace(/\bwhite\s*(?:blood\s*)?(?:cell\s*)?count/gi, 'WBC')
+                    .replace(/\bhemoglobin\b/gi, 'Hgb')
+                    .replace(/\bcreatinine\b/gi, 'Cr')
+                    .replace(/\bpotassium\b/gi, 'K')
+                    .replace(/\bsodium\b/gi, 'Na')
+                    .replace(/\bplatelets?\b/gi, 'Plt');
 
                 const lower = t.toLowerCase();
-                const parsed = { diet: null, activity: null, orders: [], disposition: null, plan: null, dvtProphylaxis: null, giProphylaxis: null, concerns: null, problems: [], examFindings: null };
+                const parsed = { diet: null, activity: null, orders: [], disposition: null, plan: null, dvtProphylaxis: null, giProphylaxis: null, concerns: null, problems: [], examFindings: null, vitals: null, labNotes: null, summary: null };
 
-                // Diet
+                // Diet - scan entire transcript
                 if (/\bnpo\b/i.test(lower)) parsed.diet = 'NPO';
                 else if (/full\s*liquids?/i.test(lower)) parsed.diet = 'Full Liquids';
-                else if (/clear\s*liquids?|clears\b/i.test(lower)) parsed.diet = 'Clears';
-                else if (/advance\s*(?:diet|as\s*tolerated)/i.test(lower)) parsed.diet = 'Advance as tolerated';
-                else if (/regular\s*diet/i.test(lower)) parsed.diet = 'Regular';
+                else if (/clear\s*liquids?|\bclears\b/i.test(lower)) parsed.diet = 'Clears';
+                else if (/advance\s*(?:diet|as\s*tolerated)|advance\s*to/i.test(lower)) parsed.diet = 'Advance as tolerated';
+                else if (/regular\s*diet|\bregular\b.*\bdiet\b/i.test(lower)) parsed.diet = 'Regular';
                 else if (/low\s*residue/i.test(lower)) parsed.diet = 'Low Residue';
-                else if (/cardiac|heart\s*healthy/i.test(lower)) parsed.diet = 'Cardiac';
+                else if (/cardiac|heart\s*healthy/i.test(lower) && /diet/i.test(lower)) parsed.diet = 'Cardiac';
                 else if (/renal|kidney/i.test(lower) && /diet/i.test(lower)) parsed.diet = 'Renal';
                 else if (/diabetic/i.test(lower) && /diet/i.test(lower)) parsed.diet = 'Diabetic';
+                else if (/mechanical\s*soft/i.test(lower)) parsed.diet = 'Mechanical Soft';
+                else if (/sips/i.test(lower)) parsed.diet = 'Sips';
+                else if (/low\s*fat/i.test(lower)) parsed.diet = 'Low Fat';
 
-                // Activity
+                // Activity - scan entire transcript
                 if (/bed\s*rest|bedrest/i.test(lower)) parsed.activity = 'Bedrest';
-                else if (/up\s*to\s*chair|out\s*of\s*bed\s*to\s*chair/i.test(lower)) parsed.activity = 'Up to Chair';
-                else if (/ambulate\s*(?:three\s*times|tid|3\s*times)/i.test(lower)) parsed.activity = 'Ambulate TID';
-                else if (/ambulate\s*(?:twice|bid|2\s*times)/i.test(lower)) parsed.activity = 'Ambulate BID';
-                else if (/ambulate|walking|walk/i.test(lower)) parsed.activity = 'Ambulate';
+                else if (/dangle/i.test(lower)) parsed.activity = 'Dangle';
+                else if (/up\s*to\s*chair|out\s*of\s*bed\s*to\s*chair|oob\s*to\s*chair/i.test(lower)) parsed.activity = 'Up to Chair';
+                else if (/ambulate\s*(?:three\s*times|tid|3\s*times|t\.?i\.?d)/i.test(lower)) parsed.activity = 'Ambulate TID';
+                else if (/ambulate\s*(?:twice|bid|2\s*times|b\.?i\.?d)/i.test(lower)) parsed.activity = 'Ambulate BID';
+                else if (/ambulate|walking|walk\s*(?:patient|them|him|her)/i.test(lower)) parsed.activity = 'Ambulate';
                 else if (/weight\s*bearing\s*as\s*tolerated|wbat/i.test(lower)) parsed.activity = 'WBAT';
-                else if (/non\s*weight\s*bearing|nwb/i.test(lower)) parsed.activity = 'NWB';
-                if (/physical\s*therapy|pt\s*(?:eval|consult)/i.test(lower)) parsed.orders.push('PT evaluation');
+                else if (/non\s*weight\s*bearing|nwb|no\s*weight\s*bearing/i.test(lower)) parsed.activity = 'NWB';
+                else if (/toe\s*touch|tdwb/i.test(lower)) parsed.activity = 'TDWB';
+                if (/physical\s*therapy|pt\s*(?:eval|consult|to\s*see)/i.test(lower)) parsed.orders.push('PT evaluation');
+                if (/occupational\s*therapy|ot\s*(?:eval|consult|to\s*see)/i.test(lower)) parsed.orders.push('OT evaluation');
 
                 // DVT Prophylaxis
-                if (/heparin\s*5000\s*(?:tid|three)/i.test(lower)) parsed.dvtProphylaxis = 'Heparin 5000 TID';
-                else if (/heparin\s*5000\s*(?:bid|twice)/i.test(lower)) parsed.dvtProphylaxis = 'Heparin 5000 BID';
+                if (/heparin\s*5000\s*(?:tid|three|t\.?i\.?d)/i.test(lower) || /heparin\s*(?:sub\s*q|subcutaneous)\s*(?:tid|three)/i.test(lower)) parsed.dvtProphylaxis = 'Heparin 5000 TID';
+                else if (/heparin\s*5000\s*(?:bid|twice|b\.?i\.?d)/i.test(lower)) parsed.dvtProphylaxis = 'Heparin 5000 BID';
                 else if (/lovenox|enoxaparin/i.test(lower)) parsed.dvtProphylaxis = 'Lovenox';
-                else if (/scds?|sequential\s*compression/i.test(lower)) parsed.dvtProphylaxis = 'SCDs';
-                else if (/ted\s*hose|teds/i.test(lower)) parsed.dvtProphylaxis = 'TEDs';
+                else if (/\bscds?\b|sequential\s*compression/i.test(lower)) parsed.dvtProphylaxis = 'SCDs';
+                else if (/ted\s*hose|teds\b/i.test(lower)) parsed.dvtProphylaxis = 'TEDs';
+                else if (/\bheparin\b/i.test(lower) && /prophylaxis|dvt|clot/i.test(lower)) parsed.dvtProphylaxis = 'Heparin';
 
                 // GI Prophylaxis
                 if (/pantoprazole|protonix/i.test(lower)) parsed.giProphylaxis = 'Pantoprazole';
                 else if (/famotidine|pepcid/i.test(lower)) parsed.giProphylaxis = 'Famotidine';
                 else if (/omeprazole|prilosec/i.test(lower)) parsed.giProphylaxis = 'Omeprazole';
+                else if (/lansoprazole|prevacid/i.test(lower)) parsed.giProphylaxis = 'Lansoprazole';
+                else if (/sucralfate|carafate/i.test(lower)) parsed.giProphylaxis = 'Sucralfate';
 
-                // Orders - capture specific actionable items
-                if (/(?:order|get|check|send|repeat|recheck)\s+(?:a\s+)?(?:cbc|bmp|cmp|bm p|metabolic)/i.test(lower)) parsed.orders.push('Repeat labs');
-                if (/(?:order|get|check|send)\s+(?:a\s+)?(?:ct|cat scan|imaging)/i.test(lower)) parsed.orders.push('Order imaging');
-                if (/(?:order|get|check|send)\s+(?:a\s+)?(?:x-?ray|chest\s*x|cxr)/i.test(lower)) parsed.orders.push('Order XR');
-                if (/(?:start|begin|initiate)\s+(?:iv\s+)?(?:antibiotics|abx)/i.test(lower)) parsed.orders.push('Start antibiotics');
-                if (/(?:start|begin|add)\s+(.+?)(?:\s+(?:and|also|then|for|$))/i.test(t)) {
-                    const startMatch = t.match(/(?:start|begin|add)\s+(.+?)(?:\s+(?:and|also|then|for|$))/i);
-                    if (startMatch && startMatch[1].length < 60) parsed.orders.push('Start ' + startMatch[1].trim());
+                // Vitals mentioned
+                const vitalParts = [];
+                const bpMatch = t.match(/BP\s*(\d+\/\d+)/i);
+                if (bpMatch) vitalParts.push('BP ' + bpMatch[1]);
+                const hrMatch = t.match(/HR\s*(\d{2,3})/i);
+                if (hrMatch) vitalParts.push('HR ' + hrMatch[1]);
+                const rrMatch = t.match(/RR\s*(\d{1,2})/i);
+                if (rrMatch) vitalParts.push('RR ' + rrMatch[1]);
+                const spo2Match = t.match(/SpO2\s*(\d{2,3})/i);
+                if (spo2Match) vitalParts.push('SpO2 ' + spo2Match[1] + '%');
+                const tempMatch = t.match(/(?:temp|temperature|t-?max)\s*(?:is|of|was)?\s*(\d{2,3}\.?\d?)/i);
+                if (tempMatch) vitalParts.push('Temp ' + tempMatch[1]);
+                if (/(?:a)?febrile|no\s*fever/i.test(lower)) vitalParts.push('Afebrile');
+                if (/febrile|fever|temp\s*(?:up|elevated|spike)/i.test(lower) && !/afebrile/i.test(lower)) vitalParts.push('Febrile');
+                if (vitalParts.length > 0) parsed.vitals = vitalParts.join(', ');
+
+                // Lab values mentioned
+                const labParts = [];
+                const wbcMatch = t.match(/WBC\s*(?:is|of|was|at)?\s*(\d+\.?\d*)/i);
+                if (wbcMatch) labParts.push('WBC ' + wbcMatch[1]);
+                const hgbMatch = t.match(/Hgb\s*(?:is|of|was|at)?\s*(\d+\.?\d*)/i);
+                if (hgbMatch) labParts.push('Hgb ' + hgbMatch[1]);
+                const crMatch = t.match(/Cr\s*(?:is|of|was|at)?\s*(\d+\.?\d*)/i);
+                if (crMatch) labParts.push('Cr ' + crMatch[1]);
+                const kMatch = t.match(/\bK\s*(?:is|of|was|at)?\s*(\d+\.?\d*)/i);
+                if (kMatch) labParts.push('K ' + kMatch[1]);
+                const naMatch = t.match(/Na\s*(?:is|of|was|at)?\s*(\d+\.?\d*)/i);
+                if (naMatch) labParts.push('Na ' + naMatch[1]);
+                const lactateMatch = t.match(/lactate\s*(?:is|of|was|at)?\s*(\d+\.?\d*)/i);
+                if (lactateMatch) labParts.push('Lactate ' + lactateMatch[1]);
+                const pltMatch = t.match(/Plt\s*(?:is|of|was|at)?\s*(\d+)/i);
+                if (pltMatch) labParts.push('Plt ' + pltMatch[1]);
+                if (/labs?\s*(?:are|were|look|looking)?\s*(?:normal|within\s*normal|wnl|stable|unremarkable)/i.test(lower)) labParts.push('Labs WNL');
+                if (/labs?\s*(?:are|were)?\s*(?:trending|improved|improving|better|normalized)/i.test(lower)) labParts.push('Labs improving');
+                if (labParts.length > 0) parsed.labNotes = labParts.join(', ');
+
+                // Orders - comprehensive scan
+                const orderPatterns = [
+                    [/(?:order|get|check|send|draw|repeat|recheck)\s+(?:a\s+)?(?:cbc|complete\s*blood)/i, 'Check CBC'],
+                    [/(?:order|get|check|send|draw|repeat|recheck)\s+(?:a\s+)?(?:bmp|basic\s*metabolic)/i, 'Check BMP'],
+                    [/(?:order|get|check|send|draw|repeat|recheck)\s+(?:a\s+)?(?:cmp|comprehensive\s*metabolic)/i, 'Check CMP'],
+                    [/(?:order|get|check|send|draw|repeat|recheck)\s+(?:a\s+)?(?:coags?|inr|pt\s*ptt|coagulation)/i, 'Check coags'],
+                    [/(?:order|get|check|send|draw|repeat|recheck)\s+(?:a\s+)?(?:type\s*and\s*screen|t&s)/i, 'T&S'],
+                    [/(?:order|get|check|send|draw|repeat|recheck)\s+(?:a\s+)?(?:blood\s*culture|bcx)/i, 'Blood cultures'],
+                    [/(?:order|get|check|send|draw|repeat|recheck)\s+(?:a\s+)?(?:ua|urinalysis|urine)/i, 'UA + culture'],
+                    [/(?:order|get|check|send|draw|repeat|recheck)\s+(?:a\s+)?(?:lipase|amylase)/i, 'Check lipase'],
+                    [/(?:order|get|check|send|draw|repeat|recheck)\s+(?:a\s+)?(?:troponin)/i, 'Check troponin'],
+                    [/(?:order|get|check|send|draw|repeat|recheck)\s+(?:a\s+)?(?:lactic|lactate)/i, 'Check lactate'],
+                    [/(?:order|get|check|send|draw)\s+(?:a\s+)?(?:ct|cat\s*scan)\s*(\w+)?/i, 'Order CT'],
+                    [/(?:order|get|check|send)\s+(?:a\s+)?(?:x-?ray|xray|chest\s*x|cxr)/i, 'Order XR'],
+                    [/(?:order|get)\s+(?:a\s+)?(?:ultrasound|us|doppler)/i, 'Order ultrasound'],
+                    [/(?:order|get)\s+(?:a\s+)?(?:mri|mr\s*imaging)/i, 'Order MRI'],
+                    [/(?:order|get)\s+(?:a\s+)?(?:ekg|ecg|echo)/i, 'Order EKG/Echo'],
+                    [/(?:give|administer|bolus)\s+(?:a\s+)?(?:liter|litre|500|1000|normal\s*saline|lr|lactated|fluid|iv\s*fluid|bolus)/i, 'IV fluid bolus'],
+                    [/transfuse|(?:give|order)\s+(?:a\s+)?(?:unit|prbc|blood|packed\s*red)/i, 'Transfuse PRBCs'],
+                    [/(?:place|insert|put\s*in)\s+(?:a\s+)?(?:foley|catheter)/i, 'Place Foley'],
+                    [/(?:place|insert|put\s*in)\s+(?:a\s+)?(?:ng|ngt|nasogastric)/i, 'Place NGT'],
+                    [/(?:place|insert|put\s*in)\s+(?:a\s+)?(?:central\s*line|central\s*venous)/i, 'Place central line'],
+                    [/(?:place|insert|put\s*in)\s+(?:a\s+)?(?:art\s*line|arterial\s*line|a-line)/i, 'Place A-line'],
+                    [/wound\s*care|dressing\s*change|pack\s*(?:the\s*)?wound/i, 'Wound care/dressing change'],
+                    [/incentive\s*spirometry|is\s*(?:every|q)/i, 'Incentive spirometry'],
+                    [/(?:strict|monitor)\s*(?:i\s*(?:and|&)\s*o|i\/o|intake|output)/i, 'Strict I&Os'],
+                    [/(?:daily|check)\s*(?:weight|weights)/i, 'Daily weights'],
+                    [/blood\s*(?:sugar|glucose)\s*(?:check|monitoring|qid|q\s*6)/i, 'Blood glucose monitoring'],
+                    [/sliding\s*scale\s*(?:insulin)?/i, 'Sliding scale insulin'],
+                    [/telemetry|tele\s*monitor/i, 'Telemetry'],
+                ];
+                orderPatterns.forEach(([re, label]) => {
+                    if (re.test(lower) && !parsed.orders.includes(label)) parsed.orders.push(label);
+                });
+
+                // Medication orders: start/stop/switch
+                const startMatches = t.matchAll(/(?:start|begin|add|initiate)\s+(.+?)(?:\s+(?:and\s+(?:start|stop|also|check|order|get|switch)|then|also|$))/gi);
+                for (const m of startMatches) {
+                    const med = m[1].trim();
+                    if (med.length > 2 && med.length < 80 && !/^(?:ambulate|walking|PT|OT)/i.test(med)) {
+                        const label = 'Start ' + med;
+                        if (!parsed.orders.some(o => o.toLowerCase() === label.toLowerCase())) parsed.orders.push(label);
+                    }
                 }
-                if (/(?:stop|discontinue|dc|d\/c)\s+(.+?)(?:\s+(?:and|also|then|$))/i.test(t)) {
-                    const stopMatch = t.match(/(?:stop|discontinue|dc|d\/c)\s+(.+?)(?:\s+(?:and|also|then|$))/i);
-                    if (stopMatch && stopMatch[1].length < 60) parsed.orders.push('DC ' + stopMatch[1].trim());
+                const stopMatches = t.matchAll(/(?:stop|discontinue|dc|d\/c|hold|wean)\s+(?:the\s+)?(.+?)(?:\s+(?:and\s+(?:start|stop|also|check|order|get|switch)|then|also|$))/gi);
+                for (const m of stopMatches) {
+                    const med = m[1].trim();
+                    if (med.length > 2 && med.length < 80) {
+                        const label = 'DC ' + med;
+                        if (!parsed.orders.some(o => o.toLowerCase() === label.toLowerCase())) parsed.orders.push(label);
+                    }
                 }
-                if (/(?:switch|change|transition|convert)\s+(?:from\s+)?(.+?)\s+to\s+(.+?)(?:\s+(?:and|also|$))/i.test(t)) {
-                    const switchMatch = t.match(/(?:switch|change|transition|convert)\s+(?:from\s+)?(.+?)\s+to\s+(.+?)(?:\s+(?:and|also|$))/i);
-                    if (switchMatch) parsed.orders.push('Switch ' + switchMatch[1].trim() + ' to ' + switchMatch[2].trim());
+                const switchMatches = t.matchAll(/(?:switch|change|transition|convert)\s+(?:from\s+)?(.+?)\s+to\s+(.+?)(?:\s+(?:and|also|then|$))/gi);
+                for (const m of switchMatches) {
+                    const label = 'Switch ' + m[1].trim() + ' to ' + m[2].trim();
+                    if (!parsed.orders.includes(label)) parsed.orders.push(label);
                 }
-                if (/consult\s+(\w+)/i.test(t)) {
-                    const consultMatch = t.match(/consult\s+(\w+)/i);
-                    if (consultMatch) parsed.orders.push('Consult ' + consultMatch[1]);
+
+                // Consults
+                const consultMatches = t.matchAll(/consult\s+(\w+(?:\s+\w+)?)/gi);
+                for (const m of consultMatches) {
+                    const svc = m[1].trim();
+                    if (svc.length > 1 && !/^(?:about|for|on|with|the|a|an)$/i.test(svc)) {
+                        const label = 'Consult ' + svc;
+                        if (!parsed.orders.includes(label)) parsed.orders.push(label);
+                    }
                 }
-                if (/(?:remove|pull|take out)\s+(?:the\s+)?(?:drain|jp|foley|catheter|ng|ngt|staples|sutures)/i.test(lower)) {
-                    const removeMatch = t.match(/(?:remove|pull|take out)\s+(?:the\s+)?(\w+(?:\s+\w+)?)/i);
-                    if (removeMatch) parsed.orders.push('Remove ' + removeMatch[1].trim());
+
+                // Remove/pull
+                const removeMatches = t.matchAll(/(?:remove|pull|take\s*out|discontinue)\s+(?:the\s+)?(?:patient'?s?\s+)?((?:foley|catheter|drain|jp|ng|ngt|central\s*line|art?\s*line|staples|sutures|packing)(?:\s+\w+)?)/gi);
+                for (const m of removeMatches) {
+                    const label = 'Remove ' + m[1].trim();
+                    if (!parsed.orders.includes(label)) parsed.orders.push(label);
                 }
 
                 // Disposition
-                if (/discharge\s*(?:home|today|tomorrow|in the morning)/i.test(lower)) parsed.disposition = 'Discharge';
-                else if (/(?:transfer|move)\s*(?:to\s*)?(?:icu|intensive)/i.test(lower)) parsed.disposition = 'Transfer to ICU';
-                else if (/(?:transfer|move)\s*(?:to\s*)?(?:floor|step.?down)/i.test(lower)) parsed.disposition = 'Transfer to floor';
+                if (/discharge\s*(?:home|today|tomorrow|in\s*the\s*morning|when\s*ready|criteria\s*met)/i.test(lower)) parsed.disposition = 'Discharge home';
+                else if (/discharge\b/i.test(lower)) parsed.disposition = 'Discharge';
+                else if (/(?:transfer|move)\s*(?:to\s*)?(?:icu|intensive\s*care|micu|sicu)/i.test(lower)) parsed.disposition = 'Transfer to ICU';
+                else if (/(?:transfer|move)\s*(?:to\s*)?(?:floor|step.?down|tele)/i.test(lower)) parsed.disposition = 'Transfer to floor';
                 else if (/snf|skilled\s*nursing/i.test(lower)) parsed.disposition = 'SNF';
-                else if (/rehab|rehabilitation/i.test(lower)) parsed.disposition = 'Rehab';
+                else if (/rehab|rehabilitation|acute\s*rehab/i.test(lower)) parsed.disposition = 'Rehab';
+                else if (/hospice/i.test(lower)) parsed.disposition = 'Hospice';
+                else if (/(?:stay|keep|remain|another\s*day|not\s*ready)/i.test(lower) && /(?:observation|obs|overnight|monitor)/i.test(lower)) parsed.disposition = 'Continue monitoring';
 
-                // Plan - capture overall plan statement
-                const planMatch = t.match(/(?:plan\s*(?:is|for today)?|today\s*(?:we will|we're going to|let's))\s+(.+?)(?:\.|disposition|discharge|$)/i);
-                if (planMatch) parsed.plan = planMatch[1].trim();
+                // Plan - build from entire transcript, collect all plan-like statements
+                const planParts = [];
+                // Explicit plan statements
+                const planPatterns = [
+                    /plan\s+(?:is\s+(?:to\s+)?|for\s+(?:today\s+)?(?:is\s+)?(?:to\s+)?)(.+?)(?:\s+also\b|\s+concern|\s+diet|\s+disposition|$)/i,
+                    /(?:today|this\s*morning)\s+(?:we\s*(?:will|are\s*going\s*to|want\s*to|need\s*to)|let'?s)\s+(.+?)(?:\s+also\b|\s+concern|\s+diet|$)/i,
+                    /(?:going\s*to|want\s*to|need\s*to|should)\s+(.+?)(?:\s+also\b|\s+and\s+(?:then|also)|\s+concern|$)/i,
+                    /(?:continue|maintain|keep)\s+(?:current\s+)?(.+?)(?:\s+also\b|\s+concern|\s+diet|$)/i,
+                ];
+                planPatterns.forEach(re => {
+                    const m = t.match(re);
+                    if (m && m[1].trim().length > 3 && m[1].trim().length < 200) {
+                        planParts.push(m[1].trim());
+                    }
+                });
+                if (planParts.length > 0) parsed.plan = planParts.join('. ');
+                // If no explicit plan but we have orders, build plan from orders
+                if (!parsed.plan && parsed.orders.length > 0) {
+                    parsed.plan = parsed.orders.join('. ');
+                }
 
                 // Concerns
-                const concernMatch = t.match(/(?:concern(?:ed)?|worried|watch(?:ing)?\s*(?:for|out)|monitor(?:ing)?)\s+(?:for\s+|about\s+)?(.+?)(?:\.|plan|order|diet|$)/i);
-                if (concernMatch && concernMatch[1].length < 150) parsed.concerns = concernMatch[1].trim();
+                const concernPatterns = [
+                    /(?:concern(?:ed)?|worried|watch(?:ing)?\s*(?:for|out)?|monitor(?:ing)?|keep\s*(?:an?\s*)?eye\s*(?:on|for)?)\s*(?:for\s+|about\s+|on\s+)?(.+?)(?:\s+(?:plan|order|diet|discharge|disposition|start|stop|also|and\s+(?:plan|order))|$)/i,
+                    /(?:red\s*flag|alert|warning)\s*(?:for\s+|about\s+)?(.+?)(?:\s+plan|\s+order|$)/i,
+                ];
+                for (const re of concernPatterns) {
+                    const m = t.match(re);
+                    if (m && m[1].trim().length > 2 && m[1].trim().length < 150) {
+                        parsed.concerns = m[1].trim();
+                        break;
+                    }
+                }
 
-                // Exam findings from rounds
-                const examMatch = t.match(/(?:exam|on exam|physical exam|examination)\s+(?:shows?|reveals?|notable for|significant for)?\s*(.+?)(?:\.|plan|diet|order|$)/i);
-                if (examMatch) parsed.examFindings = examMatch[1].trim();
+                // Exam findings
+                const examPatterns = [
+                    /(?:exam|on\s*exam|physical\s*exam|examination)\s*(?:shows?|reveals?|notable\s*for|significant\s*for|is|was)?\s*(.+?)(?:\s+(?:plan|diet|order|start|stop|discharge|disposition|concern)|$)/i,
+                    /(?:abdomen|lungs?|chest|heart|extremit|wound|incision|drain|surgical\s*site)\s+(?:is|are|was|were|looks?|appears?)\s+(.+?)(?:\s+(?:plan|diet|order|start|stop)|$)/i,
+                    /(?:belly|breath\s*sounds?|bowel\s*sounds?)\s+(?:is|are|was|were)?\s*(.+?)(?:\s+(?:plan|diet|order)|$)/i,
+                ];
+                const examParts = [];
+                examPatterns.forEach(re => {
+                    const m = t.match(re);
+                    if (m && m[1].trim().length > 2) examParts.push(m[1].trim());
+                });
+                // Also capture specific exam findings
+                if (/(?:clear\s*to\s*auscultation|cta\s*bilat)/i.test(lower)) examParts.push('Lungs CTA bilat');
+                if (/(?:soft|non-?tender|non-?distended|nd|nt)/i.test(lower) && /(?:abd|belly)/i.test(lower)) examParts.push('Abd soft, NT/ND');
+                if (/bowel\s*sounds?\s*(?:present|positive|active|normal)/i.test(lower)) examParts.push('BS present');
+                if (/no\s*bowel\s*sounds?|bowel\s*sounds?\s*(?:absent|diminished|hypoactive)/i.test(lower)) examParts.push('BS diminished');
+                if (/wound\s*(?:clean|healing|dry|intact|c\/d\/i|cdi)/i.test(lower)) examParts.push('Wound clean/dry/intact');
+                if (/wound\s*(?:open|draining|erythema|red|infected|dehisc)/i.test(lower)) examParts.push('Wound concern');
+                if (/edema|swelling/i.test(lower)) examParts.push('Edema noted');
+                if (/drain\s*(?:output|putting\s*out)\s*(\d+)/i.test(t)) {
+                    const drainMatch = t.match(/drain\s*(?:output|putting\s*out)\s*(\d+)/i);
+                    examParts.push('Drain output ' + drainMatch[1] + 'mL');
+                }
+                if (examParts.length > 0) parsed.examFindings = [...new Set(examParts)].join('. ');
 
                 // Problems mentioned
-                const probPatterns = [/new\s+problem\s+(.+?)(?:\.|and|$)/i, /add\s+(?:problem|issue)\s+(.+?)(?:\.|and|$)/i];
-                probPatterns.forEach(re => {
-                    const m = t.match(re);
-                    if (m) parsed.problems.push(m[1].trim());
+                if (/(?:new\s*(?:problem|issue|concern)|develop(?:ed|ing))\s*(?:of\s+|with\s+)?(.+?)(?:\s+(?:plan|order|start)|$)/i.test(t)) {
+                    const m = t.match(/(?:new\s*(?:problem|issue|concern)|develop(?:ed|ing))\s*(?:of\s+|with\s+)?(.+?)(?:\s+(?:plan|order|start)|$)/i);
+                    if (m && m[1].trim().length > 2) parsed.problems.push(m[1].trim());
+                }
+                // Common problem keywords
+                const probKeywords = [
+                    [/ileus/i, 'Ileus'], [/ssi|surgical\s*site\s*infection/i, 'SSI'], [/pneumonia/i, 'Pneumonia'],
+                    [/uti|urinary\s*tract/i, 'UTI'], [/dvt|deep\s*vein/i, 'DVT'], [/pe\b|pulmonary\s*embol/i, 'PE'],
+                    [/aki|acute\s*kidney/i, 'AKI'], [/sepsis/i, 'Sepsis'], [/atrial\s*fib|afib|a-?fib/i, 'Afib'],
+                    [/delirium|altered\s*mental|confused/i, 'Delirium'], [/fall/i, 'Fall risk'],
+                    [/nausea|vomiting|emesis/i, 'N/V'], [/constipat/i, 'Constipation'],
+                    [/pain\s*(?:not\s*)?controlled|uncontrolled\s*pain/i, 'Pain management'],
+                ];
+                probKeywords.forEach(([re, label]) => {
+                    if (re.test(lower) && !parsed.problems.includes(label) && !(patient?.problems || []).includes(label)) {
+                        // Only add as problem if it seems like a new finding
+                        if (/new|develop|now\s*(?:has|with|showing)|started/i.test(lower)) parsed.problems.push(label);
+                    }
                 });
+
+                // Build a concise summary of everything captured
+                const summaryParts = [];
+                if (parsed.vitals) summaryParts.push('Vitals: ' + parsed.vitals);
+                if (parsed.labNotes) summaryParts.push('Labs: ' + parsed.labNotes);
+                if (parsed.examFindings) summaryParts.push('Exam: ' + parsed.examFindings);
+                if (parsed.plan) summaryParts.push('Plan: ' + parsed.plan);
+                if (parsed.orders.length > 0) summaryParts.push('Orders: ' + parsed.orders.join(', '));
+                if (parsed.diet) summaryParts.push('Diet: ' + parsed.diet);
+                if (parsed.activity) summaryParts.push('Activity: ' + parsed.activity);
+                if (parsed.disposition) summaryParts.push('Dispo: ' + parsed.disposition);
+                if (parsed.concerns) summaryParts.push('Concerns: ' + parsed.concerns);
+                if (summaryParts.length > 0) parsed.summary = summaryParts.join(' | ');
 
                 setParsedItems(parsed);
             };
@@ -5547,7 +5830,10 @@ To-do: Check AM labs, I/Os q4h`}
                 if (parsedItems.plan) updates.treatmentPlan = parsedItems.plan;
                 if (parsedItems.concerns) updates.concerns = parsedItems.concerns;
                 if (parsedItems.examFindings) updates.examFindings = parsedItems.examFindings;
-                if (parsedItems.problems.length > 0) {
+                if (parsedItems.vitals) updates.vitals = parsedItems.vitals;
+                if (parsedItems.labNotes) updates.labNotes = parsedItems.labNotes;
+                if (parsedItems.summary) updates.roundsSummary = parsedItems.summary;
+                if ((parsedItems.problems || []).length > 0) {
                     updates.problems = [...(patient.problems || []), ...parsedItems.problems];
                 }
                 if (parsedItems.disposition === 'Discharge') {
@@ -5564,8 +5850,17 @@ To-do: Check AM labs, I/Os q4h`}
                     timestamp: new Date().toISOString(),
                     transcript: transcript,
                     parsed: parsedItems,
-                    orders: parsedItems.orders
+                    orders: parsedItems.orders,
+                    vitals: parsedItems.vitals,
+                    labNotes: parsedItems.labNotes,
+                    examFindings: parsedItems.examFindings,
+                    summary: parsedItems.summary
                 };
+                // Keep only last 14 days of rounds history
+                const allRoundsDates = Object.keys(roundsHistory).sort().reverse();
+                if (allRoundsDates.length > 14) {
+                    allRoundsDates.slice(14).forEach(d => delete roundsHistory[d]);
+                }
                 updates.roundsHistory = roundsHistory;
                 updates.updatedAt = new Date().toISOString();
 
@@ -5573,7 +5868,7 @@ To-do: Check AM labs, I/Os q4h`}
                 loadPatients();
                 setTranscript('');
                 setLiveTranscript('');
-                setParsedItems({ diet: null, activity: null, orders: [], disposition: null, plan: null, dvtProphylaxis: null, giProphylaxis: null, concerns: null, problems: [], examFindings: null });
+                setParsedItems({ diet: null, activity: null, orders: [], disposition: null, plan: null, dvtProphylaxis: null, giProphylaxis: null, concerns: null, problems: [], examFindings: null, vitals: null, labNotes: null, summary: null });
             };
 
             const selectedPatient = patients.find(p => p.id === selectedPatientId);
@@ -5655,7 +5950,7 @@ To-do: Check AM labs, I/Os q4h`}
                             )}
 
                             {/* Parsed Items */}
-                            {(parsedItems.diet || parsedItems.activity || parsedItems.orders.length > 0 || parsedItems.disposition || parsedItems.plan || parsedItems.dvtProphylaxis || parsedItems.giProphylaxis || parsedItems.concerns || parsedItems.examFindings || parsedItems.problems.length > 0) && (
+                            {(parsedItems.diet || parsedItems.activity || parsedItems.orders.length > 0 || parsedItems.disposition || parsedItems.plan || parsedItems.dvtProphylaxis || parsedItems.giProphylaxis || parsedItems.concerns || parsedItems.examFindings || (parsedItems.problems || []).length > 0 || parsedItems.vitals || parsedItems.labNotes || parsedItems.summary) && (
                                 <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 space-y-2 mb-4">
                                     <p className="text-sm font-bold text-emerald-700 mb-2">Parsed from Rounds -- will update patient record:</p>
                                     {parsedItems.diet && (
@@ -5698,6 +5993,18 @@ To-do: Check AM labs, I/Os q4h`}
                                             <span className="text-sm text-gray-700">{parsedItems.plan}</span>
                                         </div>
                                     )}
+                                    {parsedItems.vitals && (
+                                        <div className="flex items-start gap-2">
+                                            <span className="text-xs font-semibold text-gray-500 w-20 mt-0.5">Vitals:</span>
+                                            <span className="text-sm text-gray-700">{parsedItems.vitals}</span>
+                                        </div>
+                                    )}
+                                    {parsedItems.labNotes && (
+                                        <div className="flex items-start gap-2">
+                                            <span className="text-xs font-semibold text-gray-500 w-20 mt-0.5">Labs:</span>
+                                            <span className="text-sm text-gray-700">{parsedItems.labNotes}</span>
+                                        </div>
+                                    )}
                                     {parsedItems.examFindings && (
                                         <div className="flex items-start gap-2">
                                             <span className="text-xs font-semibold text-gray-500 w-20 mt-0.5">Exam:</span>
@@ -5716,14 +6023,20 @@ To-do: Check AM labs, I/Os q4h`}
                                             <span className="px-2 py-0.5 bg-emerald-600 text-white rounded text-xs">{parsedItems.disposition}</span>
                                         </div>
                                     )}
-                                    {parsedItems.problems.length > 0 && (
+                                    {(parsedItems.problems || []).length > 0 && (
                                         <div className="flex items-start gap-2">
                                             <span className="text-xs font-semibold text-gray-500 w-20 mt-0.5">New Probs:</span>
                                             <div className="flex flex-wrap gap-1">
-                                                {parsedItems.problems.map((item, i) => (
+                                                {(parsedItems.problems || []).map((item, i) => (
                                                     <span key={i} className="px-2 py-0.5 bg-orange-600 text-white rounded text-xs">{item}</span>
                                                 ))}
                                             </div>
+                                        </div>
+                                    )}
+                                    {parsedItems.summary && (
+                                        <div className="mt-2 pt-2 border-t border-emerald-200">
+                                            <span className="text-xs font-semibold text-emerald-700">Rounds Summary:</span>
+                                            <p className="text-sm text-gray-700 mt-1">{parsedItems.summary}</p>
                                         </div>
                                     )}
 
