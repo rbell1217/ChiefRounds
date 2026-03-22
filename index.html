@@ -1506,9 +1506,9 @@
                     onSave({
                         ...formData,
                         problems: typeof formData.problems === 'string'
-                            ? formData.problems.split(',').map(p => p.trim()).filter(Boolean) : formData.problems,
+                            ? formData.problems.split(',').map(p => p.trim()).filter(Boolean) : (formData.problems || []),
                         procedures: typeof formData.procedures === 'string'
-                            ? formData.procedures.split(',').map(p => p.trim()).filter(Boolean) : formData.procedures,
+                            ? formData.procedures.split(',').map(p => p.trim()).filter(Boolean) : (formData.procedures || []),
                         pmh: typeof formData.pmh === 'string'
                             ? formData.pmh.split(',').map(p => p.trim()).filter(Boolean) : (formData.pmh || []),
                         psh: typeof formData.psh === 'string'
@@ -1592,7 +1592,7 @@
                             <div>
                                 <label className={`block text-sm font-semibold mb-1 ${labelHighlight('problems')}`}>Problems (comma-separated)</label>
                                 <input type="text" name="problems"
-                                    value={typeof formData.problems === 'string' ? formData.problems : formData.problems.join(', ')}
+                                    value={typeof formData.problems === 'string' ? formData.problems : (formData.problems || []).join(', ')}
                                     onChange={handleInputChange} placeholder="Pain, Nausea, Wound care"
                                     className={`w-full bg-gray-50 border border-gray-300 rounded px-3 py-2 text-gray-800 transition ${fieldHighlight('problems')}`} />
                             </div>
@@ -1601,7 +1601,7 @@
                             <div>
                                 <label className={`block text-sm font-semibold mb-1 ${labelHighlight('procedures')}`}>Procedures (comma-separated)</label>
                                 <input type="text" name="procedures"
-                                    value={typeof formData.procedures === 'string' ? formData.procedures : formData.procedures.join(', ')}
+                                    value={typeof formData.procedures === 'string' ? formData.procedures : (formData.procedures || []).join(', ')}
                                     onChange={handleInputChange} placeholder="Lap Chole, EGD"
                                     className={`w-full bg-gray-50 border border-gray-300 rounded px-3 py-2 text-gray-800 transition ${fieldHighlight('procedures')}`} />
                             </div>
@@ -6418,7 +6418,7 @@ To-do: Check AM labs, I/Os q4h`}
                 const patientData = {
                     room: traumaRoom,
                     diagnosis: diagParts.join(' - '),
-                    procedures: [],
+                    problems: [], procedures: [],
                     admitDate: getTodayISO(),
                     status: 'active',
                     isTrauma: true,
@@ -6491,7 +6491,7 @@ To-do: Check AM labs, I/Os q4h`}
                     const patientData = {
                         room: traumaRoom,
                         diagnosis: diagParts.join(' - '),
-                        procedures: [],
+                        problems: [], procedures: [],
                         admitDate: getTodayISO(),
                         status: 'active',
                         isTrauma: true,
