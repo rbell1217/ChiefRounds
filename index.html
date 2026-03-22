@@ -6423,7 +6423,7 @@ To-do: Check AM labs, I/Os q4h`}
                     status: 'active',
                     isTrauma: true,
                     traumaLevel: parsed.level || 'Level 1',
-                    traumaId: traumaDoc?.id || '',
+                    traumaId: traumaDoc || '',
                     diet: '', activity: '', prophylaxis: '',
                     labs: [], concerns: '', antibiotics: [],
                     pmh: [], psh: [], homeMeds: [], allergies: [],
@@ -6466,8 +6466,14 @@ To-do: Check AM labs, I/Os q4h`}
                     // Sync updates back to the linked patient entry
                     try {
                         const allPatients = await DB.getAll('patients');
-                        const linked = allPatients.find(p => p.traumaId === editingTrauma.id);
+                        let linked = allPatients.find(p => p.traumaId === editingTrauma.id);
+                        // Fallback: match by isTrauma + mechanism in diagnosis for older entries without traumaId
+                        if (!linked) {
+                            linked = allPatients.find(p => p.isTrauma && p.diagnosis?.includes(editingTrauma.mechanism));
+                        }
                         if (linked) {
+                            // Ensure traumaId is set for future syncs
+                            if (!linked.traumaId) linked.traumaId = editingTrauma.id;
                             const diagParts = [data.mechanism || 'Trauma'];
                             if (data.injuries) diagParts.push(data.injuries.split(',')[0].trim());
                             await DB.put('patients', {
@@ -6496,7 +6502,7 @@ To-do: Check AM labs, I/Os q4h`}
                         status: 'active',
                         isTrauma: true,
                         traumaLevel: data.level || 'Level 1',
-                        traumaId: traumaDoc?.id || '',
+                        traumaId: traumaDoc || '',
                         diet: '', activity: '', prophylaxis: '',
                         labs: [], concerns: '', antibiotics: [],
                         pmh: [], psh: [], homeMeds: [], allergies: [],
