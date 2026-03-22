@@ -9537,6 +9537,169 @@ To-do: Check AM labs, I/Os q4h`}
                 return () => { if (stepsRecRef.current) try { stepsRecRef.current.stop(); } catch(e){} };
             }, []);
 
+            // Organize raw dictation into clean, numbered operative steps
+            const organizeOperativeSteps = (rawText) => {
+                if (!rawText || !rawText.trim()) return '';
+                let text = rawText.trim();
+
+                // --- Surgical terminology fixes ---
+                const surgTerms = [
+                    // Common STT errors for surgical terms
+                    [/\btro ?cars?\b/gi, 'trocars'],
+                    [/\btroaker/gi, 'trocar'],
+                    [/\bhas?son\b/gi, 'Hasson'],
+                    [/\bvers?\s*ease?\s*needle\b/gi, 'Veress needle'],
+                    [/\bvaries\s*needle\b/gi, 'Veress needle'],
+                    [/\bvers?e?ss?\b/gi, 'Veress'],
+                    [/\bnew?mo\s*peritoneum\b/gi, 'pneumoperitoneum'],
+                    [/\binsufflat(?:e|ion)\b/gi, 'insufflation'],
+                    [/\bpneu?mo\b/gi, 'pneumo'],
+                    [/\bco2\b/gi, 'CO2'],
+                    [/\bharmonic\b/gi, 'Harmonic'],
+                    [/\bligature\b/gi, 'LigaSure'],
+                    [/\bliga\s*sure\b/gi, 'LigaSure'],
+                    [/\bendo\s*catch\b/gi, 'Endocatch'],
+                    [/\bendo\s*loop\b/gi, 'Endoloop'],
+                    [/\bendo\s*stitch\b/gi, 'Endostitch'],
+                    [/\bendo\s*gia\b/gi, 'Endo GIA'],
+                    [/\bgia\s*stapler\b/gi, 'GIA stapler'],
+                    [/\bta\s*stapler\b/gi, 'TA stapler'],
+                    [/\bstapler\b/gi, 'stapler'],
+                    [/\bcalot'?s?\s*triangle\b/gi, "Calot's triangle"],
+                    [/\bcalotte?\b/gi, "Calot's"],
+                    [/\bcritical\s*view\s*(?:of\s*)?safety\b/gi, 'critical view of safety (CVS)'],
+                    [/\bcvs\b/gi, 'CVS'],
+                    [/\bclip\s*(?:and\s*)?appli(?:er|ed)\b/gi, 'clip applier'],
+                    [/\bend?o\s*clip\b/gi, 'Endoclip'],
+                    [/\bsupine\b/gi, 'supine'],
+                    [/\blithotomy\b/gi, 'lithotomy'],
+                    [/\btrendelenburg\b/gi, 'Trendelenburg'],
+                    [/\breverse\s*trendelenburg\b/gi, 'reverse Trendelenburg'],
+                    [/\bprep\s*(?:and|&)\s*drape\b/gi, 'prep and drape'],
+                    [/\bmesentery\b/gi, 'mesentery'],
+                    [/\bmesent?aric\b/gi, 'mesenteric'],
+                    [/\bperiton?eum\b/gi, 'peritoneum'],
+                    [/\bfascia\b/gi, 'fascia'],
+                    [/\bfascial?\s*closure\b/gi, 'fascial closure'],
+                    [/\bsub\s*q\b/gi, 'subcuticular'],
+                    [/\bder?ma\s*bond\b/gi, 'Dermabond'],
+                    [/\bsteri[\s-]?strip\b/gi, 'Steri-Strips'],
+                    [/\bster[ie]l?\b/gi, 'sterile'],
+                    [/\belectro\s*cautery\b/gi, 'electrocautery'],
+                    [/\bbovie?\b/gi, 'Bovie'],
+                    [/\bcaud[ae]d\b/gi, 'caudad'],
+                    [/\bcephal?ad\b/gi, 'cephalad'],
+                    [/\bumbili[ck](?:al|us)\b/gi, 'umbilical'],
+                    [/\bpalmer'?s?\s*point\b/gi, "Palmer's point"],
+                    [/\bsubc?ostal\b/gi, 'subcostal'],
+                    [/\bmid\s*clavicular\b/gi, 'midclavicular'],
+                    [/\banti?\s*(?:mesenteric|mesent[ae]ric)\b/gi, 'antimesenteric'],
+                    [/\banastomos[ie]s\b/gi, 'anastomosis'],
+                    [/\bhem[io]stasis\b/gi, 'hemostasis'],
+                    [/\bespeci?al?ly\b/gi, 'especially'],
+                    [/\bret?ro\s*periton?e(?:al|um)\b/gi, 'retroperitoneal'],
+                    [/\blap(?:a)?roscop(?:ic|y)\b/gi, 'laparoscopic'],
+                    [/\bsurgical\s*time\s*out\b/gi, 'surgical timeout'],
+                    [/\btime\s*out\b/gi, 'timeout'],
+                    [/\b12\s*(?:mm|millimeter)\b/gi, '12mm'],
+                    [/\b10\s*(?:mm|millimeter)\b/gi, '10mm'],
+                    [/\b5\s*(?:mm|millimeter)\b/gi, '5mm'],
+                    [/\b3\s*(?:mm|millimeter)\b/gi, '3mm'],
+                    [/\bport\s*site\b/gi, 'port site'],
+                ];
+                for (const [pat, rep] of surgTerms) {
+                    text = text.replace(pat, rep);
+                }
+
+                // --- Split into individual steps ---
+                // Split on: numbered markers, "then", "next", "after that", "step", sentence boundaries
+                let steps = text
+                    .replace(/\b(?:step\s*\d+[.:]\s*)/gi, '|||')
+                    .replace(/\b(\d+)[.)]\s+/g, '|||')
+                    .replace(/\b(?:then|next|after that|after this|following that|subsequently|and then|from there|at this point|now)\b/gi, '|||')
+                    .replace(/\.\s+/g, '|||')
+                    .split('|||')
+                    .map(s => s.trim())
+                    .filter(s => s.length > 3);
+
+                // If no meaningful splits, treat each sentence as a step
+                if (steps.length <= 1 && text.length > 50) {
+                    steps = text.split(/[.;]\s*/).map(s => s.trim()).filter(s => s.length > 3);
+                }
+
+                // Clean up each step
+                steps = steps.map(s => {
+                    // Capitalize first letter
+                    s = s.charAt(0).toUpperCase() + s.slice(1);
+                    // Remove trailing conjunctions
+                    s = s.replace(/\s+(?:and|or|then|next)\s*$/i, '');
+                    // Remove leading conjunctions
+                    s = s.replace(/^(?:and|or|so|also)\s+/i, '');
+                    // Capitalize first letter again after cleanup
+                    if (s.length > 0) s = s.charAt(0).toUpperCase() + s.slice(1);
+                    // Add period if missing
+                    if (s.length > 0 && !/[.!?]$/.test(s)) s += '.';
+                    return s;
+                }).filter(s => s.length > 4);
+
+                // --- Detect missing standard elements and suggest additions ---
+                const allText = steps.join(' ').toLowerCase();
+                const missingParts = [];
+
+                // Check for positioning
+                if (!/\b(?:supine|prone|lateral|lithotomy|trendelenburg|position)/i.test(allText)) {
+                    missingParts.push('Patient positioning');
+                }
+                // Check for timeout
+                if (!/\b(?:timeout|time out|time-out|verification|safety check|briefing)\b/i.test(allText)) {
+                    missingParts.push('Surgical timeout/verification');
+                }
+                // Check for prep/drape
+                if (!/\b(?:prep|drape|betadine|chlorhexidine|chloraprep|sterile)\b/i.test(allText)) {
+                    missingParts.push('Prep and drape');
+                }
+                // Check for closure
+                if (!/\b(?:clos(?:ure|ed|ing)|sutur(?:e|ed)|skin|dermabond|steri|stapl(?:e|ed|er)|dressing)\b/i.test(allText)) {
+                    missingParts.push('Closure and dressing');
+                }
+                // Check for specimen
+                if (/\b(?:resect|excis|remov|cholecyst|appendect|colect)/i.test(allText) && !/\b(?:specimen|pathology|path|sent|backtable|labeled)\b/i.test(allText)) {
+                    missingParts.push('Specimen to pathology');
+                }
+                // Check for hemostasis
+                if (!/\b(?:hemostasis|hemosta|bleeding|cautery|control)/i.test(allText)) {
+                    missingParts.push('Hemostasis confirmed');
+                }
+
+                // Build numbered output
+                let output = '';
+                let stepNum = 1;
+
+                // Add missing pre-op elements at the start
+                const preOpMissing = missingParts.filter(p =>
+                    p.includes('positioning') || p.includes('timeout') || p.includes('Prep'));
+                preOpMissing.forEach(item => {
+                    output += `${stepNum}. [${item}]\n`;
+                    stepNum++;
+                });
+
+                // Add the dictated steps
+                steps.forEach(step => {
+                    output += `${stepNum}. ${step}\n`;
+                    stepNum++;
+                });
+
+                // Add missing post-op elements at the end
+                const postOpMissing = missingParts.filter(p =>
+                    p.includes('Hemostasis') || p.includes('Specimen') || p.includes('Closure'));
+                postOpMissing.forEach(item => {
+                    output += `${stepNum}. [${item}]\n`;
+                    stepNum++;
+                });
+
+                return output.trim();
+            };
+
             const startStepsDictation = (caseItem) => {
                 if (!stepsRecRef.current) return;
                 setDictatingCaseId(caseItem.id);
@@ -9548,7 +9711,11 @@ To-do: Check AM labs, I/Os q4h`}
             };
             const stopStepsDictation = (caseId) => {
                 if (!stepsRecRef.current) return;
-                savePendingRef.current = { caseId, text: stepsTextRef.current };
+                // Organize the raw dictation into clean numbered steps on stop
+                const organized = organizeOperativeSteps(stepsTextRef.current);
+                stepsTextRef.current = organized;
+                setStepsText(organized);
+                savePendingRef.current = { caseId, text: organized };
                 try { stepsRecRef.current.stop(); } catch(e) {}
             };
             const toggleStepsDictation = (caseItem) => {
@@ -9739,10 +9906,21 @@ To-do: Check AM labs, I/Os q4h`}
                                                     <div>
                                                         <div className="flex items-center justify-between mb-2">
                                                             <label className="text-xs font-semibold text-gray-600">Key Operative Steps</label>
-                                                            <button onClick={() => toggleStepsDictation(caseItem)}
-                                                                className={`px-3 py-1 rounded text-xs font-medium ${stepsListening && dictatingCaseId === caseItem.id ? 'bg-red-500 text-white animate-pulse' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}>
-                                                                {stepsListening && dictatingCaseId === caseItem.id ? 'Stop Dictation' : 'Dictate'}
-                                                            </button>
+                                                            <div className="flex gap-2">
+                                                                {caseItem.keyOperativeSteps && !stepsListening && (
+                                                                    <button onClick={() => {
+                                                                        const organized = organizeOperativeSteps(caseItem.keyOperativeSteps);
+                                                                        updateCase(caseItem.id, { keyOperativeSteps: organized });
+                                                                    }}
+                                                                        className="px-3 py-1 rounded text-xs font-medium bg-amber-100 text-amber-700 hover:bg-amber-200">
+                                                                        Organize
+                                                                    </button>
+                                                                )}
+                                                                <button onClick={() => toggleStepsDictation(caseItem)}
+                                                                    className={`px-3 py-1 rounded text-xs font-medium ${stepsListening && dictatingCaseId === caseItem.id ? 'bg-red-500 text-white animate-pulse' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}>
+                                                                    {stepsListening && dictatingCaseId === caseItem.id ? 'Stop Dictation' : 'Dictate'}
+                                                                </button>
+                                                            </div>
                                                         </div>
                                                         <textarea
                                                             value={stepsListening && dictatingCaseId === caseItem.id
