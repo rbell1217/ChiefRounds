@@ -6533,10 +6533,13 @@ To-do: Check AM labs, I/Os q4h`}
                 if (plan) updates.treatmentPlan = plan;
                 updates.roundsSummary = formattedSOAP;
 
-                // Store in rounds history
+                // Store in rounds history (merge with existing entry for today if any)
                 const today = getTodayISO();
                 const roundsHistory = updates.roundsHistory || {};
+                const existingEntry = roundsHistory[today] || {};
+                const existingParsed = existingEntry.parsed || {};
                 roundsHistory[today] = {
+                    ...existingEntry,
                     timestamp: new Date().toISOString(),
                     transcript: raw,
                     soapNote: formattedSOAP,
@@ -6544,7 +6547,15 @@ To-do: Check AM labs, I/Os q4h`}
                     assessment: assessment,
                     objective: objective,
                     plan: plan,
-                    summary: formattedSOAP
+                    summary: formattedSOAP,
+                    parsed: {
+                        ...existingParsed,
+                        subjective: subjective,
+                        assessment: assessment,
+                        examFindings: objective,
+                        plan: plan,
+                        summary: formattedSOAP
+                    }
                 };
                 const allDates = Object.keys(roundsHistory).sort().reverse();
                 if (allDates.length > 14) allDates.slice(14).forEach(d => delete roundsHistory[d]);
@@ -6592,20 +6603,23 @@ To-do: Check AM labs, I/Os q4h`}
                     updates.dispositionPlan = parsedItems.disposition;
                 }
 
-                // Store rounds history for this patient
+                // Store rounds history for this patient (merge with existing SOAP data)
                 const today = getTodayISO();
                 const roundsHistory = updates.roundsHistory || {};
+                const existingRounds = roundsHistory[today] || {};
+                const existingParsed = existingRounds.parsed || {};
                 roundsHistory[today] = {
+                    ...existingRounds,
                     timestamp: new Date().toISOString(),
                     transcript: transcript,
-                    parsed: parsedItems,
+                    parsed: { ...existingParsed, ...parsedItems },
                     orders: parsedItems.orders,
-                    subjective: parsedItems.subjective,
-                    assessment: parsedItems.assessment,
+                    subjective: parsedItems.subjective || existingRounds.subjective,
+                    assessment: parsedItems.assessment || existingRounds.assessment,
                     vitals: parsedItems.vitals,
                     labNotes: parsedItems.labNotes,
                     examFindings: parsedItems.examFindings,
-                    summary: parsedItems.summary
+                    summary: parsedItems.summary || existingRounds.summary
                 };
                 // Keep only last 14 days of rounds history
                 const allRoundsDates = Object.keys(roundsHistory).sort().reverse();
