@@ -2836,7 +2836,7 @@
                                                                 </div>
                                                             )}
                                                         </div>
-                                                        {p.summary && (
+                                                        {p.summary && !p.subjective && !p.assessment && (
                                                             <div className="mt-2 pt-2 border-t border-emerald-200 text-xs">
                                                                 <span className="font-semibold text-emerald-600">Summary:</span>{' '}
                                                                 <span className="text-gray-600">{p.summary}</span>
