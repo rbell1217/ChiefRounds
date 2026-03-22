@@ -7868,7 +7868,7 @@ To-do: Check AM labs, I/Os q4h`}
             const [teamId, setTeamId] = React.useState(null);
             const [teamData, setTeamData] = React.useState(null);
             const [authLoading, setAuthLoading] = React.useState(true);
-            const [activeTab, setActiveTab] = React.useState('Patients');
+            const [activeTab, setActiveTab] = React.useState('Home');
             const [isMobile, setIsMobile] = React.useState(window.innerWidth < 768);
             const [showProfile, setShowProfile] = React.useState(false);
 
@@ -7943,8 +7943,96 @@ To-do: Check AM labs, I/Os q4h`}
 
             const tabs = ['Patients', 'Attending', 'Tasks', 'Consults', 'Trauma', 'Census', 'Handoff', 'Pre-Round', 'Rounds'];
 
+            // Home landing page component
+            const HomeScreen = () => {
+                const [stats, setStats] = React.useState({ patients: 0, incompleteTasks: 0, preRounded: 0 });
+
+                React.useEffect(() => {
+                    (async () => {
+                        try {
+                            const patients = (await DB.getAll('patients')).filter(p => p.status !== 'discharged');
+                            const tasks = await DB.getAll('tasks');
+                            const incomplete = tasks.filter(t => !t.completed).length;
+                            const today = getTodayISO();
+                            const preRounded = patients.filter(p => p.preRoundHistory?.[today]).length;
+                            setStats({ patients: patients.length, incompleteTasks: incomplete, preRounded });
+                        } catch (e) {}
+                    })();
+                }, []);
+
+                const mainCards = [
+                    {
+                        title: 'Tasks',
+                        subtitle: stats.incompleteTasks > 0 ? `${stats.incompleteTasks} incomplete` : 'All caught up',
+                        icon: '\u2611\uFE0F',
+                        color: 'bg-medical-600',
+                        lightBg: 'bg-slate-50',
+                        tab: 'Tasks'
+                    },
+                    {
+                        title: 'Rounds',
+                        subtitle: 'Record & parse rounds',
+                        icon: '\uD83C\uDFA4',
+                        color: 'bg-emerald-600',
+                        lightBg: 'bg-emerald-50',
+                        tab: 'Rounds'
+                    },
+                    {
+                        title: 'Pre-Round',
+                        subtitle: `${stats.preRounded}/${stats.patients} patients done`,
+                        icon: '\uD83D\uDCCB',
+                        color: 'bg-indigo-600',
+                        lightBg: 'bg-indigo-50',
+                        tab: 'Pre-Round'
+                    }
+                ];
+
+                return (
+                    <div className="p-4 md:p-8 max-w-4xl mx-auto">
+                        <div className="mb-8 text-center md:text-left">
+                            <h2 className="text-2xl md:text-3xl font-bold text-medical-800">
+                                Good {new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 17 ? 'afternoon' : 'evening'}{user.displayName ? `, ${user.displayName.split(' ')[0]}` : ''}
+                            </h2>
+                            <p className="text-gray-500 mt-1">{stats.patients} patient{stats.patients !== 1 ? 's' : ''} on service</p>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                            {mainCards.map(card => (
+                                <button
+                                    key={card.tab}
+                                    onClick={() => setActiveTab(card.tab)}
+                                    className="text-left bg-white border border-gray-100 rounded-xl p-6 shadow-sm hover:shadow-md transition-all hover:-translate-y-0.5 active:scale-[0.98]"
+                                >
+                                    <div className={`w-12 h-12 ${card.lightBg} rounded-xl flex items-center justify-center text-2xl mb-4`}>
+                                        {card.icon}
+                                    </div>
+                                    <h3 className="text-lg font-bold text-gray-800 mb-1">{card.title}</h3>
+                                    <p className="text-sm text-gray-500">{card.subtitle}</p>
+                                </button>
+                            ))}
+                        </div>
+
+                        <div className="border-t border-gray-200 pt-6">
+                            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-4">All Features</p>
+                            <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+                                {tabs.map(tab => (
+                                    <button
+                                        key={tab}
+                                        onClick={() => setActiveTab(tab)}
+                                        className="bg-white border border-gray-100 rounded-xl py-3 px-2 text-center hover:bg-slate-50 hover:border-medical-300 transition text-sm font-medium text-gray-600 hover:text-medical-700 shadow-sm"
+                                    >
+                                        {tab}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
             const renderContent = () => {
                 switch (activeTab) {
+                    case 'Home': return <HomeScreen />;
                     case 'Patients': return <PatientTracker />;
                     case 'Attending': return <AttendingView />;
                     case 'Tasks': return <TeamTasks teamData={teamData} currentUser={user} />;
@@ -7954,7 +8042,7 @@ To-do: Check AM labs, I/Os q4h`}
                     case 'Handoff': return <Handoff />;
                     case 'Pre-Round': return <PreRound />;
                     case 'Rounds': return <RoundsRecorder />;
-                    default: return <PatientTracker />;
+                    default: return <HomeScreen />;
                 }
             };
 
@@ -8006,40 +8094,51 @@ To-do: Check AM labs, I/Os q4h`}
                 </div>
             );
 
+            const isHome = activeTab === 'Home';
+
             if (isMobile) {
                 return (
                     <div className="min-h-screen bg-slate-50 flex flex-col">
                         <div className="bg-white border-b border-gray-200 p-3 sticky top-0 z-20 shadow-sm">
                             <div className="flex justify-between items-center">
-                                <div>
-                                    <h1 className="text-xl font-bold text-medical-600">🩺 ChiefRounds</h1>
-                                    <p className="text-xs text-gray-500">{getTodayDateString()}</p>
+                                <div className="flex items-center gap-2">
+                                    {!isHome && (
+                                        <button onClick={() => setActiveTab('Home')} className="text-medical-600 hover:text-medical-700 p-1 -ml-1 transition">
+                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                                        </button>
+                                    )}
+                                    <div>
+                                        <h1 className="text-xl font-bold text-medical-600">{isHome ? '\uD83E\uDE7A ChiefRounds' : activeTab}</h1>
+                                        <p className="text-xs text-gray-500">{getTodayDateString()}</p>
+                                    </div>
                                 </div>
                                 <ProfileMenu />
                             </div>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto pb-20" onClick={() => showProfile && setShowProfile(false)}>
+                        <div className={`flex-1 overflow-y-auto ${!isHome ? 'pb-20' : ''}`} onClick={() => showProfile && setShowProfile(false)}>
                             {renderContent()}
                         </div>
 
-                        <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-[0_-2px_8px_rgba(0,0,0,0.06)] z-30" style={{paddingBottom: 'env(safe-area-inset-bottom)'}}>
-                            <div className="flex overflow-x-auto scrollbar-hide" style={{WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', msOverflowStyle: 'none'}}>
-                                {tabs.map(tab => (
-                                    <button
-                                        key={tab}
-                                        onClick={() => setActiveTab(tab)}
-                                        className={`flex-shrink-0 py-3.5 px-4 text-[11px] font-medium transition whitespace-nowrap ${
-                                            activeTab === tab
-                                                ? 'text-medical-600 border-t-2 border-medical-500 bg-slate-50/50'
-                                                : 'text-gray-400 hover:text-gray-600'
-                                        }`}
-                                    >
-                                        {tab}
-                                    </button>
-                                ))}
-                            </div>
-                        </nav>
+                        {!isHome && (
+                            <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-[0_-2px_8px_rgba(0,0,0,0.06)] z-30" style={{paddingBottom: 'env(safe-area-inset-bottom)'}}>
+                                <div className="flex overflow-x-auto scrollbar-hide" style={{WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', msOverflowStyle: 'none'}}>
+                                    {tabs.map(tab => (
+                                        <button
+                                            key={tab}
+                                            onClick={() => setActiveTab(tab)}
+                                            className={`flex-shrink-0 py-3.5 px-4 text-[11px] font-medium transition whitespace-nowrap ${
+                                                activeTab === tab
+                                                    ? 'text-medical-600 border-t-2 border-medical-500 bg-slate-50/50'
+                                                    : 'text-gray-400 hover:text-gray-600'
+                                            }`}
+                                        >
+                                            {tab}
+                                        </button>
+                                    ))}
+                                </div>
+                            </nav>
+                        )}
                     </div>
                 );
             }
@@ -8049,7 +8148,9 @@ To-do: Check AM labs, I/Os q4h`}
                 <div className="min-h-screen bg-slate-50 flex flex-col">
                     <div className="bg-white border-b border-gray-200 p-4 sticky top-0 z-20 shadow-sm">
                         <div className="flex justify-between items-center">
-                            <h1 className="text-2xl font-bold text-medical-700">🩺 ChiefRounds</h1>
+                            <button onClick={() => setActiveTab('Home')} className="text-2xl font-bold text-medical-700 hover:text-medical-800 transition">
+                                {'\uD83E\uDE7A'} ChiefRounds
+                            </button>
                             <div className="flex items-center gap-4">
                                 <p className="text-sm text-gray-500">{getCurrentDateTime()}</p>
                                 <ProfileMenu />
@@ -8057,21 +8158,30 @@ To-do: Check AM labs, I/Os q4h`}
                         </div>
                     </div>
 
-                    <div className="bg-white border-b border-gray-200 flex overflow-x-auto shadow-sm">
-                        {tabs.map(tab => (
+                    {!isHome && (
+                        <div className="bg-white border-b border-gray-200 flex overflow-x-auto shadow-sm">
                             <button
-                                key={tab}
-                                onClick={() => setActiveTab(tab)}
-                                className={`px-4 py-3 font-medium transition whitespace-nowrap ${
-                                    activeTab === tab
-                                        ? 'text-medical-600 nav-item-active border-b-4 border-medical-500'
-                                        : 'text-gray-500 hover:text-gray-600'
-                                }`}
+                                onClick={() => setActiveTab('Home')}
+                                className="px-4 py-3 font-medium transition whitespace-nowrap text-gray-400 hover:text-medical-600"
+                                title="Back to Home"
                             >
-                                {tab}
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="inline"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
                             </button>
-                        ))}
-                    </div>
+                            {tabs.map(tab => (
+                                <button
+                                    key={tab}
+                                    onClick={() => setActiveTab(tab)}
+                                    className={`px-4 py-3 font-medium transition whitespace-nowrap ${
+                                        activeTab === tab
+                                            ? 'text-medical-600 nav-item-active border-b-4 border-medical-500'
+                                            : 'text-gray-500 hover:text-gray-600'
+                                    }`}
+                                >
+                                    {tab}
+                                </button>
+                            ))}
+                        </div>
+                    )}
 
                     <div className="flex-1 overflow-y-auto" onClick={() => showProfile && setShowProfile(false)}>
                         {renderContent()}
