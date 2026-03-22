@@ -5367,7 +5367,7 @@ To-do: Check AM labs, I/Os q4h`}
             const [isRecording, setIsRecording] = React.useState(false);
             const [transcript, setTranscript] = React.useState('');
             const [liveTranscript, setLiveTranscript] = React.useState('');
-            const [parsedItems, setParsedItems] = React.useState({ diet: [], activity: [], orders: [], disposition: [] });
+            const [parsedItems, setParsedItems] = React.useState({ diet: null, activity: null, orders: [], disposition: null, plan: null, dvtProphylaxis: null, giProphylaxis: null, concerns: null, problems: [], examFindings: null });
             const [recordingsList, setRecordingsList] = React.useState({});
             const recordingRef = React.useRef(null);
             const recognitionRef = React.useRef(null);
