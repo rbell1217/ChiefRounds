@@ -3018,7 +3018,11 @@
                         </div>
 
                         <div className="space-y-6 p-4 pb-20">
-                            {patients.map((patient) => (
+                            {[...patients].sort((a, b) => {
+                                if (a.isTrauma && !b.isTrauma) return -1;
+                                if (!a.isTrauma && b.isTrauma) return 1;
+                                return parseInt(a.room) - parseInt(b.room);
+                            }).map((patient) => (
                                 <div key={patient.id} className={`border-l-4 ${patient.isTrauma ? 'border-red-500' : 'border-medical-500'} pl-5 pr-2`}>
                                     {/* Header: Room and Code Status */}
                                     <div className={`text-xl font-bold ${patient.isTrauma ? 'text-red-600' : 'text-medical-600'} mb-1`}>
@@ -3946,12 +3950,19 @@
                     {/* Active Tab */}
                     {activeTab === 'Active' && (
                         <div className="space-y-3">
-                            {activePatients.map(patient => (
-                                <div key={patient.id} className="bg-white border border-gray-200 rounded p-4">
+                            {activePatients.sort((a, b) => {
+                                if (a.isTrauma && !b.isTrauma) return -1;
+                                if (!a.isTrauma && b.isTrauma) return 1;
+                                return parseInt(a.room) - parseInt(b.room);
+                            }).map(patient => (
+                                <div key={patient.id} className={`bg-white border rounded p-4 ${patient.isTrauma ? 'border-red-500 border-l-4 border-l-red-600 bg-red-50/30' : 'border-gray-200'}`}>
                                     <div className="grid grid-cols-2 md:grid-cols-7 gap-3 mb-3">
                                         <div>
                                             <p className="text-xs text-gray-400">Room</p>
-                                            <p className="font-bold text-medical-600">{patient.room}</p>
+                                            <div className="flex items-center gap-1">
+                                                <p className={`font-bold ${patient.isTrauma ? 'text-red-600' : 'text-medical-600'}`}>{patient.room}</p>
+                                                {patient.isTrauma && <span className="text-xs bg-red-500 text-white px-1.5 py-0.5 rounded font-bold">{patient.traumaLevel || 'T'}</span>}
+                                            </div>
                                         </div>
                                         <div>
                                             <p className="text-xs text-gray-400">Diagnosis</p>
@@ -4709,10 +4720,14 @@
                     <DictationBar dictation={dictation} onParse={handleParseHandoffDictation} parseLabel="Apply to Patient" />
 
                     <div className="space-y-4">
-                        {patients.map(patient => (
-                            <div key={patient.id} className="bg-white border border-gray-200 rounded-lg p-4">
+                        {[...patients].sort((a, b) => {
+                            if (a.isTrauma && !b.isTrauma) return -1;
+                            if (!a.isTrauma && b.isTrauma) return 1;
+                            return parseInt(a.room) - parseInt(b.room);
+                        }).map(patient => (
+                            <div key={patient.id} className={`bg-white border rounded-lg p-4 ${patient.isTrauma ? 'border-red-500 border-l-4 border-l-red-600 bg-red-50/30' : 'border-gray-200'}`}>
                                 <div className="grid grid-cols-4 gap-3 mb-4 text-sm">
-                                    <div className="font-bold text-medical-600">Room {patient.room}</div>
+                                    <div className={`font-bold ${patient.isTrauma ? 'text-red-600' : 'text-medical-600'}`}>Room {patient.room} {patient.isTrauma && <span className="text-xs bg-red-500 text-white px-1.5 py-0.5 rounded ml-1">{patient.traumaLevel || 'T'}</span>}</div>
                                     <div className="text-gray-600">{patient.diagnosis || 'N/A'}</div>
                                     <div className="text-amber-600">POD {calculatePOD(patient.admitDate)}</div>
                                     <div className="text-gray-600">{patient.codeStatus || 'FULL'}</div>
@@ -5150,16 +5165,20 @@ To-do: Check AM labs, I/Os q4h`}
                     <DictationBar dictation={dictation} onParse={handleParsePreRoundDictation} parseLabel="Auto-Fill Pre-Round" />
 
                     <div className="space-y-3">
-                        {patients.map(patient => {
+                        {[...patients].sort((a, b) => {
+                            if (a.isTrauma && !b.isTrauma) return -1;
+                            if (!a.isTrauma && b.isTrauma) return 1;
+                            return parseInt(a.room) - parseInt(b.room);
+                        }).map(patient => {
                             const c = checklist[patient.id] || {};
                             const patientChecked = [c.vitals, c.ios, c.labs, c.overnight, c.lines, c.meds, c.pain, c.plan].filter(Boolean).length;
                             const isExpanded = expandedPatient === patient.id;
 
                             return (
-                                <div key={patient.id} className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                                <div key={patient.id} className={`bg-white border rounded-lg overflow-hidden ${patient.isTrauma ? 'border-red-500 border-l-4 border-l-red-600 bg-red-50/30' : 'border-gray-200'}`}>
                                     <div className="p-4 flex items-center justify-between cursor-pointer hover:bg-gray-50 transition" onClick={() => setExpandedPatient(isExpanded ? null : patient.id)}>
                                         <div className="flex items-center gap-4 flex-1">
-                                            <div className="font-bold text-medical-600 text-lg">Room {patient.room}</div>
+                                            <div className={`font-bold text-lg ${patient.isTrauma ? 'text-red-600' : 'text-medical-600'}`}>Room {patient.room} {patient.isTrauma && <span className="text-xs bg-red-500 text-white px-1.5 py-0.5 rounded ml-1">{patient.traumaLevel || 'T'}</span>}</div>
                                             <div className="text-sm text-gray-500">{patient.diagnosis}</div>
                                             <div className="flex gap-1">
                                                 <div className="text-xs bg-gray-50 px-2 py-1 rounded">{patientChecked}/8</div>
@@ -5364,8 +5383,12 @@ To-do: Check AM labs, I/Os q4h`}
                             <label className="text-sm text-gray-500 font-semibold">Select Patient</label>
                             <select value={selectedPatientId || ''} onChange={(e) => setSelectedPatientId(parseInt(e.target.value))}
                                 className="w-full mt-2 px-4 py-2 bg-gray-50 border border-gray-300 rounded text-gray-600">
-                                {patients.map(p => (
-                                    <option key={p.id} value={p.id}>Room {p.room} - {p.diagnosis}</option>
+                                {[...patients].sort((a, b) => {
+                                    if (a.isTrauma && !b.isTrauma) return -1;
+                                    if (!a.isTrauma && b.isTrauma) return 1;
+                                    return parseInt(a.room) - parseInt(b.room);
+                                }).map(p => (
+                                    <option key={p.id} value={p.id}>{p.isTrauma ? '🔴 ' : ''}Room {p.room} - {p.diagnosis}</option>
                                 ))}
                             </select>
                         </div>
