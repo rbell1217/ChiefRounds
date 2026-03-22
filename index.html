@@ -4071,7 +4071,7 @@
                                         <div className="flex justify-between items-center mb-3">
                                             <h3 className="text-lg font-bold text-medical-500">Room {patient.room}</h3>
                                             <div className="flex items-center gap-2">
-                                                {patientTasks.some(t => t.description === 'M&M Conference') && (
+                                                {tasks.some(t => t.patientId === patient.id && t.description === 'M&M Conference') && (
                                                     <button
                                                         onClick={() => exportMMTimeline(patient)}
                                                         className="text-xs bg-amber-500 hover:bg-amber-600 text-white px-2 py-1 rounded font-medium transition"
@@ -8221,6 +8221,341 @@ To-do: Check AM labs, I/Os q4h`}
             );
         }
 
+        // ==================== M&M LESSONS LEARNED ====================
+        function MMLessonsLearned({ currentUser }) {
+            const [lessons, setLessons] = React.useState([]);
+            const [showForm, setShowForm] = React.useState(false);
+            const [editingId, setEditingId] = React.useState(null);
+            const [patients, setPatients] = React.useState([]);
+            const [form, setForm] = React.useState({ patientId: '', title: '', lesson: '', studies: [] });
+            const [studyInput, setStudyInput] = React.useState({ citation: '', url: '' });
+            const [loadingSummary, setLoadingSummary] = React.useState(null);
+            const [expandedLesson, setExpandedLesson] = React.useState(null);
+            const dictation = useDictation();
+
+            React.useEffect(() => { loadData(); }, []);
+
+            const loadData = async () => {
+                const lessonsData = await DB.getAll('mmLessons');
+                setLessons(lessonsData.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')));
+                const patientsData = await DB.getAll('patients');
+                setPatients(patientsData);
+            };
+
+            const handleSave = async () => {
+                if (!form.lesson.trim() && !form.title.trim()) return;
+                const data = {
+                    ...form,
+                    title: form.title.trim() || 'Untitled Lesson',
+                    lesson: form.lesson.trim(),
+                    author: currentUser?.displayName || currentUser?.email || 'Unknown',
+                    updatedAt: new Date().toISOString()
+                };
+                if (editingId) {
+                    const existing = lessons.find(l => l.id === editingId);
+                    await DB.put('mmLessons', { ...existing, ...data });
+                } else {
+                    data.createdAt = new Date().toISOString();
+                    await DB.add('mmLessons', data);
+                }
+                setForm({ patientId: '', title: '', lesson: '', studies: [] });
+                setShowForm(false);
+                setEditingId(null);
+                dictation.clear();
+                loadData();
+            };
+
+            const handleDelete = async (id) => {
+                await DB.delete('mmLessons', id);
+                loadData();
+            };
+
+            const startEdit = (lesson) => {
+                setForm({
+                    patientId: lesson.patientId || '',
+                    title: lesson.title || '',
+                    lesson: lesson.lesson || '',
+                    studies: lesson.studies || []
+                });
+                setEditingId(lesson.id);
+                setShowForm(true);
+            };
+
+            const addStudy = () => {
+                if (!studyInput.citation.trim()) return;
+                setForm(prev => ({
+                    ...prev,
+                    studies: [...prev.studies, { citation: studyInput.citation.trim(), url: studyInput.url.trim(), summary: '', fetchingSummary: false }]
+                }));
+                setStudyInput({ citation: '', url: '' });
+            };
+
+            const removeStudy = (idx) => {
+                setForm(prev => ({ ...prev, studies: prev.studies.filter((_, i) => i !== idx) }));
+            };
+
+            const fetchStudySummary = async (idx) => {
+                const study = form.studies[idx];
+                if (!study.url && !study.citation) return;
+                setLoadingSummary(idx);
+                try {
+                    let content = '';
+                    // Try to fetch from URL if provided
+                    if (study.url) {
+                        try {
+                            const resp = await fetch(study.url);
+                            if (resp.ok) {
+                                const text = await resp.text();
+                                // Extract meaningful text (strip HTML)
+                                const div = document.createElement('div');
+                                div.innerHTML = text;
+                                content = div.textContent?.substring(0, 3000) || '';
+                            }
+                        } catch (e) { /* URL fetch failed, fall back to citation text */ }
+                    }
+                    // Build a summary from what we have
+                    const lessonContext = form.lesson || '';
+                    let summary = '';
+                    if (content) {
+                        // Extract abstract-like content if available
+                        const abstractMatch = content.match(/(?:abstract|summary|background|objective|purpose|aim|introduction)[:\s]*(.{100,800}?)(?:\.\s*(?:method|result|conclusion|keyword|introduction|material)|$)/i);
+                        if (abstractMatch) {
+                            summary = abstractMatch[1].trim();
+                            if (summary.length > 300) summary = summary.substring(0, 300) + '...';
+                        } else {
+                            // Take first meaningful chunk
+                            const meaningful = content.replace(/\s+/g, ' ').trim();
+                            summary = meaningful.substring(0, 300) + '...';
+                        }
+                        // Add relevance note
+                        summary += '\n\nRelevance: This study relates to the M&M lesson regarding ' + (form.title || 'this case') + '.';
+                    } else {
+                        // No URL content - create note from citation alone
+                        summary = 'Study: ' + study.citation + '. Please review this reference in relation to: ' + (form.title || lessonContext.substring(0, 100) || 'this M&M case') + '.';
+                    }
+                    const updatedStudies = [...form.studies];
+                    updatedStudies[idx] = { ...study, summary };
+                    setForm(prev => ({ ...prev, studies: updatedStudies }));
+                } catch (e) {
+                    console.error('Error fetching study summary:', e);
+                    const updatedStudies = [...form.studies];
+                    updatedStudies[idx] = { ...study, summary: 'Unable to fetch summary. Please review manually.' };
+                    setForm(prev => ({ ...prev, studies: updatedStudies }));
+                }
+                setLoadingSummary(null);
+            };
+
+            const handleDictationDone = (transcript) => {
+                setForm(prev => ({ ...prev, lesson: (prev.lesson ? prev.lesson + ' ' : '') + transcript }));
+                dictation.clear();
+            };
+
+            const getLinkedPatient = (patientId) => patients.find(p => p.id === patientId);
+
+            return (
+                <div className="p-4 md:p-6 max-w-4xl mx-auto">
+                    <div className="flex justify-between items-center mb-6">
+                        <div>
+                            <h2 className="text-2xl font-bold text-medical-600">M&M Lessons Learned</h2>
+                            <p className="text-sm text-gray-500 mt-1">{lessons.length} lesson{lessons.length !== 1 ? 's' : ''} recorded</p>
+                        </div>
+                        <button
+                            onClick={() => { setShowForm(true); setEditingId(null); setForm({ patientId: '', title: '', lesson: '', studies: [] }); }}
+                            className="px-4 py-2 bg-medical-600 hover:bg-medical-700 text-white rounded-lg font-medium text-sm transition"
+                        >
+                            + New Lesson
+                        </button>
+                    </div>
+
+                    {/* Form Modal */}
+                    {showForm && (
+                        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 modal-backdrop" onClick={() => setShowForm(false)}>
+                            <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto modal-content" onClick={e => e.stopPropagation()}>
+                                <div className="p-5 border-b border-gray-100">
+                                    <div className="flex justify-between items-center">
+                                        <h3 className="text-lg font-bold text-gray-800">{editingId ? 'Edit Lesson' : 'New M&M Lesson'}</h3>
+                                        <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+                                    </div>
+                                </div>
+                                <div className="p-5 space-y-4">
+                                    {/* Link to patient (optional) */}
+                                    <div>
+                                        <label className="text-xs font-semibold text-gray-500 block mb-1">Link to Patient (optional)</label>
+                                        <select value={form.patientId} onChange={e => setForm(prev => ({ ...prev, patientId: e.target.value }))}
+                                            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800">
+                                            <option value="">No patient linked</option>
+                                            {patients.map(p => (
+                                                <option key={p.id} value={p.id}>Room {p.room} - {p.diagnosis || 'Unknown'}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    {/* Title */}
+                                    <div>
+                                        <label className="text-xs font-semibold text-gray-500 block mb-1">Title / Topic</label>
+                                        <input value={form.title} onChange={e => setForm(prev => ({ ...prev, title: e.target.value }))}
+                                            placeholder="e.g., Missed bowel injury post-lap chole"
+                                            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800" />
+                                    </div>
+
+                                    {/* Lesson - text + dictation */}
+                                    <div>
+                                        <label className="text-xs font-semibold text-gray-500 block mb-1">Lesson Learned</label>
+                                        <textarea value={form.lesson} onChange={e => setForm(prev => ({ ...prev, lesson: e.target.value }))}
+                                            rows={5} placeholder="Dictate or type what you learned from this case..."
+                                            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800 resize-y" />
+                                        <div className="flex items-center gap-2 mt-2">
+                                            <button
+                                                onClick={() => {
+                                                    if (dictation.isRecording) {
+                                                        dictation.stop();
+                                                        if (dictation.transcript) {
+                                                            handleDictationDone(dictation.transcript);
+                                                        }
+                                                    } else {
+                                                        dictation.start();
+                                                    }
+                                                }}
+                                                className={`text-xs px-3 py-1.5 rounded-lg font-medium transition ${
+                                                    dictation.isRecording ? 'bg-red-500 text-white animate-pulse' : 'bg-gray-100 hover:bg-gray-200 text-gray-600'
+                                                }`}
+                                            >
+                                                {dictation.isRecording ? 'Stop Dictation' : 'Dictate'}
+                                            </button>
+                                            {dictation.isRecording && dictation.transcript && (
+                                                <span className="text-xs text-gray-400 italic truncate">{dictation.transcript.substring(0, 60)}...</span>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Studies / References */}
+                                    <div>
+                                        <label className="text-xs font-semibold text-gray-500 block mb-2">Cited Studies / References</label>
+                                        {form.studies.map((study, idx) => (
+                                            <div key={idx} className="bg-slate-50 border border-gray-200 rounded-lg p-3 mb-2">
+                                                <div className="flex justify-between items-start">
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="text-sm font-medium text-gray-800">{study.citation}</p>
+                                                        {study.url && <p className="text-xs text-blue-500 truncate mt-0.5">{study.url}</p>}
+                                                    </div>
+                                                    <button onClick={() => removeStudy(idx)} className="text-gray-400 hover:text-red-500 ml-2 text-sm">&times;</button>
+                                                </div>
+                                                {study.summary ? (
+                                                    <div className="mt-2 pt-2 border-t border-gray-200">
+                                                        <p className="text-xs text-gray-600 whitespace-pre-line">{study.summary}</p>
+                                                    </div>
+                                                ) : (
+                                                    <button
+                                                        onClick={() => fetchStudySummary(idx)}
+                                                        disabled={loadingSummary === idx}
+                                                        className="mt-2 text-xs text-medical-600 hover:text-medical-700 font-medium disabled:opacity-50"
+                                                    >
+                                                        {loadingSummary === idx ? 'Generating summary...' : 'Generate Summary'}
+                                                    </button>
+                                                )}
+                                            </div>
+                                        ))}
+                                        {/* Add new study */}
+                                        <div className="space-y-2 bg-gray-50 rounded-lg p-3">
+                                            <input value={studyInput.citation} onChange={e => setStudyInput(prev => ({ ...prev, citation: e.target.value }))}
+                                                placeholder="Study citation (e.g., Smith et al. Ann Surg 2024)"
+                                                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800" />
+                                            <input value={studyInput.url} onChange={e => setStudyInput(prev => ({ ...prev, url: e.target.value }))}
+                                                placeholder="URL (optional - PubMed, DOI, etc.)"
+                                                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800" />
+                                            <button onClick={addStudy} disabled={!studyInput.citation.trim()}
+                                                className="text-xs bg-medical-600 hover:bg-medical-700 text-white px-3 py-1.5 rounded-lg font-medium disabled:opacity-50 transition">
+                                                + Add Reference
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="p-5 border-t border-gray-100 flex gap-2">
+                                    <button onClick={handleSave} className="flex-1 bg-medical-600 hover:bg-medical-700 text-white py-2.5 rounded-lg font-medium text-sm transition">
+                                        {editingId ? 'Update Lesson' : 'Save Lesson'}
+                                    </button>
+                                    <button onClick={() => setShowForm(false)} className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg text-sm transition">
+                                        Cancel
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Lessons List */}
+                    {lessons.length === 0 ? (
+                        <div className="text-center py-12">
+                            <p className="text-gray-400 text-lg mb-2">No lessons recorded yet</p>
+                            <p className="text-gray-400 text-sm">After M&M conferences, record what you learned for future reference.</p>
+                        </div>
+                    ) : (
+                        <div className="space-y-3">
+                            {lessons.map(lesson => {
+                                const linked = getLinkedPatient(lesson.patientId);
+                                const isExpanded = expandedLesson === lesson.id;
+                                return (
+                                    <div key={lesson.id} className="bg-white border border-gray-100 rounded-xl overflow-hidden shadow-sm">
+                                        <div className="p-4 cursor-pointer" onClick={() => setExpandedLesson(isExpanded ? null : lesson.id)}>
+                                            <div className="flex justify-between items-start">
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <h3 className="font-bold text-gray-800">{lesson.title || 'Untitled'}</h3>
+                                                        {linked && (
+                                                            <span className="text-[10px] bg-slate-100 text-gray-500 px-1.5 py-0.5 rounded">
+                                                                Rm {linked.room} - {linked.diagnosis}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <p className="text-xs text-gray-400 mt-1">
+                                                        {new Date(lesson.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                                                        {' by '}{lesson.author}
+                                                        {lesson.studies?.length > 0 && ` -- ${lesson.studies.length} reference${lesson.studies.length !== 1 ? 's' : ''}`}
+                                                    </p>
+                                                    {!isExpanded && (
+                                                        <p className="text-sm text-gray-600 mt-1 line-clamp-2" style={{display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden'}}>
+                                                            {lesson.lesson}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                                <span className="text-gray-300 text-sm ml-2">{isExpanded ? '\u25B2' : '\u25BC'}</span>
+                                            </div>
+                                        </div>
+                                        {isExpanded && (
+                                            <div className="px-4 pb-4 space-y-3">
+                                                <div className="bg-slate-50 rounded-lg p-3">
+                                                    <p className="text-sm text-gray-700 whitespace-pre-line">{lesson.lesson}</p>
+                                                </div>
+                                                {lesson.studies?.length > 0 && (
+                                                    <div>
+                                                        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">References</p>
+                                                        {lesson.studies.map((study, i) => (
+                                                            <div key={i} className="bg-indigo-50 border border-indigo-100 rounded-lg p-3 mb-2">
+                                                                <p className="text-sm font-medium text-indigo-800">{study.citation}</p>
+                                                                {study.url && (
+                                                                    <a href={study.url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">{study.url}</a>
+                                                                )}
+                                                                {study.summary && (
+                                                                    <p className="text-xs text-gray-600 mt-2 pt-2 border-t border-indigo-200 whitespace-pre-line">{study.summary}</p>
+                                                                )}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                                <div className="flex gap-2 pt-2 border-t border-gray-100">
+                                                    <button onClick={() => startEdit(lesson)} className="text-xs text-medical-600 hover:text-medical-700 font-medium">Edit</button>
+                                                    <button onClick={() => { if (confirm('Delete this lesson?')) handleDelete(lesson.id); }} className="text-xs text-red-500 hover:text-red-600 font-medium">Delete</button>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
         // ==================== MAIN APP ====================
         function App() {
             const [user, setUser] = React.useState(null);
@@ -8409,7 +8744,7 @@ To-do: Check AM labs, I/Os q4h`}
                 return <TeamSetup user={user} onTeamReady={handleTeamReady} />;
             }
 
-            const tabs = ['Patients', 'Attending', 'Tasks', 'Consults', 'Trauma', 'Census', 'Handoff', 'Pre-Round', 'Rounds'];
+            const tabs = ['Patients', 'Attending', 'Tasks', 'Consults', 'Trauma', 'Census', 'Handoff', 'Pre-Round', 'Rounds', 'M&M'];
 
             // Home landing page component
             const HomeScreen = () => {
@@ -8510,6 +8845,7 @@ To-do: Check AM labs, I/Os q4h`}
                     case 'Handoff': return <Handoff />;
                     case 'Pre-Round': return <PreRound />;
                     case 'Rounds': return <RoundsRecorder />;
+                    case 'M&M': return <MMLessonsLearned currentUser={user} />;
                     default: return <HomeScreen />;
                 }
             };
@@ -8523,6 +8859,32 @@ To-do: Check AM labs, I/Os q4h`}
                 const [loading, setLoading] = React.useState(false);
                 const [confirmDelete, setConfirmDelete] = React.useState(null);
                 const [confirmLeave, setConfirmLeave] = React.useState(null);
+                const [expandedTeam, setExpandedTeam] = React.useState(null);
+                const [confirmRemoveMember, setConfirmRemoveMember] = React.useState(null);
+
+                const removeMember = async (tid, memberUid) => {
+                    try {
+                        const tDoc = await db.collection('teams').doc(tid).get();
+                        if (!tDoc.exists) return;
+                        const members = (tDoc.data().members || []).filter(m => m.uid !== memberUid);
+                        await db.collection('teams').doc(tid).update({ members });
+                        // Also remove from that user's teamIds
+                        try {
+                            const memberDoc = await db.collection('users').doc(memberUid).get();
+                            if (memberDoc.exists) {
+                                const mData = memberDoc.data();
+                                const mTeamIds = (mData.teamIds || []).filter(id => id !== tid);
+                                const updates = { teamIds: mTeamIds };
+                                if (mData.teamId === tid) updates.teamId = mTeamIds[0] || null;
+                                await db.collection('users').doc(memberUid).set(updates, { merge: true });
+                            }
+                        } catch (e) { /* user doc may not be accessible */ }
+                        setConfirmRemoveMember(null);
+                        await loadAllTeams(user.uid);
+                    } catch (e) {
+                        console.error('Error removing member:', e);
+                    }
+                };
 
                 const generateCode = () => Math.random().toString(36).substring(2, 8).toUpperCase();
 
@@ -8608,7 +8970,33 @@ To-do: Check AM labs, I/Os q4h`}
                                                     <span className="text-xs text-gray-400">Code:</span>
                                                     <code className="text-xs font-mono bg-gray-100 px-1.5 py-0.5 rounded tracking-wider">{t.inviteCode}</code>
                                                 </div>
-                                                <p className="text-xs text-gray-400 mt-1">{t.members?.length || 1} member(s)</p>
+                                                <button onClick={(e) => { e.stopPropagation(); setExpandedTeam(expandedTeam === t.id ? null : t.id); }}
+                                                    className="text-xs text-gray-400 hover:text-gray-600 mt-1 flex items-center gap-1">
+                                                    {t.members?.length || 1} member(s) <span>{expandedTeam === t.id ? '\u25B2' : '\u25BC'}</span>
+                                                </button>
+                                                {expandedTeam === t.id && t.members && (
+                                                    <div className="mt-2 space-y-1">
+                                                        {t.members.map((m, mi) => (
+                                                            <div key={mi} className="flex items-center justify-between text-xs">
+                                                                <div className="flex items-center gap-1.5">
+                                                                    <div className="w-5 h-5 rounded-full bg-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-500">{(m.name || m.email || '?')[0].toUpperCase()}</div>
+                                                                    <span className="text-gray-600">{m.name || m.email}</span>
+                                                                    {m.role === 'admin' && <span className="text-[9px] bg-medical-600 text-white px-1 py-0.5 rounded">Admin</span>}
+                                                                </div>
+                                                                {t.createdBy === user.uid && m.uid !== user.uid && (
+                                                                    confirmRemoveMember === m.uid + '_' + t.id ? (
+                                                                        <div className="flex gap-1">
+                                                                            <button onClick={() => removeMember(t.id, m.uid)} className="text-[10px] bg-red-500 text-white px-1.5 py-0.5 rounded">Remove</button>
+                                                                            <button onClick={() => setConfirmRemoveMember(null)} className="text-[10px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded">No</button>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <button onClick={() => setConfirmRemoveMember(m.uid + '_' + t.id)} className="text-[10px] text-gray-400 hover:text-red-500">&times;</button>
+                                                                    )
+                                                                )}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
                                             </div>
                                             <div className="flex flex-col gap-1 ml-2">
                                                 {t.id !== teamId && (
