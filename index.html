@@ -2726,18 +2726,30 @@
                                                 const todayRounds = patient.roundsHistory?.[today];
                                                 if (!todayRounds) return null;
                                                 const p = todayRounds.parsed || todayRounds;
-                                                const hasContent = p.vitals || p.labNotes || p.examFindings || p.summary ||
+                                                const hasContent = p.subjective || p.assessment || p.vitals || p.labNotes || p.examFindings || p.summary ||
                                                     (p.orders && p.orders.length > 0) || p.diet || p.activity || p.plan ||
                                                     p.concerns || p.disposition || p.dvtProphylaxis || p.giProphylaxis ||
                                                     (p.problems && p.problems.length > 0);
                                                 if (!hasContent) return null;
                                                 return (
-                                                    <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+                                                    <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3">
                                                         <div className="flex justify-between items-center mb-2">
                                                             <p className="text-xs font-bold text-emerald-700 uppercase">Today's Rounds Summary</p>
                                                             <span className="text-xs text-emerald-400">{todayRounds.timestamp ? new Date(todayRounds.timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : ''}</span>
                                                         </div>
                                                         <div className="space-y-1">
+                                                            {p.subjective && (
+                                                                <div className="text-xs bg-white/60 rounded p-1.5 -mx-0.5">
+                                                                    <span className="font-semibold text-blue-700">Subjective:</span>{' '}
+                                                                    <span className="text-gray-800">{p.subjective}</span>
+                                                                </div>
+                                                            )}
+                                                            {p.assessment && (
+                                                                <div className="text-xs bg-white/60 rounded p-1.5 -mx-0.5">
+                                                                    <span className="font-semibold text-indigo-700">Assessment:</span>{' '}
+                                                                    <span className="text-gray-800">{p.assessment}</span>
+                                                                </div>
+                                                            )}
                                                             {p.vitals && (
                                                                 <div className="text-xs">
                                                                     <span className="font-semibold text-emerald-600">Vitals:</span>{' '}
@@ -5523,7 +5535,7 @@ To-do: Check AM labs, I/Os q4h`}
             const [isRecording, setIsRecording] = React.useState(false);
             const [transcript, setTranscript] = React.useState('');
             const [liveTranscript, setLiveTranscript] = React.useState('');
-            const [parsedItems, setParsedItems] = React.useState({ diet: null, activity: null, orders: [], disposition: null, plan: null, dvtProphylaxis: null, giProphylaxis: null, concerns: null, problems: [], examFindings: null, vitals: null, labNotes: null, summary: null });
+            const [parsedItems, setParsedItems] = React.useState({ subjective: null, assessment: null, diet: null, activity: null, orders: [], disposition: null, plan: null, dvtProphylaxis: null, giProphylaxis: null, concerns: null, problems: [], examFindings: null, vitals: null, labNotes: null, summary: null });
             const [recordingsList, setRecordingsList] = React.useState({});
             const recordingRef = React.useRef(null);
             const recognitionRef = React.useRef(null);
@@ -5612,7 +5624,90 @@ To-do: Check AM labs, I/Os q4h`}
                     .replace(/\bplatelets?\b/gi, 'Plt');
 
                 const lower = t.toLowerCase();
-                const parsed = { diet: null, activity: null, orders: [], disposition: null, plan: null, dvtProphylaxis: null, giProphylaxis: null, concerns: null, problems: [], examFindings: null, vitals: null, labNotes: null, summary: null };
+                const parsed = { subjective: null, assessment: null, diet: null, activity: null, orders: [], disposition: null, plan: null, dvtProphylaxis: null, giProphylaxis: null, concerns: null, problems: [], examFindings: null, vitals: null, labNotes: null, summary: null };
+
+                // ===== SUBJECTIVE: Patient complaints, symptoms, how they're doing =====
+                const subjParts = [];
+                // Symptom/complaint patterns
+                const symptomPatterns = [
+                    [/complain(?:ing|s)?\s+(?:of|about)\s+(.+?)(?:\s+(?:they|he|she|patient|we|plan|order|diet|exam|vitals|labs|blood|start|stop|also)|$)/i, null],
+                    [/(?:patient|pt|they?|he|she)\s+(?:is|are|has|have|had)\s+(?:been\s+)?(?:having|experiencing|reporting|endorsing|complaining\s+of)\s+(.+?)(?:\s+(?:they|he|she|patient|we|plan|order|diet|exam|start|stop|also)|$)/i, null],
+                    [/(?:patient|pt|they|he|she)\s+(?:reports?|states?|denies?|notes?|says?|mentions?)\s+(.+?)(?:\s+(?:they|he|she|patient|we|plan|order|diet|exam|start|stop|also)|$)/i, null],
+                    [/(?:patient|pt|they|he|she)\s+(?:is|are|was|were)\s+(?:feeling|doing|looking)\s+(.+?)(?:\s+(?:they|he|she|patient|we|plan|order|diet|start|stop|also)|$)/i, null],
+                ];
+                symptomPatterns.forEach(([re]) => {
+                    const m = t.match(re);
+                    if (m && m[1].trim().length > 2 && m[1].trim().length < 200) {
+                        subjParts.push(m[1].trim());
+                    }
+                });
+                // Capture specific symptom mentions
+                const symptomKeywords = [
+                    [/(?:more|worsening|increased?|severe?|significant)\s+(?:abdominal\s+)?pain/i, 'worsening pain'],
+                    [/abdominal\s+pain/i, 'abdominal pain'],
+                    [/chest\s+pain/i, 'chest pain'],
+                    [/(?:nausea\s+and\s+vomiting|nausea|vomiting|emesis|n\/v)/i, 'nausea/vomiting'],
+                    [/(?:hasn't|haven't|has\s+not|unable\s+to)\s+(?:been\s+able\s+to\s+)?(?:get\s+out\s+of\s+bed|ambulate|walk|move|eat|tolerat)/i, 'unable to mobilize/eat'],
+                    [/not\s+(?:eating|drinking|tolerating|ambulating|walking|moving)/i, 'not tolerating/mobilizing'],
+                    [/(?:feeling|feels?)\s+(?:better|improved|good|great|well|fine)/i, 'feeling better'],
+                    [/(?:feeling|feels?)\s+(?:worse|terrible|awful|bad|miserable|horrible)/i, 'feeling worse'],
+                    [/doing\s+(?:well|better|good|great|fine|okay|ok)/i, 'doing well'],
+                    [/doing\s+(?:worse|poorly|bad|terribly)/i, 'doing worse'],
+                    [/(?:no|denies|without)\s+(?:complaints?|issues?|problems?|concerns?)/i, 'no complaints'],
+                    [/tolerating\s+(?:diet|po|oral|food|liquids?)/i, 'tolerating diet'],
+                    [/not\s+tolerating\s+(?:diet|po|oral|food|liquids?)/i, 'not tolerating diet'],
+                    [/fever|febrile|chills|rigors/i, 'fever/chills'],
+                    [/short(?:ness)?\s+of\s+breath|dyspnea|sob\b/i, 'shortness of breath'],
+                    [/diarrhea|loose\s+stools?/i, 'diarrhea'],
+                    [/constipat(?:ed|ion)/i, 'constipation'],
+                    [/dizz(?:y|iness)|lightheaded/i, 'dizziness'],
+                    [/headache/i, 'headache'],
+                    [/swelling|edema/i, 'swelling'],
+                    [/bleeding|bloody|blood\s+in/i, 'bleeding'],
+                    [/(?:passed|passing)\s+(?:gas|flatus)/i, 'passing flatus'],
+                    [/(?:had|having|has)\s+(?:a\s+)?bowel\s+movement|bm\b/i, 'had BM'],
+                    [/no\s+(?:bowel\s+movement|bm|flatus|gas)/i, 'no BM/flatus'],
+                    [/(?:slept|sleeping|rested)\s+(?:well|okay|poorly|bad)/i, 'sleep noted'],
+                    [/anxious|anxiety|worried|nervous/i, 'anxiety'],
+                    [/confused|confusion|disoriented|altered/i, 'confusion/altered'],
+                ];
+                const capturedSymptoms = [];
+                symptomKeywords.forEach(([re, label]) => {
+                    if (re.test(lower) && !capturedSymptoms.includes(label)) {
+                        capturedSymptoms.push(label);
+                    }
+                });
+                // Combine explicit complaints with keyword symptoms (dedup)
+                const allSubjective = [...subjParts];
+                capturedSymptoms.forEach(s => {
+                    if (!allSubjective.some(existing => existing.toLowerCase().includes(s.split('/')[0].toLowerCase()))) {
+                        allSubjective.push(s);
+                    }
+                });
+                if (allSubjective.length > 0) parsed.subjective = allSubjective.join('; ');
+
+                // ===== ASSESSMENT: Overall clinical status =====
+                const assessParts = [];
+                // Overall status patterns
+                if (/(?:patient|pt|they|he|she)\s+(?:is|are|looks?|appears?)\s+(?:clinically\s+)?(?:stable|improved|improving|better|worse|declining|deteriorat)/i.test(lower)) {
+                    const m = t.match(/(?:patient|pt|they|he|she)\s+(?:is|are|looks?|appears?)\s+(?:clinically\s+)?(\w+(?:\s+\w+)?)/i);
+                    if (m) assessParts.push('Patient ' + m[1].trim());
+                }
+                if (/pod\s*(?:#?\s*)?\d+|post[- ]?op(?:erative)?\s*day\s*\d+/i.test(lower)) {
+                    const podM = t.match(/pod\s*(?:#?\s*)?(\d+)|post[- ]?op(?:erative)?\s*day\s*(\d+)/i);
+                    if (podM) assessParts.push('POD #' + (podM[1] || podM[2]));
+                }
+                if (/progressing\s+(?:well|as\s+expected|appropriately|slowly|poorly)/i.test(lower)) {
+                    const m = t.match(/progressing\s+(\w+(?:\s+\w+)?)/i);
+                    if (m) assessParts.push('Progressing ' + m[1].trim());
+                }
+                if (/ready\s+for\s+(?:discharge|dc|transfer|step\s*down)/i.test(lower)) assessParts.push('Ready for discharge');
+                if (/not\s+ready\s+(?:for\s+)?(?:discharge|dc)/i.test(lower)) assessParts.push('Not ready for discharge');
+                if (/overall\s+(.+?)(?:\s+(?:plan|order|diet|exam)|$)/i.test(t)) {
+                    const m = t.match(/overall\s+(.+?)(?:\s+(?:plan|order|diet|exam)|$)/i);
+                    if (m && m[1].trim().length > 2 && m[1].trim().length < 100) assessParts.push(m[1].trim());
+                }
+                if (assessParts.length > 0) parsed.assessment = assessParts.join('. ');
 
                 // Diet - scan entire transcript
                 if (/\bnpo\b/i.test(lower)) parsed.diet = 'NPO';
@@ -5857,12 +5952,14 @@ To-do: Check AM labs, I/Os q4h`}
                     }
                 });
 
-                // Build a concise summary of everything captured
+                // Build a concise SOAP-style summary of everything captured
                 const summaryParts = [];
+                if (parsed.subjective) summaryParts.push('S: ' + parsed.subjective);
                 if (parsed.vitals) summaryParts.push('Vitals: ' + parsed.vitals);
                 if (parsed.labNotes) summaryParts.push('Labs: ' + parsed.labNotes);
                 if (parsed.examFindings) summaryParts.push('Exam: ' + parsed.examFindings);
-                if (parsed.plan) summaryParts.push('Plan: ' + parsed.plan);
+                if (parsed.assessment) summaryParts.push('A: ' + parsed.assessment);
+                if (parsed.plan) summaryParts.push('P: ' + parsed.plan);
                 if (parsed.orders.length > 0) summaryParts.push('Orders: ' + parsed.orders.join(', '));
                 if (parsed.diet) summaryParts.push('Diet: ' + parsed.diet);
                 if (parsed.activity) summaryParts.push('Activity: ' + parsed.activity);
@@ -5882,6 +5979,8 @@ To-do: Check AM labs, I/Os q4h`}
                 if (parsedItems.activity) updates.activity = parsedItems.activity;
                 if (parsedItems.dvtProphylaxis) updates.dvtProphylaxis = parsedItems.dvtProphylaxis;
                 if (parsedItems.giProphylaxis) updates.giProphylaxis = parsedItems.giProphylaxis;
+                if (parsedItems.subjective) updates.subjective = parsedItems.subjective;
+                if (parsedItems.assessment) updates.assessment = parsedItems.assessment;
                 if (parsedItems.plan) updates.treatmentPlan = parsedItems.plan;
                 if (parsedItems.concerns) updates.concerns = parsedItems.concerns;
                 if (parsedItems.examFindings) updates.examFindings = parsedItems.examFindings;
@@ -5906,6 +6005,8 @@ To-do: Check AM labs, I/Os q4h`}
                     transcript: transcript,
                     parsed: parsedItems,
                     orders: parsedItems.orders,
+                    subjective: parsedItems.subjective,
+                    assessment: parsedItems.assessment,
                     vitals: parsedItems.vitals,
                     labNotes: parsedItems.labNotes,
                     examFindings: parsedItems.examFindings,
@@ -5923,7 +6024,7 @@ To-do: Check AM labs, I/Os q4h`}
                 loadPatients();
                 setTranscript('');
                 setLiveTranscript('');
-                setParsedItems({ diet: null, activity: null, orders: [], disposition: null, plan: null, dvtProphylaxis: null, giProphylaxis: null, concerns: null, problems: [], examFindings: null, vitals: null, labNotes: null, summary: null });
+                setParsedItems({ subjective: null, assessment: null, diet: null, activity: null, orders: [], disposition: null, plan: null, dvtProphylaxis: null, giProphylaxis: null, concerns: null, problems: [], examFindings: null, vitals: null, labNotes: null, summary: null });
             };
 
             const selectedPatient = patients.find(p => p.id === selectedPatientId);
@@ -6005,9 +6106,21 @@ To-do: Check AM labs, I/Os q4h`}
                             )}
 
                             {/* Parsed Items */}
-                            {(parsedItems.diet || parsedItems.activity || parsedItems.orders.length > 0 || parsedItems.disposition || parsedItems.plan || parsedItems.dvtProphylaxis || parsedItems.giProphylaxis || parsedItems.concerns || parsedItems.examFindings || (parsedItems.problems || []).length > 0 || parsedItems.vitals || parsedItems.labNotes || parsedItems.summary) && (
-                                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 space-y-2 mb-4">
+                            {(parsedItems.subjective || parsedItems.assessment || parsedItems.diet || parsedItems.activity || parsedItems.orders.length > 0 || parsedItems.disposition || parsedItems.plan || parsedItems.dvtProphylaxis || parsedItems.giProphylaxis || parsedItems.concerns || parsedItems.examFindings || (parsedItems.problems || []).length > 0 || parsedItems.vitals || parsedItems.labNotes || parsedItems.summary) && (
+                                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-2 mb-4">
                                     <p className="text-sm font-bold text-emerald-700 mb-2">Parsed from Rounds -- will update patient record:</p>
+                                    {parsedItems.subjective && (
+                                        <div className="flex items-start gap-2 bg-white/60 rounded-lg p-2 -mx-1">
+                                            <span className="text-xs font-semibold text-blue-700 w-20 mt-0.5 shrink-0">Subjective:</span>
+                                            <span className="text-sm text-gray-800">{parsedItems.subjective}</span>
+                                        </div>
+                                    )}
+                                    {parsedItems.assessment && (
+                                        <div className="flex items-start gap-2 bg-white/60 rounded-lg p-2 -mx-1">
+                                            <span className="text-xs font-semibold text-indigo-700 w-20 mt-0.5 shrink-0">Assessment:</span>
+                                            <span className="text-sm text-gray-800">{parsedItems.assessment}</span>
+                                        </div>
+                                    )}
                                     {parsedItems.diet && (
                                         <div className="flex items-center gap-2">
                                             <span className="text-xs font-semibold text-gray-500 w-20">Diet:</span>
