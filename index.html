@@ -9,7 +9,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.1/jspdf.plugin.autotable.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/gh/gitbrent/PptxGenJS@3.12.0/dist/pptxgen.bundle.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
@@ -8551,7 +8551,14 @@ To-do: Check AM labs, I/Os q4h`}
             const getLinkedPatient = (patientId) => patients.find(p => p.id === patientId);
 
             // ===== M&M Presentation Generator =====
+            const [generatingPptx, setGeneratingPptx] = React.useState(false);
             const generateMMPresentation = async (lesson) => {
+                if (typeof PptxGenJS === 'undefined') {
+                    alert('Presentation library is still loading. Please try again in a moment.');
+                    return;
+                }
+                setGeneratingPptx(true);
+                try {
                 const pres = new PptxGenJS();
                 pres.layout = 'LAYOUT_16x9';
                 pres.author = 'ChiefRounds';
@@ -8909,6 +8916,12 @@ To-do: Check AM labs, I/Os q4h`}
                 // Generate and download
                 const fileName = 'MM_' + (lesson.title || 'Conference').replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30) + '.pptx';
                 await pres.writeFile({ fileName });
+                } catch (err) {
+                    console.error('PPTX generation error:', err);
+                    alert('Error generating presentation: ' + err.message);
+                } finally {
+                    setGeneratingPptx(false);
+                }
             };
 
             return (
@@ -8966,7 +8979,7 @@ To-do: Check AM labs, I/Os q4h`}
                                         <div className="flex items-center gap-2 mt-2">
                                             <button
                                                 onClick={() => {
-                                                    if (dictation.isRecording) {
+                                                    if (dictation.isListening) {
                                                         dictation.stop();
                                                         if (dictation.transcript) {
                                                             handleDictationDone(dictation.transcript);
@@ -8976,12 +8989,12 @@ To-do: Check AM labs, I/Os q4h`}
                                                     }
                                                 }}
                                                 className={`text-xs px-3 py-1.5 rounded-lg font-medium transition ${
-                                                    dictation.isRecording ? 'bg-red-500 text-white animate-pulse' : 'bg-gray-100 hover:bg-gray-200 text-gray-600'
+                                                    dictation.isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-gray-100 hover:bg-gray-200 text-gray-600'
                                                 }`}
                                             >
-                                                {dictation.isRecording ? 'Stop Dictation' : 'Dictate'}
+                                                {dictation.isListening ? 'Stop Dictation' : 'Dictate'}
                                             </button>
-                                            {dictation.isRecording && dictation.transcript && (
+                                            {dictation.isListening && dictation.transcript && (
                                                 <span className="text-xs text-gray-400 italic truncate">{dictation.transcript.substring(0, 60)}...</span>
                                             )}
                                         </div>
@@ -9103,9 +9116,10 @@ To-do: Check AM labs, I/Os q4h`}
                                                 <div className="flex gap-3 pt-2 border-t border-gray-100">
                                                     <button
                                                         onClick={() => generateMMPresentation(lesson)}
-                                                        className="text-xs bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg font-medium transition flex items-center gap-1"
+                                                        disabled={generatingPptx}
+                                                        className="text-xs bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg font-medium transition flex items-center gap-1 disabled:opacity-50"
                                                     >
-                                                        <span>Generate Presentation</span>
+                                                        <span>{generatingPptx ? 'Generating...' : 'Generate Presentation'}</span>
                                                     </button>
                                                     <button onClick={() => startEdit(lesson)} className="text-xs text-medical-600 hover:text-medical-700 font-medium py-1.5">Edit</button>
                                                     <button onClick={() => { if (confirm('Delete this lesson?')) handleDelete(lesson.id); }} className="text-xs text-red-500 hover:text-red-600 font-medium py-1.5">Delete</button>
