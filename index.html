@@ -7869,6 +7869,7 @@ To-do: Check AM labs, I/Os q4h`}
                         email: user.email,
                         displayName: user.displayName || user.email.split('@')[0],
                         teamId: teamRef.id,
+                        teamIds: firebase.firestore.FieldValue.arrayUnion(teamRef.id),
                         role: 'admin'
                     }, { merge: true });
                     onTeamReady(teamRef.id);
@@ -7906,6 +7907,7 @@ To-do: Check AM labs, I/Os q4h`}
                         email: user.email,
                         displayName: user.displayName || user.email.split('@')[0],
                         teamId: teamDoc.id,
+                        teamIds: firebase.firestore.FieldValue.arrayUnion(teamDoc.id),
                         role: 'member'
                     }, { merge: true });
                     onTeamReady(teamDoc.id);
@@ -7980,10 +7982,38 @@ To-do: Check AM labs, I/Os q4h`}
             const [user, setUser] = React.useState(null);
             const [teamId, setTeamId] = React.useState(null);
             const [teamData, setTeamData] = React.useState(null);
+            const [allTeams, setAllTeams] = React.useState([]);
             const [authLoading, setAuthLoading] = React.useState(true);
             const [activeTab, setActiveTab] = React.useState('Home');
             const [isMobile, setIsMobile] = React.useState(window.innerWidth < 768);
             const [showProfile, setShowProfile] = React.useState(false);
+            const [showTeamManager, setShowTeamManager] = React.useState(false);
+
+            // Load all teams a user belongs to
+            const loadAllTeams = async (uid) => {
+                try {
+                    const userDoc = await db.collection('users').doc(uid).get();
+                    const userData = userDoc.exists ? userDoc.data() : {};
+                    const teamIds = userData.teamIds || [];
+                    // Always include current teamId if not in array (backwards compat)
+                    if (userData.teamId && !teamIds.includes(userData.teamId)) {
+                        teamIds.push(userData.teamId);
+                    }
+                    if (teamIds.length === 0) return [];
+                    const teams = [];
+                    for (const tid of teamIds) {
+                        try {
+                            const tDoc = await db.collection('teams').doc(tid).get();
+                            if (tDoc.exists) teams.push({ id: tid, ...tDoc.data() });
+                        } catch (e) { /* team may have been deleted */ }
+                    }
+                    setAllTeams(teams);
+                    return teams;
+                } catch (e) {
+                    console.error('Error loading teams:', e);
+                    return [];
+                }
+            };
 
             // Listen for auth state changes (persisted login)
             React.useEffect(() => {
@@ -7999,12 +8029,14 @@ To-do: Check AM labs, I/Os q4h`}
                                 const teamDoc = await db.collection('teams').doc(tid).get();
                                 if (teamDoc.exists) setTeamData({ id: tid, ...teamDoc.data() });
                             }
+                            await loadAllTeams(u.uid);
                         } catch (err) {
                             console.error('Error loading user/team data:', err);
                         }
                     } else {
                         setTeamId(null);
                         setTeamData(null);
+                        setAllTeams([]);
                     }
                     setAuthLoading(false);
                 });
@@ -8022,6 +8054,83 @@ To-do: Check AM labs, I/Os q4h`}
                 DB.setTeamId(tid);
                 const teamDoc = await db.collection('teams').doc(tid).get();
                 if (teamDoc.exists) setTeamData({ id: tid, ...teamDoc.data() });
+                if (user) await loadAllTeams(user.uid);
+                setActiveTab('Home');
+            };
+
+            const switchTeam = async (tid) => {
+                setTeamId(tid);
+                DB.setTeamId(tid);
+                const teamDoc = await db.collection('teams').doc(tid).get();
+                if (teamDoc.exists) setTeamData({ id: tid, ...teamDoc.data() });
+                // Update active teamId in user doc
+                await db.collection('users').doc(user.uid).set({ teamId: tid }, { merge: true });
+                setActiveTab('Home');
+                setShowProfile(false);
+                setShowTeamManager(false);
+            };
+
+            const leaveTeam = async (tid) => {
+                if (!user) return;
+                try {
+                    // Remove user from team members
+                    const teamDoc = await db.collection('teams').doc(tid).get();
+                    if (teamDoc.exists) {
+                        const members = (teamDoc.data().members || []).filter(m => m.uid !== user.uid);
+                        await db.collection('teams').doc(tid).update({ members });
+                    }
+                    // Remove team from user's teamIds
+                    const userDoc = await db.collection('users').doc(user.uid).get();
+                    const userData = userDoc.exists ? userDoc.data() : {};
+                    const teamIds = (userData.teamIds || []).filter(id => id !== tid);
+                    const newActiveTeam = tid === teamId ? (teamIds[0] || null) : teamId;
+                    await db.collection('users').doc(user.uid).set({ teamIds, teamId: newActiveTeam }, { merge: true });
+                    // If leaving current team, switch
+                    if (tid === teamId) {
+                        if (newActiveTeam) {
+                            await switchTeam(newActiveTeam);
+                        } else {
+                            setTeamId(null);
+                            setTeamData(null);
+                        }
+                    }
+                    await loadAllTeams(user.uid);
+                } catch (e) {
+                    console.error('Error leaving team:', e);
+                }
+            };
+
+            const deleteTeam = async (tid) => {
+                if (!user) return;
+                try {
+                    const teamDoc = await db.collection('teams').doc(tid).get();
+                    if (!teamDoc.exists) return;
+                    const tData = teamDoc.data();
+                    // Only admin/creator can delete
+                    if (tData.createdBy !== user.uid) {
+                        alert('Only the team creator can delete this team.');
+                        return;
+                    }
+                    // Delete the team document
+                    await db.collection('teams').doc(tid).delete();
+                    // Remove from all members' teamIds (just current user for now)
+                    const userDoc = await db.collection('users').doc(user.uid).get();
+                    const userData = userDoc.exists ? userDoc.data() : {};
+                    const teamIds = (userData.teamIds || []).filter(id => id !== tid);
+                    const newActiveTeam = tid === teamId ? (teamIds[0] || null) : teamId;
+                    await db.collection('users').doc(user.uid).set({ teamIds, teamId: newActiveTeam }, { merge: true });
+                    if (tid === teamId) {
+                        if (newActiveTeam) {
+                            await switchTeam(newActiveTeam);
+                        } else {
+                            setTeamId(null);
+                            setTeamData(null);
+                        }
+                    }
+                    await loadAllTeams(user.uid);
+                } catch (e) {
+                    console.error('Error deleting team:', e);
+                }
             };
 
             const handleSignOut = () => {
@@ -8029,7 +8138,9 @@ To-do: Check AM labs, I/Os q4h`}
                 setUser(null);
                 setTeamId(null);
                 setTeamData(null);
+                setAllTeams([]);
                 setShowProfile(false);
+                setShowTeamManager(false);
             };
 
             // Loading state
@@ -8106,7 +8217,7 @@ To-do: Check AM labs, I/Os q4h`}
                             <h2 className="text-2xl md:text-3xl font-bold text-medical-800">
                                 Good {new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 17 ? 'afternoon' : 'evening'}{user.displayName ? `, ${user.displayName.split(' ')[0]}` : ''}
                             </h2>
-                            <p className="text-gray-500 mt-1">{stats.patients} patient{stats.patients !== 1 ? 's' : ''} on service</p>
+                            <p className="text-gray-500 mt-1">{teamData?.name || 'Your team'} -- {stats.patients} patient{stats.patients !== 1 ? 's' : ''} on service</p>
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
@@ -8159,6 +8270,180 @@ To-do: Check AM labs, I/Os q4h`}
                 }
             };
 
+            // Team Manager Modal
+            const TeamManagerModal = () => {
+                const [mode, setMode] = React.useState(null); // null, 'create', 'join'
+                const [newTeamName, setNewTeamName] = React.useState('');
+                const [joinCode, setJoinCode] = React.useState('');
+                const [error, setError] = React.useState('');
+                const [loading, setLoading] = React.useState(false);
+                const [confirmDelete, setConfirmDelete] = React.useState(null);
+                const [confirmLeave, setConfirmLeave] = React.useState(null);
+
+                const generateCode = () => Math.random().toString(36).substring(2, 8).toUpperCase();
+
+                const handleCreateNew = async () => {
+                    if (!newTeamName.trim()) return;
+                    setLoading(true);
+                    setError('');
+                    try {
+                        const code = generateCode();
+                        const teamRef = await db.collection('teams').add({
+                            name: newTeamName.trim(),
+                            inviteCode: code,
+                            createdBy: user.uid,
+                            createdAt: new Date().toISOString(),
+                            members: [{ uid: user.uid, name: user.displayName || user.email, email: user.email, role: 'admin' }]
+                        });
+                        await db.collection('users').doc(user.uid).set({
+                            teamId: teamRef.id,
+                            teamIds: firebase.firestore.FieldValue.arrayUnion(teamRef.id)
+                        }, { merge: true });
+                        await switchTeam(teamRef.id);
+                        setShowTeamManager(false);
+                    } catch (err) {
+                        setError(err.message);
+                    }
+                    setLoading(false);
+                };
+
+                const handleJoinNew = async () => {
+                    if (!joinCode.trim()) return;
+                    setLoading(true);
+                    setError('');
+                    try {
+                        const snap = await db.collection('teams').where('inviteCode', '==', joinCode.trim().toUpperCase()).get();
+                        if (snap.empty) {
+                            setError('Invalid invite code.');
+                            setLoading(false);
+                            return;
+                        }
+                        const tDoc = snap.docs[0];
+                        const tData = tDoc.data();
+                        const alreadyMember = tData.members?.some(m => m.uid === user.uid);
+                        if (!alreadyMember) {
+                            await tDoc.ref.update({
+                                members: firebase.firestore.FieldValue.arrayUnion({
+                                    uid: user.uid, name: user.displayName || user.email, email: user.email, role: 'member'
+                                })
+                            });
+                        }
+                        await db.collection('users').doc(user.uid).set({
+                            teamId: tDoc.id,
+                            teamIds: firebase.firestore.FieldValue.arrayUnion(tDoc.id)
+                        }, { merge: true });
+                        await switchTeam(tDoc.id);
+                        setShowTeamManager(false);
+                    } catch (err) {
+                        setError(err.message);
+                    }
+                    setLoading(false);
+                };
+
+                return (
+                    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 modal-backdrop" onClick={() => setShowTeamManager(false)}>
+                        <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[80vh] overflow-y-auto modal-content" onClick={e => e.stopPropagation()}>
+                            <div className="p-5 border-b border-gray-100">
+                                <div className="flex justify-between items-center">
+                                    <h2 className="text-lg font-bold text-gray-800">Manage Teams</h2>
+                                    <button onClick={() => setShowTeamManager(false)} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+                                </div>
+                            </div>
+
+                            <div className="p-5 space-y-3">
+                                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Your Teams</p>
+                                {allTeams.map(t => (
+                                    <div key={t.id} className={`border rounded-xl p-3 transition ${t.id === teamId ? 'border-medical-400 bg-slate-50' : 'border-gray-100 hover:border-gray-200'}`}>
+                                        <div className="flex justify-between items-start">
+                                            <div className="flex-1">
+                                                <div className="flex items-center gap-2">
+                                                    <p className="font-semibold text-gray-800">{t.name}</p>
+                                                    {t.id === teamId && <span className="text-[10px] bg-medical-600 text-white px-1.5 py-0.5 rounded">Active</span>}
+                                                </div>
+                                                <div className="flex items-center gap-2 mt-1">
+                                                    <span className="text-xs text-gray-400">Code:</span>
+                                                    <code className="text-xs font-mono bg-gray-100 px-1.5 py-0.5 rounded tracking-wider">{t.inviteCode}</code>
+                                                </div>
+                                                <p className="text-xs text-gray-400 mt-1">{t.members?.length || 1} member(s)</p>
+                                            </div>
+                                            <div className="flex flex-col gap-1 ml-2">
+                                                {t.id !== teamId && (
+                                                    <button onClick={() => switchTeam(t.id)} className="text-xs bg-medical-600 text-white px-2.5 py-1 rounded-lg hover:bg-medical-700 transition">
+                                                        Switch
+                                                    </button>
+                                                )}
+                                                {confirmLeave === t.id ? (
+                                                    <div className="flex gap-1">
+                                                        <button onClick={() => { leaveTeam(t.id); setConfirmLeave(null); }} className="text-[10px] bg-red-500 text-white px-1.5 py-0.5 rounded">Yes</button>
+                                                        <button onClick={() => setConfirmLeave(null)} className="text-[10px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded">No</button>
+                                                    </div>
+                                                ) : (
+                                                    <button onClick={() => setConfirmLeave(t.id)} className="text-xs text-gray-400 hover:text-amber-600 transition">
+                                                        Leave
+                                                    </button>
+                                                )}
+                                                {t.createdBy === user.uid && (
+                                                    confirmDelete === t.id ? (
+                                                        <div className="flex gap-1">
+                                                            <button onClick={() => { deleteTeam(t.id); setConfirmDelete(null); }} className="text-[10px] bg-red-600 text-white px-1.5 py-0.5 rounded">Delete</button>
+                                                            <button onClick={() => setConfirmDelete(null)} className="text-[10px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded">No</button>
+                                                        </div>
+                                                    ) : (
+                                                        <button onClick={() => setConfirmDelete(t.id)} className="text-xs text-gray-400 hover:text-red-600 transition">
+                                                            Delete
+                                                        </button>
+                                                    )
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+
+                                {allTeams.length === 0 && (
+                                    <p className="text-sm text-gray-400 text-center py-4">No teams yet. Create or join one below.</p>
+                                )}
+                            </div>
+
+                            <div className="p-5 border-t border-gray-100 space-y-3">
+                                {!mode && (
+                                    <div className="flex gap-2">
+                                        <button onClick={() => setMode('create')} className="flex-1 bg-medical-600 hover:bg-medical-700 text-white py-2 rounded-lg font-medium text-sm transition">
+                                            Create New Team
+                                        </button>
+                                        <button onClick={() => setMode('join')} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 rounded-lg font-medium text-sm transition">
+                                            Join Team
+                                        </button>
+                                    </div>
+                                )}
+                                {mode === 'create' && (
+                                    <div className="space-y-2">
+                                        <input value={newTeamName} onChange={e => setNewTeamName(e.target.value)} placeholder="Team name" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800" />
+                                        <div className="flex gap-2">
+                                            <button onClick={handleCreateNew} disabled={loading || !newTeamName.trim()} className="flex-1 bg-medical-600 hover:bg-medical-700 text-white py-2 rounded-lg font-medium text-sm disabled:opacity-50 transition">
+                                                {loading ? 'Creating...' : 'Create'}
+                                            </button>
+                                            <button onClick={() => { setMode(null); setError(''); }} className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg text-sm transition">Cancel</button>
+                                        </div>
+                                    </div>
+                                )}
+                                {mode === 'join' && (
+                                    <div className="space-y-2">
+                                        <input value={joinCode} onChange={e => setJoinCode(e.target.value.toUpperCase())} placeholder="Invite code" maxLength={6} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800 font-mono tracking-widest text-center uppercase" />
+                                        <div className="flex gap-2">
+                                            <button onClick={handleJoinNew} disabled={loading || !joinCode.trim()} className="flex-1 bg-medical-600 hover:bg-medical-700 text-white py-2 rounded-lg font-medium text-sm disabled:opacity-50 transition">
+                                                {loading ? 'Joining...' : 'Join'}
+                                            </button>
+                                            <button onClick={() => { setMode(null); setError(''); }} className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg text-sm transition">Cancel</button>
+                                        </div>
+                                    </div>
+                                )}
+                                {error && <p className="text-xs text-red-500">{error}</p>}
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
             // Profile dropdown component
             const ProfileMenu = () => (
                 <div className="relative">
@@ -8179,8 +8464,15 @@ To-do: Check AM labs, I/Os q4h`}
                             </div>
                             {teamData && (
                                 <div className="p-4 border-b border-gray-100">
-                                    <p className="text-xs text-gray-400 font-medium uppercase tracking-wide mb-1">Team</p>
-                                    <p className="font-semibold text-gray-800">{teamData.name}</p>
+                                    <div className="flex justify-between items-start">
+                                        <div>
+                                            <p className="text-xs text-gray-400 font-medium uppercase tracking-wide mb-1">Current Team</p>
+                                            <p className="font-semibold text-gray-800">{teamData.name}</p>
+                                        </div>
+                                        <button onClick={() => { setShowTeamManager(true); setShowProfile(false); }} className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-2 py-1 rounded-lg transition">
+                                            Manage
+                                        </button>
+                                    </div>
                                     <div className="flex items-center gap-2 mt-2">
                                         <span className="text-xs text-gray-500">Invite code:</span>
                                         <code className="text-xs font-mono bg-gray-100 px-2 py-0.5 rounded font-bold tracking-widest">{teamData.inviteCode}</code>
@@ -8195,9 +8487,25 @@ To-do: Check AM labs, I/Os q4h`}
                                             </div>
                                         ))}
                                     </div>
+                                    {allTeams.length > 1 && (
+                                        <div className="mt-3 pt-3 border-t border-gray-100">
+                                            <p className="text-xs text-gray-400 mb-2">Switch team:</p>
+                                            <div className="space-y-1">
+                                                {allTeams.filter(t => t.id !== teamId).map(t => (
+                                                    <button key={t.id} onClick={() => switchTeam(t.id)} className="w-full text-left text-xs px-2 py-1.5 rounded-lg hover:bg-slate-50 text-gray-600 hover:text-medical-700 transition flex justify-between items-center">
+                                                        <span>{t.name}</span>
+                                                        <span className="text-gray-300">{t.members?.length || 1}m</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
-                            <div className="p-2">
+                            <div className="p-2 space-y-0.5">
+                                <button onClick={() => { setShowTeamManager(true); setShowProfile(false); }} className="w-full text-left px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-md transition">
+                                    Manage Teams
+                                </button>
                                 <button onClick={handleSignOut} className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-md transition">
                                     Sign Out
                                 </button>
@@ -8212,6 +8520,7 @@ To-do: Check AM labs, I/Os q4h`}
             if (isMobile) {
                 return (
                     <div className="min-h-screen bg-slate-50 flex flex-col">
+                        {showTeamManager && <TeamManagerModal />}
                         <div className="bg-white border-b border-gray-200 p-3 sticky top-0 z-20 shadow-sm">
                             <div className="flex justify-between items-center">
                                 <div className="flex items-center gap-2">
@@ -8259,6 +8568,7 @@ To-do: Check AM labs, I/Os q4h`}
             // Desktop Layout
             return (
                 <div className="min-h-screen bg-slate-50 flex flex-col">
+                    {showTeamManager && <TeamManagerModal />}
                     <div className="bg-white border-b border-gray-200 p-4 sticky top-0 z-20 shadow-sm">
                         <div className="flex justify-between items-center">
                             <button onClick={() => setActiveTab('Home')} className="text-2xl font-bold text-medical-700 hover:text-medical-800 transition">
