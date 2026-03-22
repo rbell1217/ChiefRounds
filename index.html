@@ -9,6 +9,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.1/jspdf.plugin.autotable.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/gitbrent/PptxGenJS@3.12.0/dist/pptxgen.bundle.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
@@ -8549,6 +8550,367 @@ To-do: Check AM labs, I/Os q4h`}
 
             const getLinkedPatient = (patientId) => patients.find(p => p.id === patientId);
 
+            // ===== M&M Presentation Generator =====
+            const generateMMPresentation = async (lesson) => {
+                const pres = new PptxGenJS();
+                pres.layout = 'LAYOUT_16x9';
+                pres.author = 'ChiefRounds';
+                pres.title = 'M&M Conference - ' + (lesson.title || 'Case Review');
+
+                // Color palette - medical/professional
+                const C = {
+                    navy: '1E293B', slate: '334155', muted: '475569', light: '94A3B8',
+                    bg: 'F8FAFC', card: 'FFFFFF', accent: '0F766E', accentLight: 'CCFBF1',
+                    red: 'DC2626', redLight: 'FEE2E2', amber: 'D97706', amberLight: 'FEF3C7',
+                    blue: '1D4ED8', blueLight: 'DBEAFE', white: 'FFFFFF', divider: 'E2E8F0'
+                };
+                const FONT = { head: 'Georgia', body: 'Calibri' };
+                const patient = lesson.patientId ? patients.find(p => p.id === lesson.patientId) : null;
+
+                // Helper: fresh shadow factory (pptxgenjs mutates option objects)
+                const cardShadow = () => ({ type: 'outer', blur: 6, offset: 2, angle: 135, color: '000000', opacity: 0.08 });
+
+                // ====== SLIDE 1: Title ======
+                let s1 = pres.addSlide();
+                s1.background = { color: C.navy };
+                // Top accent bar
+                s1.addShape(pres.shapes.RECTANGLE, { x: 0, y: 0, w: 10, h: 0.06, fill: { color: C.accent } });
+                s1.addText('M&M CONFERENCE', {
+                    x: 0.8, y: 1.0, w: 8.4, h: 0.6,
+                    fontFace: FONT.head, fontSize: 14, color: C.accent,
+                    charSpacing: 6, bold: true
+                });
+                s1.addText(lesson.title || 'Case Review', {
+                    x: 0.8, y: 1.6, w: 8.4, h: 1.2,
+                    fontFace: FONT.head, fontSize: 40, color: C.white, bold: true
+                });
+                // Subtitle info
+                const titleDetails = [];
+                if (patient) titleDetails.push('Room ' + patient.room + (patient.diagnosis ? ' - ' + patient.diagnosis : ''));
+                titleDetails.push(new Date(lesson.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }));
+                titleDetails.push('Presented by: ' + (lesson.author || 'Team'));
+                s1.addText(titleDetails.join('  |  '), {
+                    x: 0.8, y: 3.2, w: 8.4, h: 0.5,
+                    fontFace: FONT.body, fontSize: 13, color: C.light
+                });
+                // Bottom accent bar
+                s1.addShape(pres.shapes.RECTANGLE, { x: 0, y: 5.565, w: 10, h: 0.06, fill: { color: C.accent } });
+
+                // ====== SLIDE 2: Patient Overview ======
+                if (patient) {
+                    let s2 = pres.addSlide();
+                    s2.background = { color: C.bg };
+                    s2.addText('Patient Overview', {
+                        x: 0.6, y: 0.3, w: 8.8, h: 0.7,
+                        fontFace: FONT.head, fontSize: 28, color: C.navy, bold: true
+                    });
+                    s2.addShape(pres.shapes.RECTANGLE, { x: 0.6, y: 1.05, w: 2.0, h: 0.03, fill: { color: C.accent } });
+
+                    // Demographics card
+                    s2.addShape(pres.shapes.RECTANGLE, {
+                        x: 0.6, y: 1.4, w: 4.2, h: 3.5,
+                        fill: { color: C.white }, shadow: cardShadow()
+                    });
+                    const demoRows = [
+                        ['Room', patient.room || 'N/A'],
+                        ['Diagnosis', patient.diagnosis || 'N/A'],
+                        ['Admit Date', patient.admitDate ? new Date(patient.admitDate).toLocaleDateString() : 'N/A'],
+                        ['POD', patient.admitDate ? '#' + calculatePOD(patient.admitDate) : 'N/A'],
+                        ['Attending', patient.attendingPhysician || 'N/A'],
+                        ['Code Status', patient.codeStatus || 'Full Code'],
+                        ['Allergies', patient.allergies || 'NKDA']
+                    ];
+                    demoRows.forEach((row, i) => {
+                        s2.addText(row[0], {
+                            x: 0.9, y: 1.6 + i * 0.42, w: 1.5, h: 0.36,
+                            fontFace: FONT.body, fontSize: 11, color: C.muted, bold: true, valign: 'middle'
+                        });
+                        s2.addText(row[1], {
+                            x: 2.4, y: 1.6 + i * 0.42, w: 2.2, h: 0.36,
+                            fontFace: FONT.body, fontSize: 12, color: C.navy, valign: 'middle'
+                        });
+                    });
+
+                    // Current status card
+                    s2.addShape(pres.shapes.RECTANGLE, {
+                        x: 5.2, y: 1.4, w: 4.2, h: 3.5,
+                        fill: { color: C.white }, shadow: cardShadow()
+                    });
+                    s2.addText('Current Clinical Status', {
+                        x: 5.5, y: 1.55, w: 3.6, h: 0.4,
+                        fontFace: FONT.body, fontSize: 13, color: C.accent, bold: true
+                    });
+                    const statusItems = [];
+                    if (patient.diet) statusItems.push({ text: 'Diet: ' + patient.diet, options: { breakLine: true, bullet: true, fontSize: 11, color: C.slate } });
+                    if (patient.activity) statusItems.push({ text: 'Activity: ' + patient.activity, options: { breakLine: true, bullet: true, fontSize: 11, color: C.slate } });
+                    if (patient.vitals) statusItems.push({ text: 'Vitals: ' + patient.vitals, options: { breakLine: true, bullet: true, fontSize: 11, color: C.slate } });
+                    if (patient.labNotes) statusItems.push({ text: 'Labs: ' + patient.labNotes, options: { breakLine: true, bullet: true, fontSize: 11, color: C.slate } });
+                    if (patient.dvtProphylaxis) statusItems.push({ text: 'DVT Ppx: ' + patient.dvtProphylaxis, options: { breakLine: true, bullet: true, fontSize: 11, color: C.slate } });
+                    if (patient.giProphylaxis) statusItems.push({ text: 'GI Ppx: ' + patient.giProphylaxis, options: { breakLine: true, bullet: true, fontSize: 11, color: C.slate } });
+                    if (patient.treatmentPlan) statusItems.push({ text: 'Plan: ' + patient.treatmentPlan, options: { breakLine: true, bullet: true, fontSize: 11, color: C.slate } });
+                    if (patient.dispositionPlan) statusItems.push({ text: 'Dispo: ' + patient.dispositionPlan, options: { breakLine: true, bullet: true, fontSize: 11, color: C.slate } });
+                    if (statusItems.length === 0) statusItems.push({ text: 'No clinical data recorded yet', options: { fontSize: 11, color: C.light, italic: true } });
+                    s2.addText(statusItems, { x: 5.5, y: 2.0, w: 3.6, h: 2.7, fontFace: FONT.body, valign: 'top', paraSpaceAfter: 4 });
+
+                    // Problems/Complications bar at bottom
+                    if ((patient.problems || []).length > 0) {
+                        s2.addShape(pres.shapes.RECTANGLE, {
+                            x: 0.6, y: 5.1, w: 8.8, h: 0.4,
+                            fill: { color: C.redLight }
+                        });
+                        s2.addText('Complications: ' + patient.problems.join(', '), {
+                            x: 0.9, y: 5.1, w: 8.2, h: 0.4,
+                            fontFace: FONT.body, fontSize: 11, color: C.red, bold: true, valign: 'middle'
+                        });
+                    }
+                }
+
+                // ====== SLIDE 3: Hospital Course Timeline ======
+                if (patient && patient.roundsHistory) {
+                    const dates = Object.keys(patient.roundsHistory).sort();
+                    // Split into chunks of 5 dates per slide
+                    const chunkSize = 5;
+                    for (let chunk = 0; chunk < dates.length; chunk += chunkSize) {
+                        const chunkDates = dates.slice(chunk, chunk + chunkSize);
+                        let sT = pres.addSlide();
+                        sT.background = { color: C.bg };
+                        sT.addText(chunk === 0 ? 'Hospital Course Timeline' : 'Hospital Course (cont.)', {
+                            x: 0.6, y: 0.3, w: 8.8, h: 0.7,
+                            fontFace: FONT.head, fontSize: 28, color: C.navy, bold: true
+                        });
+                        sT.addShape(pres.shapes.RECTANGLE, { x: 0.6, y: 1.05, w: 2.0, h: 0.03, fill: { color: C.accent } });
+
+                        chunkDates.forEach((date, idx) => {
+                            const entry = patient.roundsHistory[date];
+                            const yPos = 1.35 + idx * 0.82;
+                            const dateStr = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                            // Calculate POD for this specific date (not today)
+                            let pod = '';
+                            if (patient.admitDate) {
+                                const admitD = new Date(patient.admitDate + 'T00:00:00');
+                                const thisD = new Date(date + 'T00:00:00');
+                                const diff = Math.floor((thisD - admitD) / (1000 * 60 * 60 * 24));
+                                if (diff >= 0) pod = 'POD #' + diff;
+                            }
+
+                            // Date badge
+                            sT.addShape(pres.shapes.RECTANGLE, {
+                                x: 0.6, y: yPos, w: 1.6, h: 0.65,
+                                fill: { color: C.navy }
+                            });
+                            sT.addText([
+                                { text: dateStr, options: { breakLine: true, fontSize: 10, bold: true, color: C.white } },
+                                { text: pod, options: { fontSize: 9, color: C.light } }
+                            ], { x: 0.6, y: yPos, w: 1.6, h: 0.65, fontFace: FONT.body, align: 'center', valign: 'middle' });
+
+                            // Content card
+                            sT.addShape(pres.shapes.RECTANGLE, {
+                                x: 2.4, y: yPos, w: 7.0, h: 0.65,
+                                fill: { color: C.white }, shadow: cardShadow()
+                            });
+                            const summary = entry.summary || [
+                                entry.subjective ? 'S: ' + entry.subjective : '',
+                                entry.assessment ? 'A: ' + entry.assessment : '',
+                                entry.orders?.length ? 'Orders: ' + entry.orders.join(', ') : ''
+                            ].filter(Boolean).join(' | ') || 'Rounds completed';
+                            sT.addText(summary.substring(0, 200), {
+                                x: 2.6, y: yPos, w: 6.6, h: 0.65,
+                                fontFace: FONT.body, fontSize: 10, color: C.slate, valign: 'middle', margin: 0
+                            });
+                        });
+                    }
+                }
+
+                // ====== SLIDE: Complications & Problems ======
+                if (patient && (patient.problems || []).length > 0) {
+                    let sP = pres.addSlide();
+                    sP.background = { color: C.bg };
+                    sP.addText('Complications & Problems', {
+                        x: 0.6, y: 0.3, w: 8.8, h: 0.7,
+                        fontFace: FONT.head, fontSize: 28, color: C.navy, bold: true
+                    });
+                    sP.addShape(pres.shapes.RECTANGLE, { x: 0.6, y: 1.05, w: 2.0, h: 0.03, fill: { color: C.red } });
+
+                    patient.problems.forEach((prob, idx) => {
+                        const yPos = 1.4 + idx * 0.7;
+                        if (yPos > 4.8) return; // prevent overflow
+                        // Number circle
+                        sP.addShape(pres.shapes.OVAL, {
+                            x: 0.8, y: yPos + 0.05, w: 0.45, h: 0.45,
+                            fill: { color: C.red }
+                        });
+                        sP.addText(String(idx + 1), {
+                            x: 0.8, y: yPos + 0.05, w: 0.45, h: 0.45,
+                            fontFace: FONT.body, fontSize: 14, color: C.white, align: 'center', valign: 'middle', bold: true
+                        });
+                        // Problem card
+                        sP.addShape(pres.shapes.RECTANGLE, {
+                            x: 1.5, y: yPos, w: 8.0, h: 0.55,
+                            fill: { color: C.white }, shadow: cardShadow()
+                        });
+                        sP.addText(prob, {
+                            x: 1.7, y: yPos, w: 7.6, h: 0.55,
+                            fontFace: FONT.body, fontSize: 14, color: C.navy, valign: 'middle', bold: true
+                        });
+                    });
+                }
+
+                // ====== SLIDE: Imaging Placeholder Slides (2) ======
+                for (let imgNum = 1; imgNum <= 2; imgNum++) {
+                    let sI = pres.addSlide();
+                    sI.background = { color: C.navy };
+                    sI.addText('Imaging / Radiology - Slide ' + imgNum, {
+                        x: 0.6, y: 0.3, w: 8.8, h: 0.6,
+                        fontFace: FONT.head, fontSize: 24, color: C.white, bold: true
+                    });
+                    // Large placeholder box
+                    sI.addShape(pres.shapes.RECTANGLE, {
+                        x: 0.8, y: 1.2, w: 8.4, h: 3.8,
+                        fill: { color: C.slate },
+                        line: { color: C.light, width: 2, dashType: 'dash' }
+                    });
+                    sI.addText([
+                        { text: 'INSERT CT / MRI / X-RAY IMAGE HERE', options: { breakLine: true, fontSize: 18, bold: true, color: C.light } },
+                        { text: 'Right-click this area > Insert Picture > From File', options: { fontSize: 12, color: C.light } }
+                    ], {
+                        x: 0.8, y: 1.2, w: 8.4, h: 3.8,
+                        fontFace: FONT.body, align: 'center', valign: 'middle'
+                    });
+                    // Notes area
+                    sI.addShape(pres.shapes.RECTANGLE, {
+                        x: 0.8, y: 5.15, w: 8.4, h: 0.35,
+                        fill: { color: C.accent }
+                    });
+                    sI.addText('Findings: [Add imaging findings or annotations here]', {
+                        x: 1.0, y: 5.15, w: 8.0, h: 0.35,
+                        fontFace: FONT.body, fontSize: 11, color: C.white, italic: true, valign: 'middle'
+                    });
+                }
+
+                // ====== SLIDE: Video / Intraop Placeholder ======
+                let sV = pres.addSlide();
+                sV.background = { color: C.navy };
+                sV.addText('Intraoperative Video / Media', {
+                    x: 0.6, y: 0.3, w: 8.8, h: 0.6,
+                    fontFace: FONT.head, fontSize: 24, color: C.white, bold: true
+                });
+                sV.addShape(pres.shapes.RECTANGLE, {
+                    x: 0.8, y: 1.2, w: 8.4, h: 3.8,
+                    fill: { color: C.slate },
+                    line: { color: C.light, width: 2, dashType: 'dash' }
+                });
+                sV.addText([
+                    { text: 'INSERT VIDEO OR INTRAOP IMAGES HERE', options: { breakLine: true, fontSize: 18, bold: true, color: C.light } },
+                    { text: 'Insert > Video > From File  or  Insert > Picture', options: { breakLine: true, fontSize: 12, color: C.light } },
+                    { text: 'Supports MP4, MOV for embedded video playback', options: { fontSize: 10, color: C.light } }
+                ], {
+                    x: 0.8, y: 1.2, w: 8.4, h: 3.8,
+                    fontFace: FONT.body, align: 'center', valign: 'middle'
+                });
+
+                // ====== SLIDE: Lesson Learned ======
+                let sL = pres.addSlide();
+                sL.background = { color: C.bg };
+                sL.addText('Lesson Learned', {
+                    x: 0.6, y: 0.3, w: 8.8, h: 0.7,
+                    fontFace: FONT.head, fontSize: 28, color: C.navy, bold: true
+                });
+                sL.addShape(pres.shapes.RECTANGLE, { x: 0.6, y: 1.05, w: 2.0, h: 0.03, fill: { color: C.accent } });
+
+                // Lesson content card
+                sL.addShape(pres.shapes.RECTANGLE, {
+                    x: 0.6, y: 1.3, w: 8.8, h: 3.8,
+                    fill: { color: C.white }, shadow: cardShadow()
+                });
+                // Accent left border
+                sL.addShape(pres.shapes.RECTANGLE, {
+                    x: 0.6, y: 1.3, w: 0.08, h: 3.8,
+                    fill: { color: C.accent }
+                });
+
+                const lessonText = lesson.lesson || 'No lesson text recorded.';
+                // Split lesson into paragraphs
+                const lessonParagraphs = lessonText.split(/\n+/).filter(Boolean);
+                const lessonRuns = lessonParagraphs.map((p, i) => ({
+                    text: p,
+                    options: { breakLine: i < lessonParagraphs.length - 1, fontSize: 14, color: C.slate }
+                }));
+                sL.addText(lessonRuns, {
+                    x: 1.0, y: 1.5, w: 8.1, h: 3.4,
+                    fontFace: FONT.body, valign: 'top', paraSpaceAfter: 8
+                });
+
+                // ====== SLIDES: Supporting Literature ======
+                if (lesson.studies && lesson.studies.length > 0) {
+                    let sRef = pres.addSlide();
+                    sRef.background = { color: C.bg };
+                    sRef.addText('Supporting Literature', {
+                        x: 0.6, y: 0.3, w: 8.8, h: 0.7,
+                        fontFace: FONT.head, fontSize: 28, color: C.navy, bold: true
+                    });
+                    sRef.addShape(pres.shapes.RECTANGLE, { x: 0.6, y: 1.05, w: 2.0, h: 0.03, fill: { color: C.blue } });
+
+                    lesson.studies.forEach((study, idx) => {
+                        const yPos = 1.35 + idx * 1.2;
+                        if (yPos > 4.5) return; // would overflow, skip
+
+                        // Study card
+                        sRef.addShape(pres.shapes.RECTANGLE, {
+                            x: 0.6, y: yPos, w: 8.8, h: 1.0,
+                            fill: { color: C.white }, shadow: cardShadow()
+                        });
+                        // Blue accent
+                        sRef.addShape(pres.shapes.RECTANGLE, {
+                            x: 0.6, y: yPos, w: 0.08, h: 1.0,
+                            fill: { color: C.blue }
+                        });
+                        // Number badge
+                        sRef.addShape(pres.shapes.OVAL, {
+                            x: 0.9, y: yPos + 0.08, w: 0.35, h: 0.35,
+                            fill: { color: C.blueLight }
+                        });
+                        sRef.addText(String(idx + 1), {
+                            x: 0.9, y: yPos + 0.08, w: 0.35, h: 0.35,
+                            fontFace: FONT.body, fontSize: 11, color: C.blue, align: 'center', valign: 'middle', bold: true
+                        });
+                        // Citation
+                        sRef.addText(study.citation || 'Untitled reference', {
+                            x: 1.5, y: yPos + 0.05, w: 7.7, h: 0.35,
+                            fontFace: FONT.body, fontSize: 12, color: C.navy, bold: true, valign: 'middle'
+                        });
+                        // Summary
+                        const summaryText = study.summary ? study.summary.substring(0, 200) : (study.url || 'No summary available');
+                        sRef.addText(summaryText, {
+                            x: 1.5, y: yPos + 0.42, w: 7.7, h: 0.5,
+                            fontFace: FONT.body, fontSize: 10, color: C.muted, valign: 'top'
+                        });
+                    });
+                }
+
+                // ====== SLIDE: Discussion / Questions ======
+                let sQ = pres.addSlide();
+                sQ.background = { color: C.navy };
+                sQ.addShape(pres.shapes.RECTANGLE, { x: 0, y: 0, w: 10, h: 0.06, fill: { color: C.accent } });
+                sQ.addText('Discussion', {
+                    x: 0.8, y: 1.5, w: 8.4, h: 1.0,
+                    fontFace: FONT.head, fontSize: 44, color: C.white, bold: true, align: 'center'
+                });
+                sQ.addText('Questions, Comments & Takeaways', {
+                    x: 0.8, y: 2.6, w: 8.4, h: 0.6,
+                    fontFace: FONT.body, fontSize: 16, color: C.light, align: 'center'
+                });
+                sQ.addShape(pres.shapes.RECTANGLE, { x: 4.0, y: 3.5, w: 2.0, h: 0.03, fill: { color: C.accent } });
+                sQ.addText('Generated by ChiefRounds', {
+                    x: 0.8, y: 4.5, w: 8.4, h: 0.4,
+                    fontFace: FONT.body, fontSize: 10, color: C.muted, align: 'center'
+                });
+                sQ.addShape(pres.shapes.RECTANGLE, { x: 0, y: 5.565, w: 10, h: 0.06, fill: { color: C.accent } });
+
+                // Generate and download
+                const fileName = 'MM_' + (lesson.title || 'Conference').replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30) + '.pptx';
+                await pres.writeFile({ fileName });
+            };
+
             return (
                 <div className="p-4 md:p-6 max-w-4xl mx-auto">
                     <div className="flex justify-between items-center mb-6">
@@ -8738,9 +9100,15 @@ To-do: Check AM labs, I/Os q4h`}
                                                         ))}
                                                     </div>
                                                 )}
-                                                <div className="flex gap-2 pt-2 border-t border-gray-100">
-                                                    <button onClick={() => startEdit(lesson)} className="text-xs text-medical-600 hover:text-medical-700 font-medium">Edit</button>
-                                                    <button onClick={() => { if (confirm('Delete this lesson?')) handleDelete(lesson.id); }} className="text-xs text-red-500 hover:text-red-600 font-medium">Delete</button>
+                                                <div className="flex gap-3 pt-2 border-t border-gray-100">
+                                                    <button
+                                                        onClick={() => generateMMPresentation(lesson)}
+                                                        className="text-xs bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg font-medium transition flex items-center gap-1"
+                                                    >
+                                                        <span>Generate Presentation</span>
+                                                    </button>
+                                                    <button onClick={() => startEdit(lesson)} className="text-xs text-medical-600 hover:text-medical-700 font-medium py-1.5">Edit</button>
+                                                    <button onClick={() => { if (confirm('Delete this lesson?')) handleDelete(lesson.id); }} className="text-xs text-red-500 hover:text-red-600 font-medium py-1.5">Delete</button>
                                                 </div>
                                             </div>
                                         )}
