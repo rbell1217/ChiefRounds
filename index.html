@@ -3755,12 +3755,38 @@
             const dictation = useDictation();
             const [pendingAction, setPendingAction] = React.useState(null);
             const [editingDateId, setEditingDateId] = React.useState(null);
+            const [editingConcernId, setEditingConcernId] = React.useState(null);
+            const [concernDraft, setConcernDraft] = React.useState('');
 
             const handleQuickDateChange = async (patientId, newDate) => {
                 const patient = patients.find(p => p.id === patientId);
                 if (patient && newDate) {
                     await DB.put('patients', { ...patient, admitDate: newDate });
                     setEditingDateId(null);
+                    loadPatients();
+                }
+            };
+
+            const handleFlagChange = async (patientId, flagLevel) => {
+                const patient = patients.find(p => p.id === patientId);
+                if (patient) {
+                    const currentFlag = patient.flagLevel || (patient.concerns ? 'warning' : 'none');
+                    const newFlag = currentFlag === flagLevel ? 'none' : flagLevel;
+                    await DB.put('patients', { ...patient, flagLevel: newFlag, concerns: newFlag === 'none' ? '' : (patient.concerns || '') });
+                    loadPatients();
+                    if (newFlag !== 'none' && !patient.concerns) {
+                        setEditingConcernId(patientId);
+                        setConcernDraft('');
+                    }
+                }
+            };
+
+            const saveConcern = async (patientId) => {
+                const patient = patients.find(p => p.id === patientId);
+                if (patient) {
+                    await DB.put('patients', { ...patient, concerns: concernDraft });
+                    setEditingConcernId(null);
+                    setConcernDraft('');
                     loadPatients();
                 }
             };
@@ -3956,7 +3982,7 @@
                                 return parseInt(a.room) - parseInt(b.room);
                             }).map(patient => (
                                 <div key={patient.id} className={`bg-white border rounded p-4 ${patient.isTrauma ? 'border-red-500 border-l-4 border-l-red-600 bg-red-50/30' : 'border-gray-200'}`}>
-                                    <div className="grid grid-cols-2 md:grid-cols-7 gap-3 mb-3">
+                                    <div className="grid grid-cols-2 md:grid-cols-8 gap-3 mb-3">
                                         <div>
                                             <p className="text-xs text-gray-400">Room</p>
                                             <div className="flex items-center gap-1">
@@ -3995,9 +4021,42 @@
                                                 ))}
                                             </div>
                                         </div>
-                                        <div>
-                                            <p className="text-xs text-gray-400">Red Flags</p>
-                                            <p className="text-sm">{patient.concerns ? <span className="text-red-600">⚠️ Yes</span> : <span className="text-emerald-600">✓ No</span>}</p>
+                                        <div className="col-span-2">
+                                            <p className="text-xs text-gray-400 mb-1">Red Flags</p>
+                                            <div className="flex gap-1 flex-wrap mb-1">
+                                                {[
+                                                    { key: 'watch', label: 'Watch', color: 'bg-amber-100 text-amber-700 border-amber-300', active: 'bg-amber-500 text-white' },
+                                                    { key: 'warning', label: 'Warning', color: 'bg-orange-100 text-orange-700 border-orange-300', active: 'bg-orange-500 text-white' },
+                                                    { key: 'critical', label: 'Critical', color: 'bg-red-100 text-red-700 border-red-300', active: 'bg-red-600 text-white' }
+                                                ].map(flag => {
+                                                    const currentFlag = patient.flagLevel || (patient.concerns ? 'warning' : 'none');
+                                                    const isActive = currentFlag === flag.key;
+                                                    return (
+                                                        <button key={flag.key} onClick={() => handleFlagChange(patient.id, flag.key)}
+                                                            className={`text-xs px-2 py-1 rounded border font-medium transition ${isActive ? flag.active : flag.color + ' hover:opacity-80'}`}>
+                                                            {flag.label}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                            {editingConcernId === patient.id ? (
+                                                <div className="flex gap-1">
+                                                    <input type="text" value={concernDraft} onChange={(e) => setConcernDraft(e.target.value)}
+                                                        onKeyDown={(e) => { if (e.key === 'Enter') saveConcern(patient.id); if (e.key === 'Escape') setEditingConcernId(null); }}
+                                                        placeholder="What's the concern?"
+                                                        autoFocus
+                                                        className="flex-1 text-xs bg-white border border-gray-300 rounded px-2 py-1 text-gray-800" />
+                                                    <button onClick={() => saveConcern(patient.id)} className="text-xs bg-medical-600 text-white px-2 py-1 rounded">Save</button>
+                                                </div>
+                                            ) : patient.concerns ? (
+                                                <p className="text-xs text-red-600 cursor-pointer hover:underline"
+                                                    onClick={() => { setEditingConcernId(patient.id); setConcernDraft(patient.concerns); }}>
+                                                    ⚠️ {patient.concerns}
+                                                </p>
+                                            ) : (patient.flagLevel && patient.flagLevel !== 'none') ? (
+                                                <button onClick={() => { setEditingConcernId(patient.id); setConcernDraft(''); }}
+                                                    className="text-xs text-gray-400 hover:text-gray-600">+ Add comment</button>
+                                            ) : null}
                                         </div>
                                         <div>
                                             <p className="text-xs text-gray-400">Diet</p>
