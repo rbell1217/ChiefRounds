@@ -2727,7 +2727,7 @@
                                                 const todayRounds = patient.roundsHistory?.[today];
                                                 if (!todayRounds) return null;
                                                 const p = todayRounds.parsed || todayRounds;
-                                                const hasContent = p.subjective || p.assessment || p.vitals || p.labNotes || p.examFindings || p.summary ||
+                                                const hasContent = p.subjective || p.assessment || p.vitals || p.labNotes || p.examFindings || p.summary || p.soapNote || p.objective ||
                                                     (p.orders && p.orders.length > 0) || p.diet || p.activity || p.plan ||
                                                     p.concerns || p.disposition || p.dvtProphylaxis || p.giProphylaxis ||
                                                     (p.problems && p.problems.length > 0);
@@ -2745,10 +2745,22 @@
                                                                     <span className="text-gray-800">{p.subjective}</span>
                                                                 </div>
                                                             )}
+                                                            {p.objective && (
+                                                                <div className="text-xs bg-white/60 rounded p-1.5 -mx-0.5">
+                                                                    <span className="font-semibold text-teal-700">Objective:</span>{' '}
+                                                                    <span className="text-gray-800">{p.objective}</span>
+                                                                </div>
+                                                            )}
                                                             {p.assessment && (
                                                                 <div className="text-xs bg-white/60 rounded p-1.5 -mx-0.5">
                                                                     <span className="font-semibold text-indigo-700">Assessment:</span>{' '}
                                                                     <span className="text-gray-800">{p.assessment}</span>
+                                                                </div>
+                                                            )}
+                                                            {p.plan && !p.parsed && (
+                                                                <div className="text-xs bg-white/60 rounded p-1.5 -mx-0.5">
+                                                                    <span className="font-semibold text-purple-700">Plan:</span>{' '}
+                                                                    <span className="text-gray-800">{p.plan}</span>
                                                                 </div>
                                                             )}
                                                             {p.vitals && (
@@ -6376,6 +6388,183 @@ To-do: Check AM labs, I/Os q4h`}
                 setParsedItems(parsed);
             };
 
+            const submitSOAP = async () => {
+                const patient = patients.find(p => p.id === selectedPatientId);
+                if (!patient || !transcript.trim()) return;
+
+                // Organize the raw transcript into a concise SOAP note
+                const raw = transcript.trim();
+                const lower = raw.toLowerCase();
+
+                // Build SOAP sections from the raw text
+                let subjective = '';
+                let objective = '';
+                let assessment = '';
+                let plan = '';
+
+                // --- SUBJECTIVE: Extract how the patient feels, symptoms, complaints ---
+                const subjParts = [];
+                // Direct quotes / feelings
+                const feelPatterns = [
+                    /(?:patient|pt|they|he|she)\s+(?:says?|states?|reports?|denies?|complains?|mentions?|feels?|endorses?)\s+(.+?)(?:\.|$)/gi,
+                    /(?:patient|pt|they|he|she)\s+(?:is|are|was|were)\s+(?:feeling|doing|looking|having)\s+(.+?)(?:\.|$)/gi,
+                    /complain(?:ing|s)?\s+(?:of|about)\s+(.+?)(?:\.|$)/gi,
+                ];
+                feelPatterns.forEach(re => {
+                    const matches = raw.matchAll(re);
+                    for (const m of matches) {
+                        if (m[1].trim().length > 2 && m[1].trim().length < 200) subjParts.push(m[1].trim());
+                    }
+                });
+                // Symptom keywords
+                const symptoms = [];
+                if (/pain/i.test(lower)) symptoms.push('pain');
+                if (/nausea|vomiting|emesis/i.test(lower)) symptoms.push('nausea/vomiting');
+                if (/fever|febrile|chills/i.test(lower) && !/afebrile/i.test(lower)) symptoms.push('fever/chills');
+                if (/no\s*complaints?|doing\s*(?:well|good|better|fine|okay)/i.test(lower)) symptoms.push('no acute complaints');
+                if (/tolerating\s*(?:diet|po|oral)/i.test(lower)) symptoms.push('tolerating diet');
+                if (/not\s*tolerating/i.test(lower)) symptoms.push('not tolerating diet');
+                if (/passed?\s*(?:gas|flatus)/i.test(lower)) symptoms.push('passing flatus');
+                if (/bowel\s*movement|had\s*(?:a\s*)?bm/i.test(lower)) symptoms.push('had BM');
+                if (/no\s*(?:bm|bowel|flatus|gas)/i.test(lower)) symptoms.push('no BM/flatus');
+                if (/short(?:ness)?\s*of\s*breath|dyspnea|sob\b/i.test(lower)) symptoms.push('SOB');
+                if (/diarrhea/i.test(lower)) symptoms.push('diarrhea');
+                if (/constipat/i.test(lower)) symptoms.push('constipation');
+                if (/dizz|lightheaded/i.test(lower)) symptoms.push('dizziness');
+                if (/anxious|anxiety|worried/i.test(lower)) symptoms.push('anxiety');
+                if (/confused|confusion|altered/i.test(lower)) symptoms.push('AMS');
+                if (/slept?\s*(?:well|poorly|okay|bad)/i.test(lower)) {
+                    const sleepM = raw.match(/slept?\s*(well|poorly|okay|bad)/i);
+                    if (sleepM) symptoms.push('slept ' + sleepM[1].toLowerCase());
+                }
+                // Combine
+                symptoms.forEach(s => {
+                    if (!subjParts.some(p => p.toLowerCase().includes(s.split('/')[0].toLowerCase()))) subjParts.push(s);
+                });
+                subjective = subjParts.length > 0 ? subjParts.join('; ') : raw.substring(0, 200);
+
+                // --- OBJECTIVE: Vitals, labs, exam findings ---
+                const objParts = [];
+                // Vitals
+                const vitalTokens = [];
+                if (/afebrile|no\s*fever/i.test(lower)) vitalTokens.push('Afebrile');
+                const tempM = raw.match(/(?:temp|temperature|t-?max)\s*(?:is|of|was)?\s*(\d{2,3}\.?\d?)/i);
+                if (tempM) vitalTokens.push('Temp ' + tempM[1]);
+                const bpM = raw.match(/BP\s*(\d+\/\d+)/i);
+                if (bpM) vitalTokens.push('BP ' + bpM[1]);
+                const hrM = raw.match(/HR\s*(\d{2,3})/i);
+                if (hrM) vitalTokens.push('HR ' + hrM[1]);
+                const spo2M = raw.match(/SpO2\s*(\d{2,3})/i);
+                if (spo2M) vitalTokens.push('SpO2 ' + spo2M[1] + '%');
+                if (vitalTokens.length > 0) objParts.push('Vitals: ' + vitalTokens.join(', '));
+                // Labs
+                const labTokens = [];
+                const wbcM = raw.match(/WBC\s*(?:is|of|was|at)?\s*(\d+\.?\d*)/i);
+                if (wbcM) labTokens.push('WBC ' + wbcM[1]);
+                const hgbM = raw.match(/Hgb\s*(?:is|of|was|at)?\s*(\d+\.?\d*)/i);
+                if (hgbM) labTokens.push('Hgb ' + hgbM[1]);
+                const crM = raw.match(/Cr\s*(?:is|of|was|at)?\s*(\d+\.?\d*)/i);
+                if (crM) labTokens.push('Cr ' + crM[1]);
+                if (/labs?\s*(?:are|were|look)?\s*(?:normal|wnl|stable|unremarkable)/i.test(lower)) labTokens.push('WNL');
+                if (labTokens.length > 0) objParts.push('Labs: ' + labTokens.join(', '));
+                // Exam
+                const examTokens = [];
+                if (/clear\s*to\s*auscultation|cta/i.test(lower)) examTokens.push('Lungs CTA');
+                if (/(?:soft|non-?tender|nt|nd)/i.test(lower) && /(?:abd|belly)/i.test(lower)) examTokens.push('Abd soft/NT/ND');
+                if (/wound\s*(?:clean|healing|dry|intact|c\/d\/i)/i.test(lower)) examTokens.push('Wound CDI');
+                if (/wound\s*(?:open|draining|erythema|infected)/i.test(lower)) examTokens.push('Wound concern');
+                if (/edema|swelling/i.test(lower)) examTokens.push('Edema noted');
+                if (/bowel\s*sounds?\s*(?:present|positive|active)/i.test(lower)) examTokens.push('BS+');
+                if (examTokens.length > 0) objParts.push('Exam: ' + examTokens.join(', '));
+                objective = objParts.join(' | ');
+
+                // --- ASSESSMENT: Overall clinical picture ---
+                const assessParts = [];
+                if (/pod\s*(?:#?\s*)?\d+|post[- ]?op\s*day\s*\d+/i.test(lower)) {
+                    const podM = raw.match(/pod\s*(?:#?\s*)?(\d+)|post[- ]?op\s*day\s*(\d+)/i);
+                    if (podM) assessParts.push('POD #' + (podM[1] || podM[2]));
+                }
+                if (/(?:patient|pt)\s+(?:is|are)\s+(?:clinically\s+)?(?:stable|improved|improving|worse)/i.test(lower)) {
+                    const m = raw.match(/(?:patient|pt)\s+(?:is|are)\s+(?:clinically\s+)?(\w+)/i);
+                    if (m) assessParts.push('Patient ' + m[1].trim());
+                }
+                if (/doing\s+(?:well|better|good|great|fine)/i.test(lower)) assessParts.push('Doing well');
+                if (/doing\s+(?:worse|poorly|bad)/i.test(lower)) assessParts.push('Doing worse');
+                if (/ready\s+for\s+discharge/i.test(lower)) assessParts.push('Ready for discharge');
+                if (/not\s+ready/i.test(lower)) assessParts.push('Not ready for discharge');
+                assessment = assessParts.length > 0 ? assessParts.join('. ') : '';
+
+                // --- PLAN: orders, next steps ---
+                const planParts = [];
+                const planM = raw.match(/plan\s+(?:is\s+(?:to\s+)?|for\s+(?:today\s+)?(?:is\s+)?(?:to\s+)?)(.+?)(?:\.|$)/i);
+                if (planM && planM[1].trim().length > 3) planParts.push(planM[1].trim());
+                // Capture orders/actions
+                const actionPatterns = [
+                    [/(?:start|begin|add)\s+(.+?)(?:\s+(?:and|also|then)|$)/gi, 'Start'],
+                    [/(?:stop|discontinue|dc|hold)\s+(?:the\s+)?(.+?)(?:\s+(?:and|also|then)|$)/gi, 'DC'],
+                    [/(?:order|get|check|send|draw)\s+(?:a\s+)?(.+?)(?:\s+(?:and|also|then)|$)/gi, 'Order'],
+                    [/(?:continue|maintain|keep)\s+(.+?)(?:\s+(?:and|also|then)|$)/gi, 'Continue'],
+                ];
+                actionPatterns.forEach(([re, prefix]) => {
+                    const matches = raw.matchAll(re);
+                    for (const m of matches) {
+                        const item = m[1].trim();
+                        if (item.length > 2 && item.length < 80) planParts.push(prefix + ' ' + item);
+                    }
+                });
+                // Diet/activity changes
+                if (/advance\s*(?:diet|as\s*tolerated)/i.test(lower)) planParts.push('Advance diet as tolerated');
+                if (/discharge\s*(?:home|today|tomorrow)/i.test(lower)) planParts.push('Discharge planning');
+                plan = planParts.length > 0 ? planParts.join('; ') : '';
+
+                // Build the concise SOAP note
+                const soapNote = [];
+                soapNote.push('S: ' + (subjective || 'See transcript'));
+                if (objective) soapNote.push('O: ' + objective);
+                if (assessment) soapNote.push('A: ' + assessment);
+                if (plan) soapNote.push('P: ' + plan);
+                const formattedSOAP = soapNote.join('\n');
+
+                // Save to patient record
+                const updates = { ...patient };
+                updates.subjective = subjective;
+                if (objective) updates.examFindings = objective;
+                if (assessment) updates.assessment = assessment;
+                if (plan) updates.treatmentPlan = plan;
+                updates.roundsSummary = formattedSOAP;
+
+                // Store in rounds history
+                const today = getTodayISO();
+                const roundsHistory = updates.roundsHistory || {};
+                roundsHistory[today] = {
+                    timestamp: new Date().toISOString(),
+                    transcript: raw,
+                    soapNote: formattedSOAP,
+                    subjective: subjective,
+                    assessment: assessment,
+                    objective: objective,
+                    plan: plan,
+                    summary: formattedSOAP
+                };
+                const allDates = Object.keys(roundsHistory).sort().reverse();
+                if (allDates.length > 14) allDates.slice(14).forEach(d => delete roundsHistory[d]);
+                updates.roundsHistory = roundsHistory;
+                updates.updatedAt = new Date().toISOString();
+
+                await DB.put('patients', updates);
+
+                // Save to recordings list
+                setRecordingsList(prev => ({
+                    ...prev,
+                    [selectedPatientId]: [...(prev[selectedPatientId] || []), { transcript: raw, timestamp: getCurrentDateTime(), soapNote: formattedSOAP }]
+                }));
+
+                loadPatients();
+                setTranscript('');
+                setLiveTranscript('');
+                alert('SOAP note submitted to patient record.');
+            };
+
             const applyToPatient = async () => {
                 const patient = patients.find(p => p.id === selectedPatientId);
                 if (!patient) return;
@@ -6540,10 +6729,16 @@ To-do: Check AM labs, I/Os q4h`}
                                     <textarea value={transcript} onChange={(e) => setTranscript(e.target.value)}
                                         className="w-full mt-2 px-3 py-2 bg-gray-50 border border-gray-300 rounded text-gray-600"
                                         rows="4"/>
-                                    <button onClick={parseTranscript}
-                                        className="w-full mt-2 px-4 py-2 bg-medical-600 hover:bg-medical-700 text-white rounded font-medium">
-                                        Parse Plan
-                                    </button>
+                                    <div className="flex gap-2 mt-2">
+                                        <button onClick={parseTranscript}
+                                            className="flex-1 px-4 py-2 bg-medical-600 hover:bg-medical-700 text-white rounded font-medium">
+                                            Parse Plan
+                                        </button>
+                                        <button onClick={submitSOAP}
+                                            className="flex-1 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-medium">
+                                            Submit SOAP
+                                        </button>
+                                    </div>
                                 </div>
                             )}
 
@@ -8585,99 +8780,110 @@ To-do: Check AM labs, I/Os q4h`}
                 // Helper: safe string for addText
                 const safeStr = (val) => val == null ? '' : String(val);
 
+                // Helper: build bullet list items for addText arrays
+                const bullets = (items, opts = {}) => items.map((item, i) => ({
+                    text: safeStr(item),
+                    options: { breakLine: i < items.length - 1, bullet: true, fontSize: opts.fontSize || 12, color: opts.color || C.slate, ...opts }
+                }));
+
                 // ====== SLIDE 1: Title ======
                 let s1 = pres.addSlide();
                 s1.background = { color: C.navy };
-                // Top accent bar
                 s1.addShape(pres.shapes.RECTANGLE, { x: 0, y: 0, w: 10, h: 0.06, fill: { color: C.accent } });
-                s1.addText('M&M CONFERENCE', {
+                s1.addText('MORBIDITY & MORTALITY CONFERENCE', {
                     x: 0.8, y: 1.0, w: 8.4, h: 0.6,
-                    fontFace: FONT.head, fontSize: 14, color: C.accent,
-                    charSpacing: 6, bold: true
+                    fontFace: FONT.head, fontSize: 13, color: C.accent, charSpacing: 5, bold: true
                 });
                 s1.addText(lesson.title || 'Case Review', {
                     x: 0.8, y: 1.6, w: 8.4, h: 1.2,
                     fontFace: FONT.head, fontSize: 40, color: C.white, bold: true
                 });
-                // Subtitle info
-                const titleDetails = [];
-                if (patient) titleDetails.push('Room ' + patient.room + (patient.diagnosis ? ' - ' + patient.diagnosis : ''));
-                titleDetails.push(new Date(lesson.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }));
-                titleDetails.push('Presented by: ' + (lesson.author || 'Team'));
-                s1.addText(titleDetails.join('  |  '), {
+                const titleInfo = [];
+                titleInfo.push(new Date(lesson.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }));
+                titleInfo.push('Presented by: ' + (lesson.author || 'Team'));
+                s1.addText(titleInfo.join('  |  '), {
                     x: 0.8, y: 3.2, w: 8.4, h: 0.5,
                     fontFace: FONT.body, fontSize: 13, color: C.light
                 });
-                // Bottom accent bar
                 s1.addShape(pres.shapes.RECTANGLE, { x: 0, y: 5.565, w: 10, h: 0.06, fill: { color: C.accent } });
 
-                // ====== SLIDE 2: Patient Overview ======
+                // ====== SLIDE 2: Case Presentation / Patient History ======
                 if (patient) {
                     let s2 = pres.addSlide();
                     s2.background = { color: C.bg };
-                    s2.addText('Patient Overview', {
+                    s2.addText('Case Presentation', {
                         x: 0.6, y: 0.3, w: 8.8, h: 0.7,
                         fontFace: FONT.head, fontSize: 28, color: C.navy, bold: true
                     });
                     s2.addShape(pres.shapes.RECTANGLE, { x: 0.6, y: 1.05, w: 2.0, h: 0.03, fill: { color: C.accent } });
 
-                    // Demographics card
-                    s2.addShape(pres.shapes.RECTANGLE, {
-                        x: 0.6, y: 1.4, w: 4.2, h: 3.5,
-                        fill: { color: C.white }, shadow: cardShadow()
+                    // HPI / Diagnosis card
+                    s2.addShape(pres.shapes.RECTANGLE, { x: 0.6, y: 1.3, w: 9.0, h: 0.6, fill: { color: C.white }, shadow: cardShadow() });
+                    s2.addText('Diagnosis: ' + safeStr(patient.diagnosis || 'Not recorded'), {
+                        x: 0.9, y: 1.3, w: 8.4, h: 0.6,
+                        fontFace: FONT.body, fontSize: 16, color: C.navy, bold: true, valign: 'middle'
                     });
-                    const demoRows = [
-                        ['Room', safeStr(patient.room) || 'N/A'],
-                        ['Diagnosis', safeStr(patient.diagnosis) || 'N/A'],
-                        ['Admit Date', patient.admitDate ? new Date(patient.admitDate).toLocaleDateString() : 'N/A'],
-                        ['POD', patient.admitDate ? '#' + calculatePOD(patient.admitDate) : 'N/A'],
-                        ['Attending', safeStr(patient.attendingPhysician) || 'N/A'],
-                        ['Code Status', safeStr(patient.codeStatus) || 'Full Code'],
-                        ['Allergies', safeStr(patient.allergies) || 'NKDA']
-                    ];
-                    demoRows.forEach((row, i) => {
-                        s2.addText(row[0], {
-                            x: 0.9, y: 1.6 + i * 0.42, w: 1.5, h: 0.36,
-                            fontFace: FONT.body, fontSize: 11, color: C.muted, bold: true, valign: 'middle'
-                        });
-                        s2.addText(row[1], {
-                            x: 2.4, y: 1.6 + i * 0.42, w: 2.2, h: 0.36,
-                            fontFace: FONT.body, fontSize: 12, color: C.navy, valign: 'middle'
+
+                    // Two column layout: PMH/PSH left, Meds/Allergies right
+                    // Left column
+                    s2.addShape(pres.shapes.RECTANGLE, { x: 0.6, y: 2.1, w: 4.3, h: 3.2, fill: { color: C.white }, shadow: cardShadow() });
+                    s2.addText('Past Medical History', { x: 0.9, y: 2.2, w: 3.7, h: 0.35, fontFace: FONT.body, fontSize: 11, color: C.accent, bold: true });
+                    const pmhList = Array.isArray(patient.pmh) && patient.pmh.length > 0 ? patient.pmh : ['None documented'];
+                    s2.addText(safeTextRuns(bullets(pmhList, { fontSize: 10 })), { x: 0.9, y: 2.55, w: 3.7, h: 1.1, fontFace: FONT.body, valign: 'top', paraSpaceAfter: 2 });
+
+                    s2.addText('Past Surgical History', { x: 0.9, y: 3.7, w: 3.7, h: 0.35, fontFace: FONT.body, fontSize: 11, color: C.accent, bold: true });
+                    const pshList = Array.isArray(patient.psh) && patient.psh.length > 0 ? patient.psh : ['None documented'];
+                    s2.addText(safeTextRuns(bullets(pshList, { fontSize: 10 })), { x: 0.9, y: 4.05, w: 3.7, h: 1.1, fontFace: FONT.body, valign: 'top', paraSpaceAfter: 2 });
+
+                    // Right column
+                    s2.addShape(pres.shapes.RECTANGLE, { x: 5.1, y: 2.1, w: 4.3, h: 3.2, fill: { color: C.white }, shadow: cardShadow() });
+                    s2.addText('Medications', { x: 5.4, y: 2.2, w: 3.7, h: 0.35, fontFace: FONT.body, fontSize: 11, color: C.accent, bold: true });
+                    const medsList = Array.isArray(patient.homeMeds) && patient.homeMeds.length > 0 ? patient.homeMeds : ['None documented'];
+                    s2.addText(safeTextRuns(bullets(medsList, { fontSize: 10 })), { x: 5.4, y: 2.55, w: 3.7, h: 1.1, fontFace: FONT.body, valign: 'top', paraSpaceAfter: 2 });
+
+                    s2.addText('Allergies', { x: 5.4, y: 3.7, w: 3.7, h: 0.35, fontFace: FONT.body, fontSize: 11, color: C.accent, bold: true });
+                    const allergyList = Array.isArray(patient.allergies) && patient.allergies.length > 0 ? patient.allergies : ['NKDA'];
+                    s2.addText(safeTextRuns(bullets(allergyList, { fontSize: 10, color: C.red })), { x: 5.4, y: 4.05, w: 3.7, h: 0.6, fontFace: FONT.body, valign: 'top', paraSpaceAfter: 2 });
+
+                    // Attending + Code Status footer
+                    const footerParts = [];
+                    if (patient.attendingPhysician) footerParts.push('Attending: ' + safeStr(patient.attendingPhysician));
+                    footerParts.push('Code Status: ' + safeStr(patient.codeStatus || 'Full Code'));
+                    if (patient.admitDate) footerParts.push('Admitted: ' + new Date(patient.admitDate).toLocaleDateString());
+                    s2.addText(footerParts.join('   |   '), {
+                        x: 0.6, y: 5.15, w: 8.8, h: 0.35,
+                        fontFace: FONT.body, fontSize: 10, color: C.muted, align: 'center', valign: 'middle'
+                    });
+                }
+
+                // ====== SLIDE 3: Procedures & Operative Course ======
+                if (patient) {
+                    let sOp = pres.addSlide();
+                    sOp.background = { color: C.bg };
+                    sOp.addText('Procedures & Operative Course', {
+                        x: 0.6, y: 0.3, w: 8.8, h: 0.7,
+                        fontFace: FONT.head, fontSize: 28, color: C.navy, bold: true
+                    });
+                    sOp.addShape(pres.shapes.RECTANGLE, { x: 0.6, y: 1.05, w: 2.0, h: 0.03, fill: { color: C.accent } });
+
+                    const procList = Array.isArray(patient.procedures) && patient.procedures.length > 0 ? patient.procedures : ['No procedures documented'];
+                    sOp.addShape(pres.shapes.RECTANGLE, { x: 0.6, y: 1.3, w: 9.0, h: 1.5, fill: { color: C.white }, shadow: cardShadow() });
+                    sOp.addShape(pres.shapes.RECTANGLE, { x: 0.6, y: 1.3, w: 0.08, h: 1.5, fill: { color: C.accent } });
+                    procList.forEach((proc, i) => {
+                        if (1.5 + i * 0.35 > 2.6) return;
+                        sOp.addText((i + 1) + '. ' + safeStr(proc), {
+                            x: 1.0, y: 1.45 + i * 0.35, w: 8.3, h: 0.3,
+                            fontFace: FONT.body, fontSize: 13, color: C.navy, bold: true, valign: 'middle'
                         });
                     });
 
-                    // Current status card
-                    s2.addShape(pres.shapes.RECTANGLE, {
-                        x: 5.2, y: 1.4, w: 4.2, h: 3.5,
-                        fill: { color: C.white }, shadow: cardShadow()
+                    // Space for operative details / notes
+                    sOp.addShape(pres.shapes.RECTANGLE, { x: 0.6, y: 3.1, w: 9.0, h: 2.2, fill: { color: C.white }, shadow: cardShadow() });
+                    sOp.addText('Operative Details / Findings', { x: 0.9, y: 3.2, w: 8.4, h: 0.35, fontFace: FONT.body, fontSize: 12, color: C.accent, bold: true });
+                    sOp.addText('[Add intraoperative findings, EBL, complications, and relevant operative details here]', {
+                        x: 0.9, y: 3.6, w: 8.4, h: 1.5,
+                        fontFace: FONT.body, fontSize: 11, color: C.light, italic: true, valign: 'top'
                     });
-                    s2.addText('Current Clinical Status', {
-                        x: 5.5, y: 1.55, w: 3.6, h: 0.4,
-                        fontFace: FONT.body, fontSize: 13, color: C.accent, bold: true
-                    });
-                    const statusItems = [];
-                    if (patient.diet) statusItems.push({ text: 'Diet: ' + patient.diet, options: { breakLine: true, bullet: true, fontSize: 11, color: C.slate } });
-                    if (patient.activity) statusItems.push({ text: 'Activity: ' + patient.activity, options: { breakLine: true, bullet: true, fontSize: 11, color: C.slate } });
-                    if (patient.vitals) statusItems.push({ text: 'Vitals: ' + patient.vitals, options: { breakLine: true, bullet: true, fontSize: 11, color: C.slate } });
-                    if (patient.labNotes) statusItems.push({ text: 'Labs: ' + patient.labNotes, options: { breakLine: true, bullet: true, fontSize: 11, color: C.slate } });
-                    if (patient.dvtProphylaxis) statusItems.push({ text: 'DVT Ppx: ' + patient.dvtProphylaxis, options: { breakLine: true, bullet: true, fontSize: 11, color: C.slate } });
-                    if (patient.giProphylaxis) statusItems.push({ text: 'GI Ppx: ' + patient.giProphylaxis, options: { breakLine: true, bullet: true, fontSize: 11, color: C.slate } });
-                    if (patient.treatmentPlan) statusItems.push({ text: 'Plan: ' + patient.treatmentPlan, options: { breakLine: true, bullet: true, fontSize: 11, color: C.slate } });
-                    if (patient.dispositionPlan) statusItems.push({ text: 'Dispo: ' + patient.dispositionPlan, options: { breakLine: true, bullet: true, fontSize: 11, color: C.slate } });
-                    if (statusItems.length === 0) statusItems.push({ text: 'No clinical data recorded yet', options: { fontSize: 11, color: C.light, italic: true } });
-                    s2.addText(safeTextRuns(statusItems), { x: 5.5, y: 2.0, w: 3.6, h: 2.7, fontFace: FONT.body, valign: 'top', paraSpaceAfter: 4 });
-
-                    // Problems/Complications bar at bottom
-                    if (Array.isArray(patient.problems) && patient.problems.length > 0) {
-                        s2.addShape(pres.shapes.RECTANGLE, {
-                            x: 0.6, y: 5.1, w: 8.8, h: 0.4,
-                            fill: { color: C.redLight }
-                        });
-                        s2.addText('Complications: ' + patient.problems.map(String).join(', '), {
-                            x: 0.9, y: 5.1, w: 8.2, h: 0.4,
-                            fontFace: FONT.body, fontSize: 11, color: C.red, bold: true, valign: 'middle'
-                        });
-                    }
                 }
 
                 // ====== SLIDE 3: Hospital Course Timeline ======
@@ -9143,6 +9349,371 @@ To-do: Check AM labs, I/Os q4h`}
             );
         }
 
+        // ==================== CASE PREP ====================
+        function CasePrep() {
+            const [cases, setCases] = React.useState([]);
+            const [patients, setPatients] = React.useState([]);
+            const [selectedDate, setSelectedDate] = React.useState(getTodayISO());
+            const [currentMonth, setCurrentMonth] = React.useState(() => {
+                const t = getTodayISO().split('-');
+                return { year: parseInt(t[0]), month: parseInt(t[1]) };
+            });
+            const [showAddCase, setShowAddCase] = React.useState(false);
+            const [newCaseName, setNewCaseName] = React.useState('');
+            const [newCaseOrder, setNewCaseOrder] = React.useState(1);
+            const [expandedCase, setExpandedCase] = React.useState(null);
+            const [editingSteps, setEditingSteps] = React.useState(null);
+
+            React.useEffect(() => { DB.init().then(() => { loadCases(); loadPatients(); }); }, []);
+
+            const loadCases = async () => {
+                const all = await DB.getAll('casePrep');
+                setCases(all || []);
+            };
+            const loadPatients = async () => {
+                const all = await DB.getAll('patients');
+                setPatients((all || []).filter(p => p.status !== 'discharged'));
+            };
+
+            // Calendar helpers
+            const getDaysInMonth = (year, month) => new Date(year, month, 0).getDate();
+            const getFirstDayOfWeek = (year, month) => new Date(year, month - 1, 1).getDay();
+            const today = getTodayISO();
+
+            const prevMonth = () => {
+                setCurrentMonth(prev => {
+                    if (prev.month === 1) return { year: prev.year - 1, month: 12 };
+                    return { ...prev, month: prev.month - 1 };
+                });
+            };
+            const nextMonth = () => {
+                setCurrentMonth(prev => {
+                    if (prev.month === 12) return { year: prev.year + 1, month: 1 };
+                    return { ...prev, month: prev.month + 1 };
+                });
+            };
+
+            const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+            const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+            const formatDateISO = (year, month, day) => `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+
+            const casesForDate = (dateStr) => cases.filter(c => c.date === dateStr).sort((a, b) => (a.order || 0) - (b.order || 0));
+            const dayCasesSelected = casesForDate(selectedDate);
+
+            const addCase = async () => {
+                if (!newCaseName.trim()) return;
+                await DB.add('casePrep', {
+                    date: selectedDate,
+                    caseName: newCaseName.trim(),
+                    order: newCaseOrder,
+                    preOpReviewed: false,
+                    imagingReviewed: false,
+                    imagingComment: '',
+                    surgicalHistoryReviewed: false,
+                    surgicalHistoryComment: '',
+                    keyOperativeSteps: '',
+                    addedToPatientList: false,
+                    createdAt: new Date().toISOString()
+                });
+                setNewCaseName('');
+                setNewCaseOrder(dayCasesSelected.length + 2);
+                setShowAddCase(false);
+                loadCases();
+            };
+
+            const updateCase = async (caseId, updates) => {
+                const caseItem = cases.find(c => c.id === caseId);
+                if (!caseItem) return;
+                await DB.put('casePrep', { ...caseItem, ...updates });
+                loadCases();
+            };
+
+            const deleteCase = async (caseId) => {
+                if (!confirm('Remove this case?')) return;
+                await DB.delete('casePrep', caseId);
+                if (expandedCase === caseId) setExpandedCase(null);
+                loadCases();
+            };
+
+            const addToPatientList = async (caseItem) => {
+                // Create a new patient entry from this case
+                await DB.add('patients', {
+                    room: '',
+                    diagnosis: caseItem.caseName,
+                    problems: [],
+                    procedures: [],
+                    pmh: [],
+                    psh: [],
+                    homeMeds: [],
+                    allergies: [],
+                    antibiotics: [],
+                    examFindings: '',
+                    treatmentPlan: '',
+                    diet: 'NPO',
+                    activity: 'Per protocol',
+                    dvtProphylaxis: 'Heparin 5000 TID',
+                    giProphylaxis: 'Pantoprazole',
+                    dispositionPlan: '',
+                    concerns: '',
+                    codeStatus: 'Full Code',
+                    admitDate: caseItem.date,
+                    status: 'active',
+                    fromCasePrep: true,
+                    casePrepId: caseItem.id,
+                    createdAt: new Date().toISOString()
+                });
+                await updateCase(caseItem.id, { addedToPatientList: true });
+                loadPatients();
+                alert('Patient added to your list.');
+            };
+
+            // Dictation for key operative steps
+            const KeyStepsDictation = ({ caseItem }) => {
+                const dictation = useDictation((text) => {
+                    updateCase(caseItem.id, { keyOperativeSteps: text });
+                });
+                React.useEffect(() => {
+                    if (caseItem.keyOperativeSteps && !dictation.transcript) {
+                        dictation.setTranscript(caseItem.keyOperativeSteps);
+                    }
+                }, [caseItem.id]);
+
+                return (
+                    <div>
+                        <div className="flex items-center justify-between mb-2">
+                            <label className="text-xs font-semibold text-gray-600">Key Operative Steps</label>
+                            <button onClick={dictation.toggle}
+                                className={`px-3 py-1 rounded text-xs font-medium ${dictation.isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}>
+                                {dictation.isListening ? 'Stop Dictation' : 'Dictate'}
+                            </button>
+                        </div>
+                        <textarea
+                            value={dictation.transcript + (dictation.interimText ? ' ' + dictation.interimText : '')}
+                            onChange={(e) => {
+                                dictation.setTranscript(e.target.value);
+                                updateCase(caseItem.id, { keyOperativeSteps: e.target.value });
+                            }}
+                            onBlur={(e) => updateCase(caseItem.id, { keyOperativeSteps: e.target.value })}
+                            placeholder="Dictate or type: positioning, port placement, key steps chronologically..."
+                            className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded text-sm text-gray-700"
+                            rows="5"
+                        />
+                        {dictation.isListening && (
+                            <div className="flex gap-1 mt-1 items-center">
+                                {[...Array(4)].map((_, i) => (
+                                    <div key={i} className="w-1 h-3 bg-red-500 rounded-full animate-pulse" style={{animationDelay: `${i * 120}ms`}}></div>
+                                ))}
+                                <span className="text-xs text-red-500 ml-1">Listening...</span>
+                            </div>
+                        )}
+                    </div>
+                );
+            };
+
+            // Calendar grid
+            const renderCalendar = () => {
+                const { year, month } = currentMonth;
+                const daysInMonth = getDaysInMonth(year, month);
+                const firstDay = getFirstDayOfWeek(year, month);
+                const cells = [];
+
+                // Empty cells for days before month starts
+                for (let i = 0; i < firstDay; i++) {
+                    cells.push(<div key={`empty-${i}`} className="h-10 md:h-14"></div>);
+                }
+
+                for (let d = 1; d <= daysInMonth; d++) {
+                    const dateStr = formatDateISO(year, month, d);
+                    const isToday = dateStr === today;
+                    const isSelected = dateStr === selectedDate;
+                    const daysCases = casesForDate(dateStr);
+                    const hasCases = daysCases.length > 0;
+
+                    cells.push(
+                        <button key={d} onClick={() => setSelectedDate(dateStr)}
+                            className={`h-10 md:h-14 rounded-lg text-sm font-medium relative transition-all
+                                ${isSelected ? 'bg-medical-600 text-white shadow-md' : isToday ? 'bg-medical-50 text-medical-700 ring-2 ring-medical-300' : 'hover:bg-gray-100 text-gray-700'}
+                            `}>
+                            {d}
+                            {hasCases && (
+                                <span className={`absolute bottom-0.5 left-1/2 -translate-x-1/2 flex gap-0.5`}>
+                                    {daysCases.slice(0, 3).map((_, i) => (
+                                        <span key={i} className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-white' : 'bg-medical-500'}`}></span>
+                                    ))}
+                                    {daysCases.length > 3 && <span className={`text-[8px] ${isSelected ? 'text-white' : 'text-medical-500'}`}>+</span>}
+                                </span>
+                            )}
+                        </button>
+                    );
+                }
+
+                return cells;
+            };
+
+            const formatDisplayDate = (dateStr) => {
+                const [y, m, d] = dateStr.split('-').map(Number);
+                const date = new Date(y, m - 1, d);
+                return date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+            };
+
+            return (
+                <div className="p-4 md:p-6 max-w-4xl mx-auto">
+                    <h2 className="text-2xl font-bold text-medical-600 mb-6">Case Prep</h2>
+
+                    {/* Calendar */}
+                    <div className="bg-white border border-gray-100 rounded-xl p-4 mb-6">
+                        <div className="flex items-center justify-between mb-4">
+                            <button onClick={prevMonth} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 text-lg font-bold">&lt;</button>
+                            <h3 className="text-lg font-bold text-gray-800">{monthNames[currentMonth.month - 1]} {currentMonth.year}</h3>
+                            <button onClick={nextMonth} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 text-lg font-bold">&gt;</button>
+                        </div>
+                        <div className="grid grid-cols-7 gap-1 mb-2">
+                            {dayNames.map(d => (
+                                <div key={d} className="text-center text-xs font-semibold text-gray-400 py-1">{d}</div>
+                            ))}
+                        </div>
+                        <div className="grid grid-cols-7 gap-1">
+                            {renderCalendar()}
+                        </div>
+                    </div>
+
+                    {/* Selected Day */}
+                    <div className="mb-4">
+                        <div className="flex items-center justify-between mb-3">
+                            <h3 className="text-lg font-bold text-gray-800">{formatDisplayDate(selectedDate)}</h3>
+                            <button onClick={() => { setShowAddCase(true); setNewCaseOrder(dayCasesSelected.length + 1); }}
+                                className="px-4 py-2 bg-medical-600 hover:bg-medical-700 text-white rounded-lg text-sm font-medium">
+                                + Add Case
+                            </button>
+                        </div>
+
+                        {/* Add Case Form */}
+                        {showAddCase && (
+                            <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-4">
+                                <div className="space-y-3">
+                                    <div>
+                                        <label className="text-xs font-semibold text-gray-500">Case Name (procedure/operation)</label>
+                                        <input value={newCaseName} onChange={(e) => setNewCaseName(e.target.value)}
+                                            placeholder="e.g. Laparoscopic Cholecystectomy"
+                                            className="w-full mt-1 px-3 py-2 bg-white border border-gray-300 rounded text-sm" />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-semibold text-gray-500">Case Order (position in list)</label>
+                                        <input type="number" value={newCaseOrder} onChange={(e) => setNewCaseOrder(parseInt(e.target.value) || 1)}
+                                            min="1" className="w-full mt-1 px-3 py-2 bg-white border border-gray-300 rounded text-sm" />
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button onClick={addCase} className="flex-1 px-4 py-2 bg-medical-600 hover:bg-medical-700 text-white rounded font-medium text-sm">Add Case</button>
+                                        <button onClick={() => setShowAddCase(false)} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded font-medium text-sm">Cancel</button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Cases List */}
+                        {dayCasesSelected.length === 0 ? (
+                            <div className="text-center py-12 text-gray-400">
+                                <p className="text-4xl mb-2">📋</p>
+                                <p className="font-medium">No cases scheduled</p>
+                                <p className="text-sm mt-1">Tap "+ Add Case" to add your first case for this day.</p>
+                            </div>
+                        ) : (
+                            <div className="space-y-3">
+                                {dayCasesSelected.map((caseItem, idx) => (
+                                    <div key={caseItem.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+                                        {/* Case Header */}
+                                        <div className="flex items-center gap-3 p-4 cursor-pointer hover:bg-gray-50"
+                                            onClick={() => setExpandedCase(expandedCase === caseItem.id ? null : caseItem.id)}>
+                                            <span className="w-8 h-8 rounded-full bg-medical-100 text-medical-700 flex items-center justify-center text-sm font-bold shrink-0">
+                                                {idx + 1}
+                                            </span>
+                                            <div className="flex-1 min-w-0">
+                                                <h4 className="font-bold text-gray-800 truncate">{caseItem.caseName}</h4>
+                                                <div className="flex items-center gap-2 mt-1">
+                                                    {caseItem.preOpReviewed && <span className="text-xs bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">Pre-Op</span>}
+                                                    {caseItem.imagingReviewed && <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">Imaging</span>}
+                                                    {caseItem.surgicalHistoryReviewed && <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">Surg Hx</span>}
+                                                    {caseItem.keyOperativeSteps && <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">Steps</span>}
+                                                    {caseItem.addedToPatientList && <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">On List</span>}
+                                                </div>
+                                            </div>
+                                            <span className="text-gray-400 text-lg">{expandedCase === caseItem.id ? '▲' : '▼'}</span>
+                                        </div>
+
+                                        {/* Expanded Case Details */}
+                                        {expandedCase === caseItem.id && (
+                                            <div className="border-t border-gray-100 p-4 space-y-4 bg-gray-50/50">
+                                                {/* Pre-op Considerations */}
+                                                <div className="flex items-center gap-3 p-3 bg-white rounded-lg border border-gray-200">
+                                                    <input type="checkbox" checked={caseItem.preOpReviewed || false}
+                                                        onChange={(e) => updateCase(caseItem.id, { preOpReviewed: e.target.checked })}
+                                                        className="w-5 h-5 rounded text-emerald-600" />
+                                                    <div>
+                                                        <span className="font-semibold text-gray-800 text-sm">Pre-Op Considerations Reviewed</span>
+                                                        <p className="text-xs text-gray-500 mt-0.5">Labs, consents, NPO status, antibiotic prophylaxis, VTE prophylaxis</p>
+                                                    </div>
+                                                </div>
+
+                                                {/* Imaging Review */}
+                                                <div className="p-3 bg-white rounded-lg border border-gray-200">
+                                                    <div className="flex items-center gap-3 mb-2">
+                                                        <input type="checkbox" checked={caseItem.imagingReviewed || false}
+                                                            onChange={(e) => updateCase(caseItem.id, { imagingReviewed: e.target.checked })}
+                                                            className="w-5 h-5 rounded text-blue-600" />
+                                                        <span className="font-semibold text-gray-800 text-sm">Imaging Reviewed</span>
+                                                    </div>
+                                                    <textarea value={caseItem.imagingComment || ''}
+                                                        onChange={(e) => updateCase(caseItem.id, { imagingComment: e.target.value })}
+                                                        placeholder="Unique anatomy, considerations, notable findings..."
+                                                        className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded text-sm text-gray-700"
+                                                        rows="2" />
+                                                </div>
+
+                                                {/* Surgical History Review */}
+                                                <div className="p-3 bg-white rounded-lg border border-gray-200">
+                                                    <div className="flex items-center gap-3 mb-2">
+                                                        <input type="checkbox" checked={caseItem.surgicalHistoryReviewed || false}
+                                                            onChange={(e) => updateCase(caseItem.id, { surgicalHistoryReviewed: e.target.checked })}
+                                                            className="w-5 h-5 rounded text-purple-600" />
+                                                        <span className="font-semibold text-gray-800 text-sm">Surgical History Reviewed</span>
+                                                    </div>
+                                                    <textarea value={caseItem.surgicalHistoryComment || ''}
+                                                        onChange={(e) => updateCase(caseItem.id, { surgicalHistoryComment: e.target.value })}
+                                                        placeholder="Previous surgeries, adhesions, relevant anatomy changes..."
+                                                        className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded text-sm text-gray-700"
+                                                        rows="2" />
+                                                </div>
+
+                                                {/* Key Operative Steps with Dictation */}
+                                                <div className="p-3 bg-white rounded-lg border border-gray-200">
+                                                    <KeyStepsDictation caseItem={caseItem} />
+                                                </div>
+
+                                                {/* Actions */}
+                                                <div className="flex gap-2 pt-2">
+                                                    {!caseItem.addedToPatientList && (
+                                                        <button onClick={() => addToPatientList(caseItem)}
+                                                            className="flex-1 px-4 py-2 bg-medical-600 hover:bg-medical-700 text-white rounded font-medium text-sm">
+                                                            Add to Patient List
+                                                        </button>
+                                                    )}
+                                                    <button onClick={() => deleteCase(caseItem.id)}
+                                                        className="px-4 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded font-medium text-sm border border-red-200">
+                                                        Remove
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
         // ==================== MAIN APP ====================
         function App() {
             const [user, setUser] = React.useState(null);
@@ -9331,7 +9902,7 @@ To-do: Check AM labs, I/Os q4h`}
                 return <TeamSetup user={user} onTeamReady={handleTeamReady} />;
             }
 
-            const tabs = ['Patients', 'Attending', 'Tasks', 'Consults', 'Trauma', 'Census', 'Handoff', 'Pre-Round', 'Rounds', 'M&M'];
+            const tabs = ['Patients', 'Attending', 'Tasks', 'Consults', 'Trauma', 'Census', 'Handoff', 'Pre-Round', 'Rounds', 'M&M', 'Case Prep'];
 
             // Home landing page component
             const HomeScreen = () => {
@@ -9433,6 +10004,7 @@ To-do: Check AM labs, I/Os q4h`}
                     case 'Pre-Round': return <PreRound />;
                     case 'Rounds': return <RoundsRecorder />;
                     case 'M&M': return <MMLessonsLearned currentUser={user} />;
+                    case 'Case Prep': return <CasePrep />;
                     default: return <HomeScreen />;
                 }
             };
