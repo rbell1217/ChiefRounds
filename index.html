@@ -2068,7 +2068,33 @@
             const [editingDateId, setEditingDateId] = React.useState(null);
             const [viewMode, setViewMode] = React.useState('list'); // 'list' or 'timeline'
             const [timelinePatientId, setTimelinePatientId] = React.useState(null);
+            const [editingConcernId, setEditingConcernId] = React.useState(null);
+            const [concernDraft, setConcernDraft] = React.useState('');
             const quickDictation = useDictation();
+
+            const handleFlagChange = async (patientId, flagLevel) => {
+                const patient = patients.find(p => p.id === patientId);
+                if (patient) {
+                    const currentFlag = patient.flagLevel || (patient.concerns ? 'warning' : 'none');
+                    const newFlag = currentFlag === flagLevel ? 'none' : flagLevel;
+                    await DB.put('patients', { ...patient, flagLevel: newFlag, concerns: newFlag === 'none' ? '' : (patient.concerns || '') });
+                    loadPatients();
+                    if (newFlag !== 'none' && !patient.concerns) {
+                        setEditingConcernId(patientId);
+                        setConcernDraft('');
+                    }
+                }
+            };
+
+            const saveConcern = async (patientId) => {
+                const patient = patients.find(p => p.id === patientId);
+                if (patient) {
+                    await DB.put('patients', { ...patient, concerns: concernDraft });
+                    setEditingConcernId(null);
+                    setConcernDraft('');
+                    loadPatients();
+                }
+            };
 
             React.useEffect(() => {
                 DB.init().then(() => loadPatients());
@@ -2564,19 +2590,47 @@
                                         );
                                     })()}
 
-                                    {/* Red Flags - auto-detected */}
+                                    {/* Red Flags - selectable + auto-detected */}
                                     {(() => {
                                         const patientLabs = labs.filter(l => l.patientId === patient.id);
                                         const patientOutputs = outputs.filter(o => o.patientId === patient.id);
                                         const flags = detectRedFlags(patient, patientLabs, patientOutputs);
-                                        if (flags.length === 0 && !patient.concerns) return null;
+                                        const currentFlag = patient.flagLevel || (patient.concerns ? 'warning' : 'none');
                                         return (
                                             <div className="mb-2">
-                                                {patient.concerns && (
-                                                    <div className="p-2 bg-red-50 border border-red-500/50 rounded text-sm text-red-600 mb-1">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <p className="text-xs font-semibold text-gray-500 uppercase">Red Flags:</p>
+                                                    <div className="flex gap-1">
+                                                        {[
+                                                            { key: 'watch', label: 'Watch', active: 'bg-amber-500 text-white', inactive: 'bg-amber-50 text-amber-600 border border-amber-200 hover:bg-amber-100' },
+                                                            { key: 'warning', label: 'Warning', active: 'bg-orange-500 text-white', inactive: 'bg-orange-50 text-orange-600 border border-orange-200 hover:bg-orange-100' },
+                                                            { key: 'critical', label: 'Critical', active: 'bg-red-600 text-white', inactive: 'bg-red-50 text-red-600 border border-red-200 hover:bg-red-100' }
+                                                        ].map(flag => (
+                                                            <button key={flag.key} onClick={(e) => { e.stopPropagation(); handleFlagChange(patient.id, flag.key); }}
+                                                                className={`text-xs px-2 py-0.5 rounded font-medium transition ${currentFlag === flag.key ? flag.active : flag.inactive}`}>
+                                                                {flag.label}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                                {editingConcernId === patient.id ? (
+                                                    <div className="flex gap-1 mb-1">
+                                                        <input type="text" value={concernDraft} onChange={(e) => setConcernDraft(e.target.value)}
+                                                            onKeyDown={(e) => { if (e.key === 'Enter') saveConcern(patient.id); if (e.key === 'Escape') setEditingConcernId(null); }}
+                                                            placeholder="What's the concern?"
+                                                            autoFocus onClick={(e) => e.stopPropagation()}
+                                                            className="flex-1 text-xs bg-white border border-gray-300 rounded px-2 py-1 text-gray-800" />
+                                                        <button onClick={(e) => { e.stopPropagation(); saveConcern(patient.id); }} className="text-xs bg-medical-600 text-white px-2 py-1 rounded">Save</button>
+                                                    </div>
+                                                ) : patient.concerns ? (
+                                                    <div className="p-2 bg-red-50 border border-red-500/50 rounded text-sm text-red-600 mb-1 cursor-pointer hover:bg-red-100 transition"
+                                                        onClick={(e) => { e.stopPropagation(); setEditingConcernId(patient.id); setConcernDraft(patient.concerns); }}>
                                                         <strong>⚠️</strong> {patient.concerns}
                                                     </div>
-                                                )}
+                                                ) : (currentFlag !== 'none') ? (
+                                                    <button onClick={(e) => { e.stopPropagation(); setEditingConcernId(patient.id); setConcernDraft(''); }}
+                                                        className="text-xs text-gray-400 hover:text-gray-600 mb-1">+ Add concern comment</button>
+                                                ) : null}
                                                 {flags.filter(f => f.type !== 'manual').length > 0 && (
                                                     <div className="space-y-1">
                                                         {flags.filter(f => f.type !== 'manual').map((flag, i) => (
