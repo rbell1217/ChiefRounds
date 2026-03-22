@@ -8576,6 +8576,14 @@ To-do: Check AM labs, I/Os q4h`}
 
                 // Helper: fresh shadow factory (pptxgenjs mutates option objects)
                 const cardShadow = () => ({ type: 'outer', blur: 6, offset: 2, angle: 135, color: '000000', opacity: 0.08 });
+                // Helper: sanitize text runs array - PptxGenJS crashes if any element is a raw string
+                const safeTextRuns = (arr) => arr.map(item =>
+                    (typeof item === 'string' || typeof item === 'number')
+                        ? { text: String(item), options: {} }
+                        : { text: String(item.text || ''), options: item.options || {} }
+                );
+                // Helper: safe string for addText
+                const safeStr = (val) => val == null ? '' : String(val);
 
                 // ====== SLIDE 1: Title ======
                 let s1 = pres.addSlide();
@@ -8619,13 +8627,13 @@ To-do: Check AM labs, I/Os q4h`}
                         fill: { color: C.white }, shadow: cardShadow()
                     });
                     const demoRows = [
-                        ['Room', patient.room || 'N/A'],
-                        ['Diagnosis', patient.diagnosis || 'N/A'],
+                        ['Room', safeStr(patient.room) || 'N/A'],
+                        ['Diagnosis', safeStr(patient.diagnosis) || 'N/A'],
                         ['Admit Date', patient.admitDate ? new Date(patient.admitDate).toLocaleDateString() : 'N/A'],
                         ['POD', patient.admitDate ? '#' + calculatePOD(patient.admitDate) : 'N/A'],
-                        ['Attending', patient.attendingPhysician || 'N/A'],
-                        ['Code Status', patient.codeStatus || 'Full Code'],
-                        ['Allergies', patient.allergies || 'NKDA']
+                        ['Attending', safeStr(patient.attendingPhysician) || 'N/A'],
+                        ['Code Status', safeStr(patient.codeStatus) || 'Full Code'],
+                        ['Allergies', safeStr(patient.allergies) || 'NKDA']
                     ];
                     demoRows.forEach((row, i) => {
                         s2.addText(row[0], {
@@ -8657,15 +8665,15 @@ To-do: Check AM labs, I/Os q4h`}
                     if (patient.treatmentPlan) statusItems.push({ text: 'Plan: ' + patient.treatmentPlan, options: { breakLine: true, bullet: true, fontSize: 11, color: C.slate } });
                     if (patient.dispositionPlan) statusItems.push({ text: 'Dispo: ' + patient.dispositionPlan, options: { breakLine: true, bullet: true, fontSize: 11, color: C.slate } });
                     if (statusItems.length === 0) statusItems.push({ text: 'No clinical data recorded yet', options: { fontSize: 11, color: C.light, italic: true } });
-                    s2.addText(statusItems, { x: 5.5, y: 2.0, w: 3.6, h: 2.7, fontFace: FONT.body, valign: 'top', paraSpaceAfter: 4 });
+                    s2.addText(safeTextRuns(statusItems), { x: 5.5, y: 2.0, w: 3.6, h: 2.7, fontFace: FONT.body, valign: 'top', paraSpaceAfter: 4 });
 
                     // Problems/Complications bar at bottom
-                    if ((patient.problems || []).length > 0) {
+                    if (Array.isArray(patient.problems) && patient.problems.length > 0) {
                         s2.addShape(pres.shapes.RECTANGLE, {
                             x: 0.6, y: 5.1, w: 8.8, h: 0.4,
                             fill: { color: C.redLight }
                         });
-                        s2.addText('Complications: ' + patient.problems.join(', '), {
+                        s2.addText('Complications: ' + patient.problems.map(String).join(', '), {
                             x: 0.9, y: 5.1, w: 8.2, h: 0.4,
                             fontFace: FONT.body, fontSize: 11, color: C.red, bold: true, valign: 'middle'
                         });
@@ -8705,22 +8713,22 @@ To-do: Check AM labs, I/Os q4h`}
                                 x: 0.6, y: yPos, w: 1.6, h: 0.65,
                                 fill: { color: C.navy }
                             });
-                            sT.addText([
+                            sT.addText(safeTextRuns([
                                 { text: dateStr, options: { breakLine: true, fontSize: 10, bold: true, color: C.white } },
                                 { text: pod, options: { fontSize: 9, color: C.light } }
-                            ], { x: 0.6, y: yPos, w: 1.6, h: 0.65, fontFace: FONT.body, align: 'center', valign: 'middle' });
+                            ]), { x: 0.6, y: yPos, w: 1.6, h: 0.65, fontFace: FONT.body, align: 'center', valign: 'middle' });
 
                             // Content card
                             sT.addShape(pres.shapes.RECTANGLE, {
                                 x: 2.4, y: yPos, w: 7.0, h: 0.65,
                                 fill: { color: C.white }, shadow: cardShadow()
                             });
-                            const summary = entry.summary || [
-                                entry.subjective ? 'S: ' + entry.subjective : '',
-                                entry.assessment ? 'A: ' + entry.assessment : '',
-                                entry.orders?.length ? 'Orders: ' + entry.orders.join(', ') : ''
+                            const summary = safeStr(entry.summary) || [
+                                entry.subjective ? 'S: ' + safeStr(entry.subjective) : '',
+                                entry.assessment ? 'A: ' + safeStr(entry.assessment) : '',
+                                Array.isArray(entry.orders) && entry.orders.length ? 'Orders: ' + entry.orders.map(String).join(', ') : ''
                             ].filter(Boolean).join(' | ') || 'Rounds completed';
-                            sT.addText(summary.substring(0, 200), {
+                            sT.addText(String(summary).substring(0, 200), {
                                 x: 2.6, y: yPos, w: 6.6, h: 0.65,
                                 fontFace: FONT.body, fontSize: 10, color: C.slate, valign: 'middle', margin: 0
                             });
@@ -8729,7 +8737,7 @@ To-do: Check AM labs, I/Os q4h`}
                 }
 
                 // ====== SLIDE: Complications & Problems ======
-                if (patient && (patient.problems || []).length > 0) {
+                if (patient && Array.isArray(patient.problems) && patient.problems.length > 0) {
                     let sP = pres.addSlide();
                     sP.background = { color: C.bg };
                     sP.addText('Complications & Problems', {
@@ -8755,7 +8763,7 @@ To-do: Check AM labs, I/Os q4h`}
                             x: 1.5, y: yPos, w: 8.0, h: 0.55,
                             fill: { color: C.white }, shadow: cardShadow()
                         });
-                        sP.addText(prob, {
+                        sP.addText(safeStr(prob), {
                             x: 1.7, y: yPos, w: 7.6, h: 0.55,
                             fontFace: FONT.body, fontSize: 14, color: C.navy, valign: 'middle', bold: true
                         });
@@ -8776,10 +8784,10 @@ To-do: Check AM labs, I/Os q4h`}
                         fill: { color: C.slate },
                         line: { color: C.light, width: 2, dashType: 'dash' }
                     });
-                    sI.addText([
+                    sI.addText(safeTextRuns([
                         { text: 'INSERT CT / MRI / X-RAY IMAGE HERE', options: { breakLine: true, fontSize: 18, bold: true, color: C.light } },
                         { text: 'Right-click this area > Insert Picture > From File', options: { fontSize: 12, color: C.light } }
-                    ], {
+                    ]), {
                         x: 0.8, y: 1.2, w: 8.4, h: 3.8,
                         fontFace: FONT.body, align: 'center', valign: 'middle'
                     });
@@ -8806,11 +8814,11 @@ To-do: Check AM labs, I/Os q4h`}
                     fill: { color: C.slate },
                     line: { color: C.light, width: 2, dashType: 'dash' }
                 });
-                sV.addText([
+                sV.addText(safeTextRuns([
                     { text: 'INSERT VIDEO OR INTRAOP IMAGES HERE', options: { breakLine: true, fontSize: 18, bold: true, color: C.light } },
                     { text: 'Insert > Video > From File  or  Insert > Picture', options: { breakLine: true, fontSize: 12, color: C.light } },
                     { text: 'Supports MP4, MOV for embedded video playback', options: { fontSize: 10, color: C.light } }
-                ], {
+                ]), {
                     x: 0.8, y: 1.2, w: 8.4, h: 3.8,
                     fontFace: FONT.body, align: 'center', valign: 'middle'
                 });
@@ -8842,7 +8850,7 @@ To-do: Check AM labs, I/Os q4h`}
                     text: p,
                     options: { breakLine: i < lessonParagraphs.length - 1, fontSize: 14, color: C.slate }
                 }));
-                sL.addText(lessonRuns, {
+                sL.addText(safeTextRuns(lessonRuns), {
                     x: 1.0, y: 1.5, w: 8.1, h: 3.4,
                     fontFace: FONT.body, valign: 'top', paraSpaceAfter: 8
                 });
