@@ -2198,6 +2198,10 @@
             );
 
             const sortedPatients = [...filteredPatients].sort((a, b) => {
+                // Trauma patients always on top
+                if (a.isTrauma && !b.isTrauma) return -1;
+                if (!a.isTrauma && b.isTrauma) return 1;
+                // Within each group, sort by selected criteria
                 if (sortBy === 'room') return parseInt(a.room) - parseInt(b.room);
                 if (sortBy === 'pod') return calculatePOD(b.admitDate) - calculatePOD(a.admitDate);
                 if (sortBy === 'flags') return (b.concerns ? 1 : 0) - (a.concerns ? 1 : 0);
@@ -6459,6 +6463,24 @@ To-do: Check AM labs, I/Os q4h`}
                 const data = { ...form, consultServices: form.consultServices || [], updatedAt: new Date().toISOString() };
                 if (editingTrauma) {
                     await DB.put('traumas', { ...data, id: editingTrauma.id });
+                    // Sync updates back to the linked patient entry
+                    try {
+                        const allPatients = await DB.getAll('patients');
+                        const linked = allPatients.find(p => p.traumaId === editingTrauma.id);
+                        if (linked) {
+                            const diagParts = [data.mechanism || 'Trauma'];
+                            if (data.injuries) diagParts.push(data.injuries.split(',')[0].trim());
+                            await DB.put('patients', {
+                                ...linked,
+                                room: data.room || linked.room,
+                                diagnosis: diagParts.join(' - '),
+                                traumaLevel: data.level || linked.traumaLevel,
+                                examFindings: data.primarySurvey || linked.examFindings,
+                                treatmentPlan: data.plan || linked.treatmentPlan,
+                                updatedAt: new Date().toISOString()
+                            });
+                        }
+                    } catch (e) { console.error('Failed to sync trauma to patient:', e); }
                 } else {
                     data.createdAt = new Date().toISOString();
                     const traumaDoc = await DB.add('traumas', data);
