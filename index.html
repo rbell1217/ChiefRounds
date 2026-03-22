@@ -2413,12 +2413,18 @@
                             sortedPatients.map(patient => (
                                 <div
                                     key={patient.id}
-                                    className={`patient-card-hover bg-white shadow-sm border rounded-lg p-4 ${patient.concerns ? 'red-flag-patient border-red-600' : 'border-gray-200'}`}
+                                    className={`patient-card-hover bg-white shadow-sm border rounded-lg p-4 ${
+                                        patient.isTrauma ? 'border-red-500 border-l-4 border-l-red-600 bg-red-50/30' :
+                                        patient.concerns ? 'red-flag-patient border-red-600' : 'border-gray-200'
+                                    }`}
                                 >
                                     {/* Header Row */}
                                     <div className="flex justify-between items-start mb-2">
                                         <div>
-                                            <h3 className="text-2xl font-bold text-medical-600">Room {patient.room}</h3>
+                                            <div className="flex items-center gap-2">
+                                                <h3 className={`text-2xl font-bold ${patient.isTrauma ? 'text-red-600' : 'text-medical-600'}`}>Room {patient.room}</h3>
+                                                {patient.isTrauma && <span className="text-xs bg-red-500 text-white px-2 py-0.5 rounded font-bold animate-pulse">{patient.traumaLevel || 'TRAUMA'}</span>}
+                                            </div>
                                             <p className="text-sm text-gray-500">
                                                 {patient.diagnosis || 'No diagnosis'}
                                                 {patient.procedures?.length > 0 && <span> s/p {patient.procedures.join(', ')}</span>}
@@ -3009,10 +3015,10 @@
 
                         <div className="space-y-6 p-4 pb-20">
                             {patients.map((patient) => (
-                                <div key={patient.id} className="border-l-4 border-medical-500 pl-5 pr-2">
+                                <div key={patient.id} className={`border-l-4 ${patient.isTrauma ? 'border-red-500' : 'border-medical-500'} pl-5 pr-2`}>
                                     {/* Header: Room and Code Status */}
-                                    <div className="text-xl font-bold text-medical-600 mb-1">
-                                        Room {patient.room} | {patient.codeStatus}
+                                    <div className={`text-xl font-bold ${patient.isTrauma ? 'text-red-600' : 'text-medical-600'} mb-1`}>
+                                        Room {patient.room} {patient.isTrauma && <span className="text-xs bg-red-500 text-white px-2 py-0.5 rounded ml-2">{patient.traumaLevel || 'TRAUMA'}</span>} | {patient.codeStatus}
                                     </div>
 
                                     {/* Diagnosis s/p Procedure - combined on one line */}
@@ -6017,32 +6023,94 @@ To-do: Check AM labs, I/Os q4h`}
 
         // ==================== TRAUMA SPEECH PARSER ====================
         function parseTraumaSpeech(transcript) {
-            const lower = transcript.toLowerCase();
+            // Step 1: Deduplicate STT repetition/stuttering
+            // Speech recognition often repeats partial phrases as it refines
+            function deduplicateSTT(text) {
+                const words = text.split(/\s+/).filter(Boolean);
+                if (words.length < 4) return text;
+                // Remove repeated phrases (sliding window approach)
+                const cleaned = [];
+                let i = 0;
+                while (i < words.length) {
+                    // Check if a phrase of length 3-8 starting at i repeats immediately after
+                    let foundRepeat = false;
+                    for (let pLen = Math.min(8, Math.floor((words.length - i) / 2)); pLen >= 3; pLen--) {
+                        const phrase = words.slice(i, i + pLen).join(' ').toLowerCase();
+                        const nextPhrase = words.slice(i + pLen, i + pLen * 2).join(' ').toLowerCase();
+                        if (phrase === nextPhrase) {
+                            // Keep one copy, skip the duplicate
+                            for (let j = 0; j < pLen; j++) cleaned.push(words[i + j]);
+                            i += pLen * 2;
+                            foundRepeat = true;
+                            break;
+                        }
+                    }
+                    if (!foundRepeat) {
+                        cleaned.push(words[i]);
+                        i++;
+                    }
+                }
+                return cleaned.join(' ');
+            }
+
+            // Step 2: Normalize common STT errors for trauma context
+            let t = deduplicateSTT(transcript);
+            t = t
+                .replace(/\bgunl\b/gi, 'gun')
+                .replace(/\bemo\s*pneumo/gi, 'hemopneumo')
+                .replace(/\bhemo\s*new\s*mo/gi, 'hemopneumo')
+                .replace(/\bhemo\s*pneumo/gi, 'hemopneumo')
+                .replace(/\bnew\s*mo\s*thorax/gi, 'pneumothorax')
+                .replace(/\bpneumo\s*thorax/gi, 'pneumothorax')
+                .replace(/\bhemo\s*thorax/gi, 'hemothorax')
+                .replace(/\bhemopneumothorax/gi, 'hemopneumothorax')
+                .replace(/\bGCS\s*(\d+)/gi, 'GCS $1')
+                .replace(/\bg\s*c\s*s\s*(?:of|is|score)?\s*(\d+)/gi, 'GCS $1')
+                .replace(/\bglasgow\s*(\d+)/gi, 'GCS $1')
+                .replace(/\bintubat\w*/gi, 'intubated')
+                .replace(/\bchest\s*tube/gi, 'chest tube')
+                .replace(/\bbilateral/gi, 'bilateral')
+                .replace(/\bright\s*sided/gi, 'right-sided')
+                .replace(/\bleft\s*sided/gi, 'left-sided')
+                .replace(/\bfast\s*(?:exam|scan|positive|negative)/gi, (m) => m.toUpperCase())
+                .replace(/\bblood\s*pressure/gi, 'BP')
+                .replace(/\bheart\s*rate/gi, 'HR')
+                .replace(/\brespiratory\s*rate/gi, 'RR')
+                .replace(/\b(\d+)\s*over\s*(\d+)/gi, '$1/$2')
+                .replace(/\bsat(?:uration)?s?\s*(\d+)/gi, 'SpO2 $1')
+                .replace(/\bo2\s*sat/gi, 'SpO2');
+
+            const lower = t.toLowerCase();
             const result = {};
 
             // Level
-            if (/level\s+1|level 1|l1/i.test(transcript)) result.level = 'Level 1';
-            else if (/level\s+2|level 2|l2/i.test(transcript)) result.level = 'Level 2';
-            else if (/trauma alert/i.test(transcript)) result.level = 'Trauma Alert';
+            if (/level\s*(?:one|1)/i.test(t) || /\bl1\b/i.test(t) || /level\s+1/i.test(t)) result.level = 'Level 1';
+            else if (/level\s*(?:two|2)/i.test(t) || /\bl2\b/i.test(t)) result.level = 'Level 2';
+            else if (/trauma\s*alert/i.test(t)) result.level = 'Trauma Alert';
+            else if (/trauma\s*consult/i.test(t)) result.level = 'Trauma Consult';
 
             // Room
-            const roomMatch = transcript.match(/(?:room|trauma bay)\s+(\w+)/i);
+            const roomMatch = t.match(/(?:room|bay|bed)\s+(\w+)/i);
             if (roomMatch) result.room = roomMatch[1];
 
-            // Mechanism
+            // Age/Sex
+            const ageMatch = t.match(/(\d{1,3})\s*(?:year|yr|y\.?o\.?)\s*(?:old)?\s*(male|female|man|woman|m\b|f\b)/i);
+            if (ageMatch) result.patientInfo = ageMatch[1] + 'yo ' + (ageMatch[2].match(/^[mM]/) ? 'M' : 'F');
+
+            // Mechanism - scan entire transcript
             const mechKeywords = {
-                'mvc': 'MVC', 'motor vehicle': 'MVC',
+                'gsw': 'GSW', 'gunshot': 'GSW', 'gun shot': 'GSW', 'shooting': 'GSW',
+                'stab': 'Stab wound', 'stabbing': 'Stab wound', 'knife': 'Stab wound',
+                'mvc': 'MVC', 'motor vehicle': 'MVC', 'car crash': 'MVC', 'car accident': 'MVC',
                 'motorcycle': 'MCC (Motorcycle)', 'mcc': 'MCC (Motorcycle)',
-                'pedestrian': 'Pedestrian struck',
-                'fall': 'Fall',
-                'gsw': 'GSW', 'gunshot': 'GSW',
-                'stab': 'Stab wound',
-                'assault': 'Assault',
-                'bicycle': 'Bicycle crash',
-                'atv': 'ATV',
-                'industrial': 'Industrial',
-                'blast': 'Blast injury',
-                'burn': 'Burn'
+                'pedestrian': 'Pedestrian struck', 'ped struck': 'Pedestrian struck',
+                'fall': 'Fall', 'fell': 'Fall',
+                'assault': 'Assault', 'beaten': 'Assault',
+                'bicycle': 'Bicycle crash', 'bike': 'Bicycle crash',
+                'atv': 'ATV', 'all terrain': 'ATV',
+                'blast': 'Blast injury', 'explosion': 'Blast injury',
+                'burn': 'Burn', 'thermal': 'Burn',
+                'industrial': 'Industrial'
             };
             for (let key in mechKeywords) {
                 if (lower.includes(key)) {
@@ -6051,82 +6119,184 @@ To-do: Check AM labs, I/Os q4h`}
                 }
             }
 
-            // Injuries
-            const injMatch = transcript.match(/(?:injur|sustain|trauma)\s+(.+?)(?:primary|survey|imaging|labs|consult|plan|dispo|$)/i);
-            if (injMatch) result.injuries = injMatch[1].trim();
+            // Injuries - collect all mentioned injuries from entire transcript
+            const injuryPatterns = [
+                { re: /(?:hemopneumothorax|hemo\s*pneumo\s*thorax)/i, val: 'hemopneumothorax' },
+                { re: /pneumothorax/i, val: 'pneumothorax' },
+                { re: /hemothorax/i, val: 'hemothorax' },
+                { re: /rib\s*fracture/i, val: 'rib fracture' },
+                { re: /(?:pelvic|pelvis)\s*fracture/i, val: 'pelvic fracture' },
+                { re: /(?:femur|femoral)\s*fracture/i, val: 'femur fracture' },
+                { re: /(?:tib.?fib|tibia|fibula)\s*fracture/i, val: 'tib/fib fracture' },
+                { re: /open\s*fracture/i, val: 'open fracture' },
+                { re: /skull\s*fracture/i, val: 'skull fracture' },
+                { re: /subdural/i, val: 'subdural hematoma' },
+                { re: /epidural\s*hematoma/i, val: 'epidural hematoma' },
+                { re: /subarachnoid/i, val: 'SAH' },
+                { re: /intra\s*cranial\s*hemorrhage|ich\b/i, val: 'ICH' },
+                { re: /splenic\s*(?:lac|injury|rupture)/i, val: 'splenic injury' },
+                { re: /liver\s*(?:lac|injury)/i, val: 'liver laceration' },
+                { re: /bowel\s*(?:injury|perf)/i, val: 'bowel injury' },
+                { re: /renal\s*(?:lac|injury)/i, val: 'renal injury' },
+                { re: /aortic/i, val: 'aortic injury' },
+                { re: /vascular\s*injury/i, val: 'vascular injury' },
+                { re: /spinal\s*(?:cord|injury|fracture)/i, val: 'spinal injury' },
+                { re: /flail\s*chest/i, val: 'flail chest' },
+                { re: /cardiac\s*tamponade/i, val: 'cardiac tamponade' },
+                { re: /tension\s*pneumo/i, val: 'tension pneumothorax' },
+                { re: /amputation/i, val: 'amputation' },
+                { re: /degloving/i, val: 'degloving injury' },
+                { re: /laceration/i, val: 'laceration' }
+            ];
+            const injuries = [];
+            injuryPatterns.forEach(({ re, val }) => {
+                if (re.test(t) && !injuries.includes(val)) injuries.push(val);
+            });
 
-            // Primary Survey
-            const primMatch = transcript.match(/(?:primary survey|abcde?|airway|breathing|circulation|disability)\s+(.+?)(?:secondary|imaging|labs|consult|plan|$)/i);
-            if (primMatch) result.primarySurvey = primMatch[1].trim();
+            // Also capture location-specific injuries: "right chest", "left flank", etc
+            const locationInjuries = t.match(/(?:right|left|bilateral)\s+(?:chest|flank|abdomen|thigh|leg|arm|shoulder|neck|back|head)\s+\w+/gi);
+            if (locationInjuries) {
+                locationInjuries.forEach(li => {
+                    const clean = li.trim();
+                    if (!injuries.some(inj => clean.toLowerCase().includes(inj.toLowerCase()))) {
+                        injuries.push(clean);
+                    }
+                });
+            }
 
-            // Secondary Survey
-            const secMatch = transcript.match(/(?:secondary survey|head to toe)\s+(.+?)(?:imaging|labs|consult|plan|$)/i);
-            if (secMatch) result.secondarySurvey = secMatch[1].trim();
+            if (injuries.length > 0) result.injuries = injuries.join(', ');
+            // Fallback: if no structured injuries found, try to extract from "with" or "sustained"
+            if (!result.injuries) {
+                const withMatch = t.match(/(?:with|sustained|presenting with|has)\s+(?:a\s+)?(.+?)(?:\.|GCS|primary|vitals|blood|consult|plan|admit|$)/i);
+                if (withMatch) result.injuries = withMatch[1].replace(/\s+/g, ' ').trim().substring(0, 200);
+            }
 
-            // Imaging Ordered
-            const imgOrdMatch = transcript.match(/(?:imaging ordered|ordered|get|obtain)\s+(.+?)(?:imaging shows|findings|labs|$)/i);
-            if (imgOrdMatch) result.imagingOrdered = imgOrdMatch[1].trim();
+            // GCS
+            const gcsMatch = t.match(/GCS\s*(?:of|is|score)?\s*(\d{1,2})/i);
+            if (gcsMatch) result.gcs = gcsMatch[1];
+
+            // Primary Survey (ABCDE) - scan entire transcript for each component
+            const primaryComponents = [];
+            // Airway
+            if (/airway\s*(intact|secured|patent|compromised|intubated|protected)/i.test(t)) {
+                primaryComponents.push('A: ' + t.match(/airway\s*(intact|secured|patent|compromised|intubated|protected)/i)[1]);
+            } else if (/intubated/i.test(t)) {
+                primaryComponents.push('A: intubated');
+            }
+            // Breathing
+            const breathMatch = t.match(/(?:breath\s*sounds?|breathing)\s+(decreased|absent|bilateral|clear|diminished|equal|unequal|right|left)[\w\s]*/i);
+            if (breathMatch) primaryComponents.push('B: breath sounds ' + breathMatch[1].trim());
+            if (/chest\s*tube\s*(?:placed|inserted|in)/i.test(t)) primaryComponents.push('B: chest tube placed');
+            // Circulation
+            const circMatch = t.match(/(?:BP|blood pressure)\s*(\d+\/\d+)/i);
+            if (circMatch) primaryComponents.push('C: BP ' + circMatch[1]);
+            const hrMatch = t.match(/(?:HR|heart rate|pulse)\s*(\d{2,3})/i);
+            if (hrMatch) primaryComponents.push('C: HR ' + hrMatch[1]);
+            if (/(?:massive transfusion|mtp|transfus)/i.test(t)) primaryComponents.push('C: MTP activated');
+            if (/(?:2\s*large\s*bore|large\s*bore\s*iv|two\s*large)/i.test(t)) primaryComponents.push('C: 2 large-bore IVs');
+            // Disability
+            if (result.gcs) primaryComponents.push('D: GCS ' + result.gcs);
+            const pupilMatch = t.match(/pupils?\s*(equal|unequal|fixed|dilated|reactive|blown|pinpoint)[\w\s]*/i);
+            if (pupilMatch) primaryComponents.push('D: pupils ' + pupilMatch[1].trim());
+            // Exposure
+            if (/log\s*roll/i.test(t)) primaryComponents.push('E: log roll performed');
+
+            if (primaryComponents.length > 0) result.primarySurvey = primaryComponents.join('. ');
+
+            // Vitals as a group
+            const vitals = [];
+            if (circMatch) vitals.push('BP ' + circMatch[1]);
+            if (hrMatch) vitals.push('HR ' + hrMatch[1]);
+            const rrMatch = t.match(/(?:RR|respiratory rate)\s*(\d{1,2})/i);
+            if (rrMatch) vitals.push('RR ' + rrMatch[1]);
+            const spo2Match = t.match(/SpO2\s*(\d{2,3})/i);
+            if (spo2Match) vitals.push('SpO2 ' + spo2Match[1] + '%');
+            if (vitals.length > 0) result.vitals = vitals.join(', ');
+
+            // Imaging
+            const imagingOrdered = [];
+            if (/(?:ct\s*(?:pan\s*scan|head|chest|abdomen|pelvis|spine|angio))/i.test(t)) {
+                const ctTypes = t.match(/ct\s*(?:pan\s*scan|head|chest|abdomen|pelvis|spine|angio\w*)/gi);
+                if (ctTypes) ctTypes.forEach(ct => { if (!imagingOrdered.includes(ct.trim())) imagingOrdered.push(ct.trim()); });
+            }
+            if (/(?:chest\s*(?:x-?ray|xray|film))/i.test(t)) imagingOrdered.push('CXR');
+            if (/(?:pelvic\s*(?:x-?ray|xray|film))/i.test(t)) imagingOrdered.push('pelvic XR');
+            if (/\bfast\b/i.test(t)) imagingOrdered.push('FAST');
+            if (/\be-?fast\b/i.test(t)) imagingOrdered.push('eFAST');
+            if (imagingOrdered.length > 0) result.imagingOrdered = imagingOrdered.join(', ');
 
             // Imaging Findings
-            const imgMatch = transcript.match(/(?:imaging shows|ct shows|x-ray|xray|radiology|fast|findings)\s+(.+?)(?:labs|consult|plan|next|$)/i);
-            if (imgMatch) result.imagingFindings = imgMatch[1].trim();
+            const imgFindings = [];
+            if (/fast\s*(?:is\s*)?(?:positive|pos)/i.test(t)) imgFindings.push('FAST positive');
+            if (/fast\s*(?:is\s*)?(?:negative|neg)/i.test(t)) imgFindings.push('FAST negative');
+            const ctFindMatch = t.match(/(?:ct|scan|imaging)\s+(?:shows?|reveal|demonstrate)\s+(.+?)(?:labs|consult|plan|$)/i);
+            if (ctFindMatch) imgFindings.push(ctFindMatch[1].trim());
+            if (imgFindings.length > 0) result.imagingFindings = imgFindings.join('. ');
 
             // Lab Findings
-            const labMatch = transcript.match(/(?:labs? (?:show|findings)|hemoglobin|hgb|lactate|coag)\s+(.+?)(?:consult|plan|next|dispo|$)/i);
-            if (labMatch) result.labFindings = labMatch[1].trim();
+            const labFindings = [];
+            const hgbMatch = t.match(/(?:hemoglobin|hgb|h&h)\s*(?:is|of)?\s*(\d+\.?\d*)/i);
+            if (hgbMatch) labFindings.push('Hgb ' + hgbMatch[1]);
+            const lactateMatch = t.match(/lactate\s*(?:is|of)?\s*(\d+\.?\d*)/i);
+            if (lactateMatch) labFindings.push('Lactate ' + lactateMatch[1]);
+            const phMatch = t.match(/\bpH\s*(?:is|of)?\s*(\d+\.?\d*)/i);
+            if (phMatch) labFindings.push('pH ' + phMatch[1]);
+            const baseMatch = t.match(/base\s*(?:deficit|excess)\s*(?:is|of)?\s*(-?\d+\.?\d*)/i);
+            if (baseMatch) labFindings.push('Base deficit ' + baseMatch[1]);
+            const inrMatch = t.match(/\bINR\s*(?:is|of)?\s*(\d+\.?\d*)/i);
+            if (inrMatch) labFindings.push('INR ' + inrMatch[1]);
+            if (/type\s*and\s*(?:screen|cross)/i.test(t)) labFindings.push('T&S sent');
+            if (labFindings.length > 0) result.labFindings = labFindings.join(', ');
 
-            // Consulting Services - parse multiple mentioned
-            const consultKeywords = [
-                'neurosurgery', 'neurosurg', 'neuro',
-                'orthopedics', 'ortho', 'orthopedic',
-                'vascular',
-                'cardiothoracic', 'cardio', 'ct surgery',
-                'urology', 'uro',
-                'plastic',
-                'oral', 'maxillofacial', 'omfs',
-                'interventional', 'ir',
-                'spine'
-            ];
+            // Consulting Services
+            const consultMapping = {
+                'neurosurgery': 'Neurosurgery', 'neurosurg': 'Neurosurgery', 'neuro': 'Neurosurgery',
+                'orthopedics': 'Orthopedics', 'ortho': 'Orthopedics', 'orthopedic': 'Orthopedics',
+                'vascular': 'Vascular', 'vascular surgery': 'Vascular',
+                'cardiothoracic': 'Cardiothoracic', 'ct surgery': 'Cardiothoracic',
+                'urology': 'Urology', 'uro': 'Urology',
+                'plastic': 'Plastic Surgery', 'plastics': 'Plastic Surgery',
+                'oral': 'OMFS', 'maxillofacial': 'OMFS', 'omfs': 'OMFS',
+                'interventional radiology': 'IR', 'interventional': 'IR',
+                'spine': 'Spine', 'anesthesia': 'Anesthesia',
+                'thoracic': 'Thoracic Surgery', 'acute care surgery': 'Acute Care Surgery'
+            };
             const services = [];
-            for (let keyword of consultKeywords) {
+            for (let keyword in consultMapping) {
                 if (lower.includes(keyword)) {
-                    const mapping = {
-                        'neurosurgery': 'Neurosurgery', 'neurosurg': 'Neurosurgery', 'neuro': 'Neurosurgery',
-                        'orthopedics': 'Orthopedics', 'ortho': 'Orthopedics', 'orthopedic': 'Orthopedics',
-                        'vascular': 'Vascular',
-                        'cardiothoracic': 'Cardiothoracic', 'cardio': 'Cardiothoracic', 'ct surgery': 'Cardiothoracic',
-                        'urology': 'Urology', 'uro': 'Urology',
-                        'plastic': 'Plastic Surgery',
-                        'oral': 'Oral/Maxillofacial', 'maxillofacial': 'Oral/Maxillofacial', 'omfs': 'Oral/Maxillofacial',
-                        'interventional': 'Interventional Radiology', 'ir': 'Interventional Radiology',
-                        'spine': 'Spine'
-                    };
-                    const mapped = mapping[keyword];
-                    if (mapped && !services.includes(mapped)) services.push(mapped);
+                    const mapped = consultMapping[keyword];
+                    if (!services.includes(mapped)) services.push(mapped);
                 }
             }
             if (services.length > 0) result.consultServices = services;
 
-            // Consultant Findings
-            const consultMatch = transcript.match(/(?:consultant|ortho|neurosurg|vascular|cardio)\s+(?:says|finds|recommends|findings)\s+(.+?)(?:plan|next|dispo|$)/i);
-            if (consultMatch) result.consultFindings = consultMatch[1].trim();
-
-            // Plan
-            const planMatch = transcript.match(/(?:plan|we're going|going to|admission|admit)\s+(.+?)(?:next steps|action|dispo|$)/i);
-            if (planMatch) result.plan = planMatch[1].trim();
-
-            // Next Steps
-            const nextMatch = transcript.match(/(?:next steps|action items|to do|need to)\s+(.+?)(?:dispo|disposition|$)/i);
-            if (nextMatch) result.nextSteps = nextMatch[1].trim();
+            // Plan - scan for plan-related phrases
+            const planPhrases = [];
+            if (/(?:admit|admission)\s*(?:to)?\s*(?:trauma\s*)?(?:icu|intensive|step.?down|floor)/i.test(t)) {
+                const adMatch = t.match(/(?:admit|admission)\s*(?:to)?\s*(trauma\s*icu|icu|intensive care|step.?down|floor)/i);
+                if (adMatch) planPhrases.push('Admit to ' + adMatch[1].trim());
+            }
+            if (/(?:take|going|go)\s*(?:to)?\s*(?:the\s*)?(?:or|operating room)/i.test(t)) planPhrases.push('To OR');
+            if (/(?:serial|repeat)\s*(?:h&h|hemoglobin|hgb|labs)/i.test(t)) {
+                const serialMatch = t.match(/(?:serial|repeat)\s*(h&h|hemoglobin|hgb|labs)(?:\s*(?:every|q)\s*(\d+)\s*(?:hour|hr|h))?/i);
+                if (serialMatch) planPhrases.push('Serial ' + serialMatch[1] + (serialMatch[2] ? ' q' + serialMatch[2] + 'h' : ''));
+            }
+            if (/massive\s*transfusion|mtp/i.test(t)) planPhrases.push('MTP activated');
+            if (/chest\s*tube/i.test(t) && !result.primarySurvey?.includes('chest tube')) planPhrases.push('Chest tube placed');
+            if (/damage\s*control/i.test(t)) planPhrases.push('Damage control surgery');
+            if (/(?:repeat|follow.?up)\s*ct/i.test(t)) planPhrases.push('Repeat CT');
+            if (/(?:tetanus|tdap)/i.test(t)) planPhrases.push('Tetanus prophylaxis');
+            if (/(?:antibiotics|abx)/i.test(t)) planPhrases.push('Antibiotics started');
+            if (planPhrases.length > 0) result.plan = planPhrases.join('. ');
 
             // Disposition
-            if (/trauma icu|t-?icu/i.test(lower)) result.disposition = 'Trauma ICU';
+            if (/trauma\s*icu|t-?icu/i.test(lower)) result.disposition = 'Trauma ICU';
             else if (/step.?down/i.test(lower)) result.disposition = 'Step-down';
             else if (/\bfloor\b/i.test(lower)) result.disposition = 'Floor';
-            else if (/\bor\b|operating room|surgery/i.test(lower)) result.disposition = 'OR';
+            else if (/\bor\b|operating room/i.test(lower)) result.disposition = 'OR';
             else if (/discharge/i.test(lower)) result.disposition = 'Discharge';
             else if (/transfer/i.test(lower)) result.disposition = 'Transfer';
-            else if (/morgue|deceased/i.test(lower)) result.disposition = 'Morgue';
+            else if (/morgue|deceased|expired/i.test(lower)) result.disposition = 'Morgue';
 
             return result;
         }
@@ -6159,6 +6329,7 @@ To-do: Check AM labs, I/Os q4h`}
 
             React.useEffect(() => { loadData(); setupQuickTrauma(); }, []);
 
+            const quickFinalRef = React.useRef('');
             const setupQuickTrauma = () => {
                 if (typeof window !== 'undefined') {
                     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -6166,11 +6337,11 @@ To-do: Check AM labs, I/Os q4h`}
                         quickRecognitionRef.current = new SpeechRecognition();
                         quickRecognitionRef.current.continuous = true;
                         quickRecognitionRef.current.interimResults = true;
-                        quickRecognitionRef.current.onstart = () => setQuickListening(true);
+                        quickRecognitionRef.current.onstart = () => { setQuickListening(true); quickFinalRef.current = ''; };
                         quickRecognitionRef.current.onresult = (event) => {
-                            let interimTranscript = '';
                             let finalTranscript = '';
-                            for (let i = event.resultIndex; i < event.results.length; i++) {
+                            let interimTranscript = '';
+                            for (let i = 0; i < event.results.length; i++) {
                                 const t = event.results[i][0].transcript;
                                 if (event.results[i].isFinal) {
                                     finalTranscript += t + ' ';
@@ -6178,7 +6349,8 @@ To-do: Check AM labs, I/Os q4h`}
                                     interimTranscript += t;
                                 }
                             }
-                            setQuickTranscript(prev => prev + finalTranscript + interimTranscript);
+                            quickFinalRef.current = finalTranscript;
+                            setQuickTranscript(finalTranscript + interimTranscript);
                         };
                         quickRecognitionRef.current.onerror = () => setQuickListening(false);
                         quickRecognitionRef.current.onend = () => setQuickListening(false);
@@ -6200,7 +6372,9 @@ To-do: Check AM labs, I/Os q4h`}
             };
 
             const saveQuickTrauma = async () => {
-                const parsed = parseTraumaSpeech(quickTranscript);
+                // Use the final transcript ref to avoid interim duplicates
+                const textToparse = quickFinalRef.current || quickTranscript;
+                const parsed = parseTraumaSpeech(textToparse);
                 if (!parsed.mechanism) {
                     alert('Could not parse mechanism from speech. Please provide more detail.');
                     return;
@@ -6221,6 +6395,9 @@ To-do: Check AM labs, I/Os q4h`}
                     plan: parsed.plan || '',
                     nextSteps: parsed.nextSteps || '',
                     disposition: parsed.disposition || '',
+                    vitals: parsed.vitals || '',
+                    gcs: parsed.gcs || '',
+                    patientInfo: parsed.patientInfo || '',
                     activationTime: new Date().toISOString().slice(0, 16),
                     status: 'Active',
                     notes: '',
@@ -6228,9 +6405,35 @@ To-do: Check AM labs, I/Os q4h`}
                     updatedAt: new Date().toISOString()
                 };
 
-                await DB.add('traumas', data);
+                const traumaDoc = await DB.add('traumas', data);
+
+                // Also create a patient entry so trauma shows in main patient list
+                const traumaRoom = parsed.room || 'TB' + (traumas.length + 1);
+                const diagParts = [parsed.mechanism || 'Trauma'];
+                if (parsed.injuries) diagParts.push(parsed.injuries.split(',')[0].trim());
+                const patientData = {
+                    room: traumaRoom,
+                    diagnosis: diagParts.join(' - '),
+                    procedures: [],
+                    admitDate: getTodayISO(),
+                    status: 'active',
+                    isTrauma: true,
+                    traumaLevel: parsed.level || 'Level 1',
+                    traumaId: traumaDoc?.id || '',
+                    diet: '', activity: '', prophylaxis: '',
+                    labs: [], concerns: '', antibiotics: [],
+                    pmh: [], psh: [], homeMeds: [], allergies: [],
+                    examFindings: parsed.primarySurvey || '',
+                    preRoundHistory: {},
+                    treatmentPlan: parsed.plan || '',
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString()
+                };
+                await DB.add('patients', patientData);
+
                 setQuickTranscript('');
                 setShowQuickTrauma(false);
+                quickFinalRef.current = '';
                 loadData();
             };
 
@@ -6258,7 +6461,30 @@ To-do: Check AM labs, I/Os q4h`}
                     await DB.put('traumas', { ...data, id: editingTrauma.id });
                 } else {
                     data.createdAt = new Date().toISOString();
-                    await DB.add('traumas', data);
+                    const traumaDoc = await DB.add('traumas', data);
+                    // Also create a patient entry for new traumas
+                    const traumaRoom = data.room || 'TB' + (traumas.length + 1);
+                    const diagParts = [data.mechanism || 'Trauma'];
+                    if (data.injuries) diagParts.push(data.injuries.split(',')[0].trim());
+                    const patientData = {
+                        room: traumaRoom,
+                        diagnosis: diagParts.join(' - '),
+                        procedures: [],
+                        admitDate: getTodayISO(),
+                        status: 'active',
+                        isTrauma: true,
+                        traumaLevel: data.level || 'Level 1',
+                        traumaId: traumaDoc?.id || '',
+                        diet: '', activity: '', prophylaxis: '',
+                        labs: [], concerns: '', antibiotics: [],
+                        pmh: [], psh: [], homeMeds: [], allergies: [],
+                        examFindings: data.primarySurvey || '',
+                        preRoundHistory: {},
+                        treatmentPlan: data.plan || '',
+                        createdAt: new Date().toISOString(),
+                        updatedAt: new Date().toISOString()
+                    };
+                    await DB.add('patients', patientData);
                 }
                 resetForm(); setEditingTrauma(null); setShowForm(false); loadData();
             };
@@ -6292,7 +6518,7 @@ To-do: Check AM labs, I/Os q4h`}
                     {showQuickTrauma && (
                         <div className="bg-white border border-red-500/50 rounded-lg p-4 mb-4 shadow-lg shadow-red-500/10">
                             <div className="flex items-center justify-between mb-3">
-                                <h3 className="text-white font-bold">Quick Trauma Activation</h3>
+                                <h3 className="text-red-600 font-bold">Quick Trauma Activation</h3>
                                 <button onClick={() => { stopQuickTrauma(); setShowQuickTrauma(false); setQuickTranscript(''); }}
                                     className="text-gray-500 hover:text-gray-600 text-xl">×</button>
                             </div>
@@ -6360,8 +6586,10 @@ To-do: Check AM labs, I/Os q4h`}
                                 <div className="flex justify-between items-start">
                                     <div className="flex items-center gap-2 flex-wrap">
                                         <span className={`${levelColors[t.level]} text-white text-xs font-bold px-2 py-0.5 rounded`}>{t.level}</span>
-                                        <span className="font-bold text-white">{t.mechanism}</span>
+                                        <span className="font-bold text-gray-800">{t.mechanism}</span>
+                                        {t.patientInfo && <span className="text-gray-500 text-sm">| {t.patientInfo}</span>}
                                         {t.room && <span className="text-gray-500 text-sm">| Rm {t.room}</span>}
+                                        {t.gcs && <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded font-medium">GCS {t.gcs}</span>}
                                         <span className={`text-xs px-2 py-0.5 rounded-full ${
                                             t.status === 'Active' ? 'bg-red-50 text-red-600' : 'bg-gray-100 text-gray-500'
                                         }`}>{t.status}</span>
@@ -6372,6 +6600,7 @@ To-do: Check AM labs, I/Os q4h`}
                                     </div>
                                 </div>
                                 {t.injuries && <p className="text-sm text-gray-600 mt-1">{t.injuries}</p>}
+                                {t.vitals && <p className="text-xs text-blue-600 mt-1">Vitals: {t.vitals}</p>}
                                 {t.consultServices && t.consultServices.length > 0 && (
                                     <div className="flex gap-1 mt-2 flex-wrap">
                                         {t.consultServices.map(s => (
