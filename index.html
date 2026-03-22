@@ -3611,6 +3611,238 @@
                 dictation.clear();
             };
 
+            // M&M Conference Timeline Export
+            const exportMMTimeline = (patient) => {
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF('p', 'mm', 'a4');
+                const pageWidth = doc.internal.pageSize.getWidth();
+                const margin = 15;
+                const contentWidth = pageWidth - margin * 2;
+                let y = margin;
+
+                const addPage = () => { doc.addPage(); y = margin; };
+                const checkPage = (needed) => { if (y + needed > 275) addPage(); };
+
+                // Title
+                doc.setFontSize(18);
+                doc.setFont('helvetica', 'bold');
+                doc.setTextColor(30, 41, 59);
+                doc.text('M&M Conference', pageWidth / 2, y, { align: 'center' });
+                y += 8;
+                doc.setFontSize(10);
+                doc.setFont('helvetica', 'normal');
+                doc.setTextColor(100, 116, 139);
+                doc.text('Hospital Course Timeline', pageWidth / 2, y, { align: 'center' });
+                y += 4;
+                doc.text(`Generated: ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`, pageWidth / 2, y, { align: 'center' });
+                y += 10;
+
+                // Patient Demographics
+                doc.setDrawColor(200, 200, 200);
+                doc.setFillColor(248, 250, 252);
+                doc.roundedRect(margin, y, contentWidth, 28, 2, 2, 'F');
+                y += 6;
+                doc.setFontSize(13);
+                doc.setFont('helvetica', 'bold');
+                doc.setTextColor(30, 41, 59);
+                doc.text(`Room ${patient.room} -- ${patient.diagnosis || 'No diagnosis'}`, margin + 4, y);
+                y += 6;
+                doc.setFontSize(9);
+                doc.setFont('helvetica', 'normal');
+                doc.setTextColor(71, 85, 105);
+                const demoLine = [];
+                if (patient.admitDate) demoLine.push('Admitted: ' + new Date(patient.admitDate).toLocaleDateString());
+                if (patient.admitDate) demoLine.push('POD #' + calculatePOD(patient.admitDate));
+                if (patient.attendingPhysician) demoLine.push('Attending: ' + patient.attendingPhysician);
+                doc.text(demoLine.join('  |  '), margin + 4, y);
+                y += 5;
+                const demoLine2 = [];
+                if (patient.codeStatus) demoLine2.push('Code: ' + patient.codeStatus);
+                if (patient.allergies?.length > 0) demoLine2.push('Allergies: ' + patient.allergies.join(', '));
+                if (demoLine2.length > 0) doc.text(demoLine2.join('  |  '), margin + 4, y);
+                y += 12;
+
+                // Procedures
+                if (patient.procedures?.length > 0) {
+                    checkPage(15);
+                    doc.setFontSize(11);
+                    doc.setFont('helvetica', 'bold');
+                    doc.setTextColor(30, 41, 59);
+                    doc.text('Procedures', margin, y);
+                    y += 5;
+                    doc.setFontSize(9);
+                    doc.setFont('helvetica', 'normal');
+                    doc.setTextColor(71, 85, 105);
+                    patient.procedures.forEach(proc => {
+                        checkPage(5);
+                        doc.text('  ' + proc, margin, y);
+                        y += 4.5;
+                    });
+                    y += 4;
+                }
+
+                // Problems / Complications
+                if (patient.problems?.length > 0) {
+                    checkPage(15);
+                    doc.setFontSize(11);
+                    doc.setFont('helvetica', 'bold');
+                    doc.setTextColor(30, 41, 59);
+                    doc.text('Problems / Complications', margin, y);
+                    y += 5;
+                    doc.setFontSize(9);
+                    doc.setFont('helvetica', 'normal');
+                    doc.setTextColor(180, 50, 50);
+                    patient.problems.forEach(prob => {
+                        checkPage(5);
+                        doc.text('  ' + prob, margin, y);
+                        y += 4.5;
+                    });
+                    y += 4;
+                }
+
+                // Current Status
+                checkPage(30);
+                doc.setFontSize(11);
+                doc.setFont('helvetica', 'bold');
+                doc.setTextColor(30, 41, 59);
+                doc.text('Current Status', margin, y);
+                y += 6;
+                doc.setFontSize(9);
+                doc.setFont('helvetica', 'normal');
+                doc.setTextColor(71, 85, 105);
+                const statusItems = [];
+                if (patient.diet) statusItems.push(['Diet', patient.diet]);
+                if (patient.activity) statusItems.push(['Activity', patient.activity]);
+                if (patient.dvtProphylaxis) statusItems.push(['DVT Ppx', patient.dvtProphylaxis]);
+                if (patient.giProphylaxis) statusItems.push(['GI Ppx', patient.giProphylaxis]);
+                if (patient.vitals) statusItems.push(['Vitals', patient.vitals]);
+                if (patient.labNotes) statusItems.push(['Labs', patient.labNotes]);
+                if (patient.examFindings) statusItems.push(['Exam', patient.examFindings]);
+                if (patient.subjective) statusItems.push(['Subjective', patient.subjective]);
+                if (patient.assessment) statusItems.push(['Assessment', patient.assessment]);
+                if (patient.treatmentPlan) statusItems.push(['Plan', patient.treatmentPlan]);
+                if (patient.concerns) statusItems.push(['Concerns', patient.concerns]);
+                if (patient.dispositionPlan) statusItems.push(['Disposition', patient.dispositionPlan]);
+                statusItems.forEach(([label, val]) => {
+                    checkPage(6);
+                    doc.setFont('helvetica', 'bold');
+                    doc.text(label + ':', margin + 2, y);
+                    doc.setFont('helvetica', 'normal');
+                    const lines = doc.splitTextToSize(val, contentWidth - 30);
+                    doc.text(lines, margin + 28, y);
+                    y += lines.length * 4 + 2;
+                });
+                y += 4;
+
+                // Hospital Course Timeline from roundsHistory + preRoundHistory
+                const allEvents = [];
+                // Rounds history
+                if (patient.roundsHistory) {
+                    Object.entries(patient.roundsHistory).sort(([a],[b]) => a.localeCompare(b)).forEach(([date, data]) => {
+                        const p = data.parsed || data;
+                        const parts = [];
+                        if (p.subjective) parts.push('S: ' + p.subjective);
+                        if (p.vitals) parts.push('Vitals: ' + p.vitals);
+                        if (p.labNotes) parts.push('Labs: ' + p.labNotes);
+                        if (p.examFindings) parts.push('Exam: ' + p.examFindings);
+                        if (p.assessment) parts.push('A: ' + p.assessment);
+                        if (p.plan) parts.push('P: ' + p.plan);
+                        if ((p.orders || []).length > 0) parts.push('Orders: ' + p.orders.join(', '));
+                        if (p.diet) parts.push('Diet: ' + p.diet);
+                        if (p.activity) parts.push('Activity: ' + p.activity);
+                        if (p.concerns) parts.push('Concerns: ' + p.concerns);
+                        if (parts.length > 0) {
+                            allEvents.push({ date, type: 'Rounds', time: data.timestamp, text: parts.join(' | ') });
+                        }
+                    });
+                }
+                // Pre-round history
+                if (patient.preRoundHistory) {
+                    Object.entries(patient.preRoundHistory).sort(([a],[b]) => a.localeCompare(b)).forEach(([date, data]) => {
+                        if (data.sections && Object.keys(data.sections).length > 0) {
+                            const parts = Object.entries(data.sections).map(([k, v]) => k + ': ' + v);
+                            allEvents.push({ date, type: 'Pre-Round', time: data.timestamp, text: parts.join(' | ') });
+                        }
+                    });
+                }
+                allEvents.sort((a, b) => {
+                    const dc = a.date.localeCompare(b.date);
+                    if (dc !== 0) return dc;
+                    return a.type === 'Pre-Round' ? -1 : 1;
+                });
+
+                if (allEvents.length > 0) {
+                    checkPage(15);
+                    doc.setFontSize(11);
+                    doc.setFont('helvetica', 'bold');
+                    doc.setTextColor(30, 41, 59);
+                    doc.text('Hospital Course Timeline', margin, y);
+                    y += 2;
+                    doc.setDrawColor(200, 200, 200);
+                    doc.line(margin, y, margin + contentWidth, y);
+                    y += 5;
+
+                    allEvents.forEach(evt => {
+                        checkPage(20);
+                        // Date badge
+                        const displayDate = new Date(evt.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                        const pod = patient.admitDate ? calculatePOD(patient.admitDate) - Math.floor((new Date(getTodayISO()) - new Date(evt.date)) / 86400000) : null;
+                        doc.setFillColor(evt.type === 'Rounds' ? 220 : 224, evt.type === 'Rounds' ? 235 : 231, evt.type === 'Rounds' ? 220 : 245);
+                        doc.roundedRect(margin, y - 3, 22, 6, 1, 1, 'F');
+                        doc.setFontSize(7);
+                        doc.setFont('helvetica', 'bold');
+                        doc.setTextColor(71, 85, 105);
+                        doc.text(displayDate, margin + 1, y);
+                        if (pod !== null && pod >= 0) {
+                            doc.setTextColor(130, 130, 130);
+                            doc.text('POD ' + pod, margin + 24, y);
+                        }
+                        doc.setFontSize(7);
+                        doc.setFont('helvetica', 'bold');
+                        doc.setTextColor(evt.type === 'Rounds' ? [34, 120, 74] : [59, 78, 143]);
+                        doc.text(evt.type, margin + 38, y);
+                        y += 4;
+
+                        // Event text
+                        doc.setFontSize(8);
+                        doc.setFont('helvetica', 'normal');
+                        doc.setTextColor(71, 85, 105);
+                        const lines = doc.splitTextToSize(evt.text, contentWidth - 5);
+                        lines.forEach(line => {
+                            checkPage(4);
+                            doc.text(line, margin + 2, y);
+                            y += 3.5;
+                        });
+                        y += 3;
+                        // Separator
+                        doc.setDrawColor(230, 230, 230);
+                        doc.line(margin + 2, y - 1, margin + contentWidth - 2, y - 1);
+                        y += 2;
+                    });
+                }
+
+                // Tasks history
+                const patientTasks = tasks.filter(t => t.patientId === patient.id);
+                if (patientTasks.length > 0) {
+                    checkPage(15);
+                    doc.setFontSize(11);
+                    doc.setFont('helvetica', 'bold');
+                    doc.setTextColor(30, 41, 59);
+                    doc.text('Tasks', margin, y);
+                    y += 6;
+                    patientTasks.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || '')).forEach(t => {
+                        checkPage(5);
+                        doc.setFontSize(8);
+                        doc.setFont('helvetica', 'normal');
+                        doc.setTextColor(t.completed ? 100 : 60, t.completed ? 160 : 60, t.completed ? 100 : 60);
+                        doc.text((t.completed ? '[Done] ' : '[ ] ') + t.description + (t.assignee ? ' (' + t.assignee + ')' : ''), margin + 2, y);
+                        y += 4;
+                    });
+                }
+
+                doc.save(`MM_Room${patient.room}_${patient.diagnosis || 'Patient'}_${getTodayISO()}.pdf`);
+            };
+
             const getTaskColor = (category) => {
                 const colors = {
                     'Labs': 'purple',
@@ -3644,6 +3876,7 @@
                     { category: 'Activity', description: 'Wound Care' },
                     { category: 'Other', description: 'Family Update' },
                     { category: 'Discharge', description: 'DC Planning' },
+                    { category: 'Other', description: 'M&M Conference', isMM: true },
                 ],
                 'Orders': [
                     { category: 'Other', description: 'Check NGT output' },
@@ -3837,15 +4070,26 @@
                                         {/* Patient Header */}
                                         <div className="flex justify-between items-center mb-3">
                                             <h3 className="text-lg font-bold text-medical-500">Room {patient.room}</h3>
-                                            <button
-                                                onClick={() => {
-                                                    setSelectedPatientForTask(patient.id);
-                                                    setShowTaskForm(true);
-                                                }}
-                                                className="text-sm bg-medical-600 text-white hover:bg-medical-700 text-white px-2 py-1 rounded"
-                                            >
-                                                Add Task
-                                            </button>
+                                            <div className="flex items-center gap-2">
+                                                {patientTasks.some(t => t.description === 'M&M Conference') && (
+                                                    <button
+                                                        onClick={() => exportMMTimeline(patient)}
+                                                        className="text-xs bg-amber-500 hover:bg-amber-600 text-white px-2 py-1 rounded font-medium transition"
+                                                        title="Export M&M Timeline PDF"
+                                                    >
+                                                        Export M&M
+                                                    </button>
+                                                )}
+                                                <button
+                                                    onClick={() => {
+                                                        setSelectedPatientForTask(patient.id);
+                                                        setShowTaskForm(true);
+                                                    }}
+                                                    className="text-sm bg-medical-600 text-white hover:bg-medical-700 text-white px-2 py-1 rounded"
+                                                >
+                                                    Add Task
+                                                </button>
+                                            </div>
                                         </div>
 
                                         {/* Progress Bar */}
