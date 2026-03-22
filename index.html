@@ -5939,7 +5939,7 @@ To-do: Check AM labs, I/Os q4h`}
                             <div>
                                 <label className="text-sm text-gray-500 block mb-1">Patient</label>
                                 <select value={form.patientId} onChange={e => setForm({...form, patientId: e.target.value})}
-                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-white">
+                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800">
                                     <option value="">Select patient...</option>
                                     {patients.map(p => <option key={p.id} value={p.id}>Rm {p.room} - {p.diagnosis}</option>)}
                                 </select>
@@ -5949,7 +5949,7 @@ To-do: Check AM labs, I/Os q4h`}
                                 <div>
                                     <label className="text-sm text-gray-500 block mb-1">Consulting Service *</label>
                                     <select value={form.service} onChange={e => setForm({...form, service: e.target.value})}
-                                        className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-white">
+                                        className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800">
                                         <option value="">Select...</option>
                                         {CONSULT_SERVICES.map(s => <option key={s} value={s}>{s}</option>)}
                                     </select>
@@ -5957,7 +5957,7 @@ To-do: Check AM labs, I/Os q4h`}
                                 <div>
                                     <label className="text-sm text-gray-500 block mb-1">Urgency</label>
                                     <select value={form.urgency} onChange={e => setForm({...form, urgency: e.target.value})}
-                                        className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-white">
+                                        className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800">
                                         {['Routine', 'Urgent', 'Emergent'].map(u => <option key={u} value={u}>{u}</option>)}
                                     </select>
                                 </div>
@@ -5966,46 +5966,46 @@ To-do: Check AM labs, I/Os q4h`}
                             <div>
                                 <label className="text-sm text-gray-500 block mb-1">Reason for Consult *</label>
                                 <textarea value={form.reason} onChange={e => setForm({...form, reason: e.target.value})}
-                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-white h-16" placeholder="e.g., Elevated troponin POD1, r/o NSTEMI"/>
+                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800 h-16" placeholder="e.g., Elevated troponin POD1, r/o NSTEMI"/>
                             </div>
 
                             <div>
                                 <label className="text-sm text-gray-500 block mb-1">Consultant Findings</label>
                                 <textarea value={form.findings} onChange={e => setForm({...form, findings: e.target.value})}
-                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-white h-16" placeholder="What did the consultant find on evaluation?"/>
+                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800 h-16" placeholder="What did the consultant find on evaluation?"/>
                             </div>
 
                             <div>
                                 <label className="text-sm text-gray-500 block mb-1">Recommendations</label>
                                 <textarea value={form.recommendations} onChange={e => setForm({...form, recommendations: e.target.value})}
-                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-white h-16" placeholder="e.g., Start heparin drip, serial troponins q6h, echo in AM"/>
+                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800 h-16" placeholder="e.g., Start heparin drip, serial troponins q6h, echo in AM"/>
                             </div>
 
                             <div>
                                 <label className="text-sm text-gray-500 block mb-1">Follow-Up Needed</label>
                                 <textarea value={form.followUpNeeded} onChange={e => setForm({...form, followUpNeeded: e.target.value})}
-                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-white h-12" placeholder="e.g., Will re-evaluate after echo results"/>
+                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800 h-12" placeholder="e.g., Will re-evaluate after echo results"/>
                             </div>
 
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
                                     <label className="text-sm text-gray-500 block mb-1">Status</label>
                                     <select value={form.status} onChange={e => setForm({...form, status: e.target.value})}
-                                        className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-white">
+                                        className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800">
                                         {['Pending', 'Seen', 'Recs Given', 'Follow-Up', 'Signed Off'].map(s => <option key={s} value={s}>{s}</option>)}
                                     </select>
                                 </div>
                                 <div>
                                     <label className="text-sm text-gray-500 block mb-1">Requested By</label>
                                     <input value={form.requestedBy} onChange={e => setForm({...form, requestedBy: e.target.value})}
-                                        className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-white" placeholder="Your name"/>
+                                        className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800" placeholder="Your name"/>
                                 </div>
                             </div>
 
                             <div>
                                 <label className="text-sm text-gray-500 block mb-1">Notes</label>
                                 <textarea value={form.notes} onChange={e => setForm({...form, notes: e.target.value})}
-                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-white h-12" placeholder="Additional notes..."/>
+                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800 h-12" placeholder="Additional notes..."/>
                             </div>
                         </div>
 
@@ -6789,14 +6789,14 @@ To-do: Check AM labs, I/Os q4h`}
                                 <div>
                                     <label className="text-sm text-gray-500 block mb-1">Level</label>
                                     <select value={form.level} onChange={e => setForm({...form, level: e.target.value})}
-                                        className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-white">
+                                        className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800">
                                         {TRAUMA_LEVELS.map(l => <option key={l} value={l}>{l}</option>)}
                                     </select>
                                 </div>
                                 <div>
                                     <label className="text-sm text-gray-500 block mb-1">Room</label>
                                     <input value={form.room} onChange={e => setForm({...form, room: e.target.value})}
-                                        className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-white" placeholder="Trauma bay / room"/>
+                                        className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800" placeholder="Trauma bay / room"/>
                                 </div>
                             </div>
 
@@ -6809,25 +6809,25 @@ To-do: Check AM labs, I/Os q4h`}
                                     ))}
                                 </div>
                                 <input value={form.mechanism} onChange={e => setForm({...form, mechanism: e.target.value})}
-                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-white" placeholder="Or type mechanism..."/>
+                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800" placeholder="Or type mechanism..."/>
                             </div>
 
                             <div>
                                 <label className="text-sm text-gray-500 block mb-1">Injuries / Description</label>
                                 <textarea value={form.injuries} onChange={e => setForm({...form, injuries: e.target.value})}
-                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-white h-16" placeholder="e.g., Blunt abdominal trauma, L rib fractures 6-9, grade III splenic lac"/>
+                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800 h-16" placeholder="e.g., Blunt abdominal trauma, L rib fractures 6-9, grade III splenic lac"/>
                             </div>
 
                             <div>
                                 <label className="text-sm text-gray-500 block mb-1">Primary Survey (ABCDE)</label>
                                 <textarea value={form.primarySurvey} onChange={e => setForm({...form, primarySurvey: e.target.value})}
-                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-white h-16" placeholder="A: Patent, B: CTA bilat, C: Tachy to 110s, D: GCS 15, E: Abrasions L flank"/>
+                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800 h-16" placeholder="A: Patent, B: CTA bilat, C: Tachy to 110s, D: GCS 15, E: Abrasions L flank"/>
                             </div>
 
                             <div>
                                 <label className="text-sm text-gray-500 block mb-1">Secondary Survey</label>
                                 <textarea value={form.secondarySurvey} onChange={e => setForm({...form, secondarySurvey: e.target.value})}
-                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-white h-16" placeholder="Head-to-toe findings..."/>
+                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800 h-16" placeholder="Head-to-toe findings..."/>
                             </div>
 
                             <div>
@@ -6848,19 +6848,19 @@ To-do: Check AM labs, I/Os q4h`}
                                     ))}
                                 </div>
                                 <input value={form.imagingOrdered} onChange={e => setForm({...form, imagingOrdered: e.target.value})}
-                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-white text-sm"/>
+                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800 text-sm"/>
                             </div>
 
                             <div>
                                 <label className="text-sm text-gray-500 block mb-1">Radiology Findings</label>
                                 <textarea value={form.imagingFindings} onChange={e => setForm({...form, imagingFindings: e.target.value})}
-                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-white h-20" placeholder="e.g., CT A/P: Grade III splenic laceration with small hemoperitoneum, no active extravasation. L rib fx 6-9, small L PTX."/>
+                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800 h-20" placeholder="e.g., CT A/P: Grade III splenic laceration with small hemoperitoneum, no active extravasation. L rib fx 6-9, small L PTX."/>
                             </div>
 
                             <div>
                                 <label className="text-sm text-gray-500 block mb-1">Lab Findings</label>
                                 <textarea value={form.labFindings} onChange={e => setForm({...form, labFindings: e.target.value})}
-                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-white h-12" placeholder="e.g., Hgb 11.2, Lactate 3.1, INR 1.0, FAST positive"/>
+                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800 h-12" placeholder="e.g., Hgb 11.2, Lactate 3.1, INR 1.0, FAST positive"/>
                             </div>
 
                             <div>
@@ -6878,26 +6878,26 @@ To-do: Check AM labs, I/Os q4h`}
                             <div>
                                 <label className="text-sm text-gray-500 block mb-1">Consultant Findings & Recommendations</label>
                                 <textarea value={form.consultFindings} onChange={e => setForm({...form, consultFindings: e.target.value})}
-                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-white h-20" placeholder="e.g., Ortho: L tib-fib fx, plan for IM nail POD1. NSG: No surgical intervention needed for small EDH, serial neuro checks q1h."/>
+                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800 h-20" placeholder="e.g., Ortho: L tib-fib fx, plan for IM nail POD1. NSG: No surgical intervention needed for small EDH, serial neuro checks q1h."/>
                             </div>
 
                             <div>
                                 <label className="text-sm text-gray-500 block mb-1">Plan</label>
                                 <textarea value={form.plan} onChange={e => setForm({...form, plan: e.target.value})}
-                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-white h-16" placeholder="Admit to Trauma ICU, serial H/H q6h, repeat CT 6h..."/>
+                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800 h-16" placeholder="Admit to Trauma ICU, serial H/H q6h, repeat CT 6h..."/>
                             </div>
 
                             <div>
                                 <label className="text-sm text-gray-500 block mb-1">Next Steps / Action Items</label>
                                 <textarea value={form.nextSteps} onChange={e => setForm({...form, nextSteps: e.target.value})}
-                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-white h-16" placeholder="e.g., Repeat H/H in 4h, if drop >2 consider angio. Chest tube if PTX increases. Family at bedside, update after repeat imaging."/>
+                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800 h-16" placeholder="e.g., Repeat H/H in 4h, if drop >2 consider angio. Chest tube if PTX increases. Family at bedside, update after repeat imaging."/>
                             </div>
 
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
                                     <label className="text-sm text-gray-500 block mb-1">Disposition</label>
                                     <select value={form.disposition} onChange={e => setForm({...form, disposition: e.target.value})}
-                                        className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-white">
+                                        className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800">
                                         <option value="">TBD</option>
                                         {['Trauma ICU', 'Step-down', 'Floor', 'OR', 'Discharge', 'Transfer', 'Morgue'].map(d => <option key={d} value={d}>{d}</option>)}
                                     </select>
@@ -6905,7 +6905,7 @@ To-do: Check AM labs, I/Os q4h`}
                                 <div>
                                     <label className="text-sm text-gray-500 block mb-1">Status</label>
                                     <select value={form.status} onChange={e => setForm({...form, status: e.target.value})}
-                                        className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-white">
+                                        className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800">
                                         {['Active', 'Resolved', 'Admitted', 'Transferred', 'Deceased'].map(s => <option key={s} value={s}>{s}</option>)}
                                     </select>
                                 </div>
@@ -6914,7 +6914,7 @@ To-do: Check AM labs, I/Os q4h`}
                             <div>
                                 <label className="text-sm text-gray-500 block mb-1">Notes</label>
                                 <textarea value={form.notes} onChange={e => setForm({...form, notes: e.target.value})}
-                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-white h-12" placeholder="Additional notes..."/>
+                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800 h-12" placeholder="Additional notes..."/>
                             </div>
                         </div>
 
