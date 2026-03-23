@@ -10845,6 +10845,7 @@ To-do: Check AM labs, I/Os q4h`}
             const [isMobile, setIsMobile] = React.useState(window.innerWidth < 768);
             const [showProfile, setShowProfile] = React.useState(false);
             const [showTeamManager, setShowTeamManager] = React.useState(false);
+            const [hipaaAccepted, setHipaaAccepted] = React.useState(null); // null = loading, true/false
 
             // Load all teams a user belongs to
             const loadAllTeams = async (uid) => {
@@ -10879,13 +10880,16 @@ To-do: Check AM labs, I/Os q4h`}
                     if (u) {
                         try {
                             const userDoc = await db.collection('users').doc(u.uid).get();
-                            if (userDoc.exists && userDoc.data().teamId) {
-                                const tid = userDoc.data().teamId;
+                            const userData = userDoc.exists ? userDoc.data() : {};
+                            if (userData.teamId) {
+                                const tid = userData.teamId;
                                 setTeamId(tid);
                                 DB.setTeamId(tid);
                                 const teamDoc = await db.collection('teams').doc(tid).get();
                                 if (teamDoc.exists) setTeamData({ id: tid, ...teamDoc.data() });
                             }
+                            // Check HIPAA acceptance
+                            setHipaaAccepted(!!userData.hipaaAcceptedAt);
                             await loadAllTeams(u.uid);
                         } catch (err) {
                             console.error('Error loading user/team data:', err);
@@ -10894,6 +10898,7 @@ To-do: Check AM labs, I/Os q4h`}
                         setTeamId(null);
                         setTeamData(null);
                         setAllTeams([]);
+                        setHipaaAccepted(null);
                     }
                     setAuthLoading(false);
                 });
@@ -11116,6 +11121,85 @@ To-do: Check AM labs, I/Os q4h`}
             // Not logged in
             if (!user) {
                 return <LoginScreen />;
+            }
+
+            // HIPAA Disclaimer - must accept before accessing anything
+            const acceptHipaaDisclaimer = async () => {
+                try {
+                    await db.collection('users').doc(user.uid).set({
+                        hipaaAcceptedAt: new Date().toISOString(),
+                        hipaaAcceptedVersion: '1.0',
+                        hipaaAcceptedFrom: navigator.userAgent
+                    }, { merge: true });
+                    setHipaaAccepted(true);
+                } catch (e) {
+                    console.error('Error saving HIPAA acceptance:', e);
+                }
+            };
+
+            if (hipaaAccepted === false) {
+                return (
+                    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+                        <div className="bg-white rounded-xl shadow-lg w-full max-w-lg overflow-hidden">
+                            <div className="bg-medical-700 p-6 text-center">
+                                <h1 className="text-2xl font-bold text-white">🩺 ChiefRounds</h1>
+                                <p className="text-medical-200 text-sm mt-1">HIPAA Compliance Agreement</p>
+                            </div>
+
+                            <div className="p-6 max-h-[60vh] overflow-y-auto">
+                                <div className="prose prose-sm text-gray-700 space-y-4">
+                                    <p className="font-semibold text-gray-900">Before using ChiefRounds, you must read and agree to the following terms regarding the handling of Protected Health Information (PHI).</p>
+
+                                    <div className="bg-slate-50 rounded-lg p-4 space-y-3 text-sm">
+                                        <h3 className="font-bold text-gray-800 text-base">1. Authorized Use Only</h3>
+                                        <p>This application is intended exclusively for authorized members of the patient care team. Access by any unauthorized individual is strictly prohibited. By using this application, you confirm that you are a member of the care team with a legitimate clinical need to access the information contained herein.</p>
+
+                                        <h3 className="font-bold text-gray-800 text-base">2. Protected Health Information (PHI)</h3>
+                                        <p>This application may contain Protected Health Information as defined by the Health Insurance Portability and Accountability Act (HIPAA), including but not limited to: patient room numbers, diagnoses, medical histories, medications, lab results, clinical notes, and treatment plans. All PHI stored in this application is encrypted at rest using AES-256 encryption.</p>
+
+                                        <h3 className="font-bold text-gray-800 text-base">3. User Responsibilities</h3>
+                                        <p>As an authorized user, you agree to:</p>
+                                        <p className="pl-3">a) Access only the minimum necessary PHI required for your clinical duties<br/>
+                                        b) Never share your login credentials or team access codes with unauthorized individuals<br/>
+                                        c) Never screenshot, copy, or transmit PHI outside of approved clinical channels<br/>
+                                        d) Log out or lock the application when your device is unattended<br/>
+                                        e) Immediately report any suspected unauthorized access or data breach to your compliance officer</p>
+
+                                        <h3 className="font-bold text-gray-800 text-base">4. Room Numbers and Patient Identifiers</h3>
+                                        <p>Room numbers in combination with clinical information constitute PHI. Users must exercise caution when displaying this application in public or shared spaces. The application includes auto-lock functionality to mitigate inadvertent exposure.</p>
+
+                                        <h3 className="font-bold text-gray-800 text-base">5. No Guarantee of Compliance</h3>
+                                        <p>While ChiefRounds implements technical safeguards including encryption at rest, automatic session timeouts, and access controls, HIPAA compliance also depends on the administrative and physical safeguards maintained by your institution. This application is a clinical tool and does not replace your institution's compliance program.</p>
+
+                                        <h3 className="font-bold text-gray-800 text-base">6. Liability</h3>
+                                        <p>By accepting these terms, you acknowledge that you are personally responsible for maintaining the confidentiality of any PHI you access through this application. Unauthorized disclosure of PHI may result in disciplinary action, civil penalties, and/or criminal prosecution under HIPAA (42 U.S.C. 1320d-6), with fines up to $250,000 and imprisonment up to 10 years for willful violations.</p>
+
+                                        <h3 className="font-bold text-gray-800 text-base">7. Audit Trail</h3>
+                                        <p>Your acceptance of these terms, along with your access activity, is logged for compliance and audit purposes.</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="p-6 border-t border-gray-100 bg-gray-50">
+                                <p className="text-xs text-gray-500 mb-4 text-center">By clicking "I Agree", you acknowledge that you have read, understand, and agree to comply with all terms above.</p>
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={handleSignOut}
+                                        className="flex-1 bg-white border border-gray-300 text-gray-700 hover:bg-gray-100 font-medium py-3 rounded-lg transition text-sm"
+                                    >
+                                        Decline
+                                    </button>
+                                    <button
+                                        onClick={acceptHipaaDisclaimer}
+                                        className="flex-1 bg-medical-600 text-white hover:bg-medical-700 font-semibold py-3 rounded-lg transition text-sm"
+                                    >
+                                        I Agree
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
             }
 
             // Logged in but no team
