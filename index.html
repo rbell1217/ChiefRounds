@@ -4694,8 +4694,8 @@
             const rebuildPatientPlan = async (patientId, allTasks) => {
                 const patient = (await DB.getAll('patients')).find(p => p.id === patientId);
                 if (!patient) return;
-                const incompleteTasks = (allTasks || tasks).filter(t => t.patientId === patientId && !t.completed);
-                const taskLines = incompleteTasks.map(t => t.description);
+                const allPatientTasks = (allTasks || tasks).filter(t => t.patientId === patientId);
+                const taskLines = allPatientTasks.map(t => t.description);
                 // Preserve any existing plan text that isn't a task description
                 const currentPlan = patient.treatmentPlan || '';
                 const existingLines = currentPlan.split(/[.\n]/).map(s => s.trim()).filter(s => s);
