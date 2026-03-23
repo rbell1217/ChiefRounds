@@ -1311,30 +1311,86 @@
             if (!text) return text;
             let cleaned = text;
 
-            // Step 0: Pre-process - fix spelled-out letters and cross-boundary splits
-            // Handle spelled-out letters like "C h o l e" or "C. H. O. L. E."
+            // Step 0: Phonetic/fuzzy regex corrections for surgical terms
+            // These broad patterns catch the many ways STT garbles medical terminology
+
+            // --- Spelled-out letters ---
             cleaned = cleaned.replace(/\bC\s*[.]?\s*H\s*[.]?\s*O\s*[.]?\s*L\s*[.]?\s*E\b\.?/gi, 'chole');
             cleaned = cleaned.replace(/\bA\s*[.]?\s*P\s*[.]?\s*P\s*[.]?\s*Y\b\.?/gi, 'appy');
             cleaned = cleaned.replace(/\bN\s*[.]?\s*P\s*[.]?\s*O\b\.?/gi, 'NPO');
 
-            // Fix STT splitting procedures across sentence boundaries
-            // "Appy. And postectomy" / "Appy. And postectomy." -> "appendectomy"
-            cleaned = cleaned.replace(/\bapp?y\.?\s+and\s+post(?:ectomy|economy|ecto me)\.?/gi, 'appendectomy');
-            // "A. Pendant me" / "A pen. Deck to me" etc
-            cleaned = cleaned.replace(/\ba\.?\s*pen(?:dant|d)?\.?\s*(?:deck?\s*(?:to\s*)?me|ectomy|ecto me)\.?/gi, 'appendectomy');
-
-            // "Cole. A. Cyst. Ectomy" with periods
-            cleaned = cleaned.replace(/\bcole?\.?\s*a?\.?\s*cyst\.?\s*ectomy\.?/gi, 'cholecystectomy');
-            // "Holy. Cystectomy" / "Cooley. Cystectomy"
-            cleaned = cleaned.replace(/\b(?:holy|holly|cooley|coolly|cooly|coli|koli|cole|cola)\.?\s*cyst\s*ectomy\.?/gi, 'cholecystectomy');
-
-            // "Helio. Cestomy" / "Helio. Cecectomy" with periods
-            cleaned = cleaned.replace(/\b(?:helio|heal\s*io|illio|ilio|iliac)\.?\s*(?:cest|sect|cecect|cecal\s*ect)omy\.?/gi, 'ileocecectomy');
-            // "Ileal. Cecectomy" with periods
-            cleaned = cleaned.replace(/\b(?:ileal|ilia|ilio)\.?\s*cec(?:al\s*)?ectomy\.?/gi, 'ileocecectomy');
-
-            // Generic -ectomy/-ostomy fuzzy fixer: collapse "X. Ectomy" -> "Xectomy"
+            // --- Collapse "X. Ectomy" / "X. Ostomy" / "X. Otomy" across sentence breaks ---
             cleaned = cleaned.replace(/(\w{3,})\.\s*(ectomy|ostomy|otomy)\b/gi, '$1$2');
+
+            // --- CHOLECYSTECTOMY (broadest phonetic catch) ---
+            // Catches: holy cystectomy, cooley cystectomy, cole assist ectomy, cola cyst ectomy, etc.
+            cleaned = cleaned.replace(/\b(?:ch?ol[eiy]?|hol[liy]?|cool[eiy]?|kol[eiy]?|col[ea]?|call[ea]?)[\s.]*(?:a[\s.]*)?(?:cyst|sis?t|assist|sister)[\s.]*(?:ect?omy|ecto\s*me|to\s*me|ec\s*to\s*me)\.?/gi, 'cholecystectomy');
+            // Standalone "coley/cooley/koli" when not followed by other words (meant as abbreviation "chole")
+            cleaned = cleaned.replace(/\b(?:cool?[eiy]|kol[eiy]|coll?[eiy]|coal[eiy])(?=[\s.,;:!?]|$)/gi, 'chole');
+
+            // --- APPENDECTOMY (broadest phonetic catch) ---
+            // Catches: appy and postectomy, a pen dectomy, append ectomy, app and ectomy, etc.
+            cleaned = cleaned.replace(/\bapp?[eiy]?\.?\s*(?:and\s*)?(?:post|pen\s*d?|pend?)[\s.]*(?:ect?omy|ecto\s*me|to\s*me|deck?\s*(?:to\s*)?me)\.?/gi, 'appendectomy');
+            cleaned = cleaned.replace(/\ba[\s.]*pen(?:dant|d)?[\s.]*(?:ect?omy|ecto\s*me|deck?\s*(?:to\s*)?me)\.?/gi, 'appendectomy');
+
+            // --- ILEOCECECTOMY (broadest phonetic catch) ---
+            // Catches: heliocestomy, helio cestomy, illio sectomy, ileal cecectomy, etc.
+            cleaned = cleaned.replace(/\b(?:h?(?:e|i)l[ei]?[ao]?|ill?[ei]?[ao]?|iliac)[\s.]*(?:ce[cs]t|sect|cecect|cecal[\s.]*ect|psychic[\s.]*to)[\s.]*(?:omy|o\s*me|to\s*me)\.?/gi, 'ileocecectomy');
+            cleaned = cleaned.replace(/\b(?:ileal|ill?[ei]a[ln]?|ilio)[\s.]*(?:ce[cs]|cecal)[\s.]*(?:ect?omy|ecto\s*me)\.?/gi, 'ileocecectomy');
+
+            // --- HEMICOLECTOMY ---
+            cleaned = cleaned.replace(/\b(?:hemi|semi|hemmy)[\s.]*(?:col[ea]?|coal|collect)[\s.]*(?:ect?omy|ecto\s*me|to\s*me|a\s*sectomy)\.?/gi, 'hemicolectomy');
+
+            // --- COLECTOMY ---
+            cleaned = cleaned.replace(/\b(?:col[ea]?|coal|colon)[\s.]*(?:ect?omy|ecto\s*me|to\s*me)\.?/gi, 'colectomy');
+
+            // --- GASTRECTOMY ---
+            cleaned = cleaned.replace(/\b(?:gastr?|gas\s*tr?)[\s.]*(?:ect?omy|ecto\s*me)\.?/gi, 'gastrectomy');
+
+            // --- SPLENECTOMY ---
+            cleaned = cleaned.replace(/\b(?:spleen?|splene?)[\s.]*(?:ect?omy|ecto\s*me)\.?/gi, 'splenectomy');
+
+            // --- NEPHRECTOMY ---
+            cleaned = cleaned.replace(/\b(?:neph?r[eo]?|nef\s*r[eo]?)[\s.]*(?:ect?omy|ecto\s*me)\.?/gi, 'nephrectomy');
+
+            // --- MASTECTOMY ---
+            cleaned = cleaned.replace(/\b(?:mass?t?|mast)[\s.]*(?:ect?omy|ecto\s*me)\.?/gi, 'mastectomy');
+
+            // --- THYROIDECTOMY ---
+            cleaned = cleaned.replace(/\b(?:thyr?oid|thigh\s*ro?id)[\s.]*(?:ect?omy|ecto\s*me)\.?/gi, 'thyroidectomy');
+
+            // --- THORACOTOMY ---
+            cleaned = cleaned.replace(/\b(?:thorac?|thorough|thora)[\s.]*(?:[ck]?ot[oa]?my|cost[\s.]*(?:to\s*)?me|cotton[\s.]*me|economy)\.?/gi, 'thoracotomy');
+
+            // --- LAPAROTOMY ---
+            cleaned = cleaned.replace(/\b(?:lap\s*a?\s*rot|la\s*parrot|lap\s*arot)[\s.]*(?:omy|o\s*me|amy)\.?/gi, 'laparotomy');
+
+            // --- LAPAROSCOPY ---
+            cleaned = cleaned.replace(/\b(?:lap\s*a?\s*r[oa]s?|lap\s*or\s*os?)[\s.]*(?:copy|scopy|co\s*py)\.?/gi, 'laparoscopy');
+
+            // --- TRACHEOSTOMY ---
+            cleaned = cleaned.replace(/\b(?:trach?[eiy]?|trak[eiy]?|trick[eiy]?)[\s.]*(?:ost?omy|os?\s*to\s*me)\.?/gi, 'tracheostomy');
+
+            // --- ILEOSTOMY ---
+            cleaned = cleaned.replace(/\b(?:ile[ao]?|ill?[ei]a[lo]?|ileus)[\s.]*(?:st?omy|sto\s*me|stony|dummy)\.?/gi, 'ileostomy');
+
+            // --- COLOSTOMY ---
+            cleaned = cleaned.replace(/\b(?:col[ao]?|cola|colon)[\s.]*(?:st?omy|sto\s*me|stony)\.?/gi, 'colostomy');
+
+            // --- CHOLECYSTITIS ---
+            cleaned = cleaned.replace(/\b(?:ch?ol[eiy]?|hol[liy]?|cool[eiy]?|col[ea]?)[\s.]*(?:a[\s.]*)?(?:cyst|sis?t)[\s.]*(?:itis|ight\s*is|eye\s*tis)\.?/gi, 'cholecystitis');
+
+            // --- DIVERTICULITIS ---
+            cleaned = cleaned.replace(/\b(?:diver|divert)[\s.]*(?:tick|tic)[\s.]*(?:you[\s.]*)?(?:l[iy][\s.]*)?(?:tis|tight\s*is)\.?/gi, 'diverticulitis');
+
+            // --- PANCREATITIS ---
+            cleaned = cleaned.replace(/\b(?:pancre?a?t|pan\s*create?)[\s.]*(?:itis|ight\s*is|titus)\.?/gi, 'pancreatitis');
+
+            // --- PERITONITIS ---
+            cleaned = cleaned.replace(/\b(?:perit[oa]n|perry[\s.]*t[oa][\s.]*n?)[\s.]*(?:itis|ight\s*is|night\s*is)\.?/gi, 'peritonitis');
+
+            // --- ANASTOMOSIS ---
+            cleaned = cleaned.replace(/\b(?:ana?st[oa]?m|anna[\s.]*st[oa][\s.]*m?)[\s.]*(?:osis|o[\s.]*sis|[oa][\s.]*Moses)\.?/gi, 'anastomosis');
 
             // Step 1: Apply surgical/procedure term corrections (misrecognition fixes)
             for (const [pattern, replacement] of _surgicalCorrectionPatterns) {
