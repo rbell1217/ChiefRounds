@@ -982,12 +982,26 @@
             'heliocestomy': 'ileocecectomy', 'helio cestomy': 'ileocecectomy', 'illio sectomy': 'ileocecectomy',
             'illio cecectomy': 'ileocecectomy', 'ilio cecectomy': 'ileocecectomy', 'ileal cecectomy': 'ileocecectomy',
             'heal you a sectomy': 'ileocecectomy', 'ileus ectomy': 'ileocecectomy',
+            'ileal cecectomy': 'ileocecectomy', 'ilio cecal ectomy': 'ileocecectomy',
+            'ilia cecal': 'ileocecal', 'ilio cecal': 'ileocecal', 'ileal cecal': 'ileocecal',
+            'ileal cecum ectomy': 'ileocecectomy', 'ilio psychic to me': 'ileocecectomy',
+            'ileal section': 'ileocecectomy', 'helio section': 'ileocecectomy',
+            'iliac ectomy': 'ileocecectomy', 'iliac section': 'ileocecectomy',
             'cole a cyst ectomy': 'cholecystectomy', 'cola cyst ectomy': 'cholecystectomy',
             'cole assist ectomy': 'cholecystectomy', 'cole assist to me': 'cholecystectomy',
             'coley cyst ectomy': 'cholecystectomy', 'collie sister me': 'cholecystectomy',
             'cole a sister me': 'cholecystectomy', 'cola sister me': 'cholecystectomy',
             'call a cyst ectomy': 'cholecystectomy', 'colleague cyst ectomy': 'cholecystectomy',
+            'holy cystectomy': 'cholecystectomy', 'cooley cystectomy': 'cholecystectomy',
+            'coolly cystectomy': 'cholecystectomy', 'cooly cystectomy': 'cholecystectomy',
+            'coli cystectomy': 'cholecystectomy', 'koli cystectomy': 'cholecystectomy',
+            'holy syst ectomy': 'cholecystectomy', 'wholly cystectomy': 'cholecystectomy',
+            'polycystectomy': 'cholecystectomy', 'holly cystectomy': 'cholecystectomy',
+            'cola cystectomy': 'cholecystectomy', 'cole cystectomy': 'cholecystectomy',
+            'coley': 'chole', 'cooley': 'chole', 'koli': 'chole', 'kohli': 'chole',
+            'collie': 'chole', 'coaly': 'chole', 'coley.': 'chole',
             'app and ectomy': 'appendectomy', 'a pen dectomy': 'appendectomy', 'append ectomy': 'appendectomy',
+            'a pendant me': 'appendectomy', 'appendix to me': 'appendectomy',
             'hemi coal ectomy': 'hemicolectomy', 'hemi collect to me': 'hemicolectomy',
             'hemi coal a sectomy': 'hemicolectomy', 'semi colectomy': 'hemicolectomy',
             'hemi collect a me': 'hemicolectomy', 'hemi colectomy': 'hemicolectomy',
@@ -1296,6 +1310,31 @@
         function cleanMedicalSpeech(text) {
             if (!text) return text;
             let cleaned = text;
+
+            // Step 0: Pre-process - fix spelled-out letters and cross-boundary splits
+            // Handle spelled-out letters like "C h o l e" or "C. H. O. L. E."
+            cleaned = cleaned.replace(/\bC\s*[.]?\s*H\s*[.]?\s*O\s*[.]?\s*L\s*[.]?\s*E\b\.?/gi, 'chole');
+            cleaned = cleaned.replace(/\bA\s*[.]?\s*P\s*[.]?\s*P\s*[.]?\s*Y\b\.?/gi, 'appy');
+            cleaned = cleaned.replace(/\bN\s*[.]?\s*P\s*[.]?\s*O\b\.?/gi, 'NPO');
+
+            // Fix STT splitting procedures across sentence boundaries
+            // "Appy. And postectomy" / "Appy. And postectomy." -> "appendectomy"
+            cleaned = cleaned.replace(/\bapp?y\.?\s+and\s+post(?:ectomy|economy|ecto me)\.?/gi, 'appendectomy');
+            // "A. Pendant me" / "A pen. Deck to me" etc
+            cleaned = cleaned.replace(/\ba\.?\s*pen(?:dant|d)?\.?\s*(?:deck?\s*(?:to\s*)?me|ectomy|ecto me)\.?/gi, 'appendectomy');
+
+            // "Cole. A. Cyst. Ectomy" with periods
+            cleaned = cleaned.replace(/\bcole?\.?\s*a?\.?\s*cyst\.?\s*ectomy\.?/gi, 'cholecystectomy');
+            // "Holy. Cystectomy" / "Cooley. Cystectomy"
+            cleaned = cleaned.replace(/\b(?:holy|holly|cooley|coolly|cooly|coli|koli|cole|cola)\.?\s*cyst\s*ectomy\.?/gi, 'cholecystectomy');
+
+            // "Helio. Cestomy" / "Helio. Cecectomy" with periods
+            cleaned = cleaned.replace(/\b(?:helio|heal\s*io|illio|ilio|iliac)\.?\s*(?:cest|sect|cecect|cecal\s*ect)omy\.?/gi, 'ileocecectomy');
+            // "Ileal. Cecectomy" with periods
+            cleaned = cleaned.replace(/\b(?:ileal|ilia|ilio)\.?\s*cec(?:al\s*)?ectomy\.?/gi, 'ileocecectomy');
+
+            // Generic -ectomy/-ostomy fuzzy fixer: collapse "X. Ectomy" -> "Xectomy"
+            cleaned = cleaned.replace(/(\w{3,})\.\s*(ectomy|ostomy|otomy)\b/gi, '$1$2');
 
             // Step 1: Apply surgical/procedure term corrections (misrecognition fixes)
             for (const [pattern, replacement] of _surgicalCorrectionPatterns) {
