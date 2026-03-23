@@ -11230,8 +11230,12 @@ To-do: Check AM labs, I/Os q4h`}
             const [newCaseOrder, setNewCaseOrder] = React.useState(1);
             const [expandedCase, setExpandedCase] = React.useState(null);
             const [editingSteps, setEditingSteps] = React.useState(null);
+            const [surgeonPrefs, setSurgeonPrefs] = React.useState([]);
+            const [showSurgeonSuggestions, setShowSurgeonSuggestions] = React.useState(null);
+            const [editingPrefs, setEditingPrefs] = React.useState({});
+            const [savingPrefs, setSavingPrefs] = React.useState(false);
 
-            React.useEffect(() => { DB.init().then(() => { loadCases(); loadPatients(); }); }, []);
+            React.useEffect(() => { DB.init().then(() => { loadCases(); loadPatients(); loadSurgeonPrefs(); }); }, []);
 
             const loadCases = async () => {
                 const all = await DB.getAll('casePrep');
@@ -11241,6 +11245,61 @@ To-do: Check AM labs, I/Os q4h`}
                 const all = await DB.getAll('patients');
                 setPatients((all || []).filter(p => p.status !== 'discharged'));
             };
+
+            const loadSurgeonPrefs = async () => {
+                const all = await DB.getAll('surgeonPreferences');
+                setSurgeonPrefs(all || []);
+            };
+
+            const saveSurgeonPrefs = async (surgeonName, updates) => {
+                if (!surgeonName || !surgeonName.trim()) return;
+                const existing = surgeonPrefs.find(p => p.surgeonName?.toLowerCase() === surgeonName.trim().toLowerCase());
+                const prefData = {
+                    surgeonName: surgeonName.trim(),
+                    sutures: updates.sutures ?? existing?.sutures ?? '',
+                    instruments: updates.instruments ?? existing?.instruments ?? '',
+                    positioning: updates.positioning ?? existing?.positioning ?? '',
+                    prepDrape: updates.prepDrape ?? existing?.prepDrape ?? '',
+                    antibiotics: updates.antibiotics ?? existing?.antibiotics ?? '',
+                    skinClosing: updates.skinClosing ?? existing?.skinClosing ?? '',
+                    drains: updates.drains ?? existing?.drains ?? '',
+                    notes: updates.notes ?? existing?.notes ?? '',
+                    updatedAt: new Date().toISOString(),
+                    updatedBy: ''
+                };
+                try { prefData.updatedBy = firebase.auth().currentUser?.displayName || firebase.auth().currentUser?.email || ''; } catch(e) {}
+
+                if (existing) {
+                    await DB.put('surgeonPreferences', { ...existing, ...prefData });
+                } else {
+                    await DB.add('surgeonPreferences', prefData);
+                }
+                await loadSurgeonPrefs();
+            };
+
+            const getSurgeonSuggestions = (input) => {
+                if (!input || input.length < 1) return [];
+                const lower = input.toLowerCase();
+                return surgeonPrefs
+                    .filter(p => p.surgeonName && p.surgeonName.toLowerCase().includes(lower))
+                    .map(p => p.surgeonName);
+            };
+
+            const getPrefsForSurgeon = (name) => {
+                if (!name) return null;
+                return surgeonPrefs.find(p => p.surgeonName?.toLowerCase() === name.trim().toLowerCase()) || null;
+            };
+
+            const PREF_CATEGORIES = [
+                { key: 'positioning', label: 'Positioning', placeholder: 'e.g. Supine, arms tucked, reverse Trendelenburg' },
+                { key: 'antibiotics', label: 'Antibiotics', placeholder: 'e.g. Cefazolin 2g IV within 60 min' },
+                { key: 'prepDrape', label: 'Prep & Drape', placeholder: 'e.g. ChloraPrep, square drape, Ioban' },
+                { key: 'instruments', label: 'Instruments', placeholder: 'e.g. Harmonic scalpel, 5mm trocars, Endocatch bag' },
+                { key: 'sutures', label: 'Sutures', placeholder: 'e.g. 0-Vicryl for fascia, 4-0 Monocryl for skin' },
+                { key: 'skinClosing', label: 'Skin Closing', placeholder: 'e.g. Dermabond, Steri-Strips, staples' },
+                { key: 'drains', label: 'Drains', placeholder: 'e.g. JP drain to bulb suction, Blake drain' },
+                { key: 'notes', label: 'Other Notes', placeholder: 'Any other preferences, tips, or things to remember...' },
+            ];
 
             // Calendar helpers
             const getDaysInMonth = (year, month) => new Date(year, month, 0).getDate();
@@ -11280,6 +11339,7 @@ To-do: Check AM labs, I/Os q4h`}
                     surgicalHistoryReviewed: false,
                     surgicalHistoryComment: '',
                     keyOperativeSteps: '',
+                    attendingSurgeon: '',
                     addedToPatientList: false,
                     createdAt: new Date().toISOString()
                 });
@@ -11747,6 +11807,7 @@ To-do: Check AM labs, I/Os q4h`}
                                                     {caseItem.imagingReviewed && <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">Imaging</span>}
                                                     {caseItem.surgicalHistoryReviewed && <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">Surg Hx</span>}
                                                     {caseItem.keyOperativeSteps && <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">Steps</span>}
+                                                    {caseItem.attendingSurgeon && <span className="text-xs bg-teal-100 text-teal-700 px-1.5 py-0.5 rounded">{caseItem.attendingSurgeon}</span>}
                                                     {caseItem.addedToPatientList && <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">On List</span>}
                                                 </div>
                                             </div>
@@ -11765,6 +11826,75 @@ To-do: Check AM labs, I/Os q4h`}
                                                         <span className="font-semibold text-gray-800 text-sm">Pre-Op Considerations Reviewed</span>
                                                         <p className="text-xs text-gray-500 mt-0.5">Labs, consents, NPO status, antibiotic prophylaxis, VTE prophylaxis</p>
                                                     </div>
+                                                </div>
+
+                                                {/* Attending Surgeon */}
+                                                <div className="p-3 bg-white rounded-lg border border-gray-200">
+                                                    <label className="text-xs font-semibold text-gray-600 mb-1 block">Attending Surgeon</label>
+                                                    <div className="relative">
+                                                        <input
+                                                            value={caseItem.attendingSurgeon || ''}
+                                                            onChange={(e) => {
+                                                                updateCase(caseItem.id, { attendingSurgeon: e.target.value });
+                                                                setShowSurgeonSuggestions(e.target.value.length > 0 ? caseItem.id : null);
+                                                            }}
+                                                            onFocus={(e) => { if (e.target.value.length > 0) setShowSurgeonSuggestions(caseItem.id); }}
+                                                            onBlur={() => setTimeout(() => setShowSurgeonSuggestions(null), 200)}
+                                                            placeholder="Type surgeon name..."
+                                                            className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded text-sm text-gray-700"
+                                                        />
+                                                        {showSurgeonSuggestions === caseItem.id && getSurgeonSuggestions(caseItem.attendingSurgeon).length > 0 && (
+                                                            <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                                                                {getSurgeonSuggestions(caseItem.attendingSurgeon).map((name, i) => (
+                                                                    <button key={i} className="w-full text-left px-3 py-2 hover:bg-medical-50 text-sm text-gray-700 border-b border-gray-100 last:border-0"
+                                                                        onMouseDown={(e) => {
+                                                                            e.preventDefault();
+                                                                            updateCase(caseItem.id, { attendingSurgeon: name });
+                                                                            setShowSurgeonSuggestions(null);
+                                                                        }}>
+                                                                        {name}
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    {/* Surgeon Preferences */}
+                                                    {caseItem.attendingSurgeon && caseItem.attendingSurgeon.trim() && (
+                                                        <div className="mt-3 pt-3 border-t border-gray-100">
+                                                            <div className="flex items-center justify-between mb-2">
+                                                                <span className="text-xs font-semibold text-medical-600">Preferences for {caseItem.attendingSurgeon.trim()}</span>
+                                                                {getPrefsForSurgeon(caseItem.attendingSurgeon)?.updatedBy && (
+                                                                    <span className="text-[10px] text-gray-400">
+                                                                        Last updated by {getPrefsForSurgeon(caseItem.attendingSurgeon).updatedBy}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <div className="space-y-2">
+                                                                {PREF_CATEGORIES.map(cat => {
+                                                                    const prefs = getPrefsForSurgeon(caseItem.attendingSurgeon);
+                                                                    const currentVal = prefs?.[cat.key] || '';
+                                                                    return (
+                                                                        <div key={cat.key}>
+                                                                            <label className="text-[11px] font-semibold text-gray-500">{cat.label}</label>
+                                                                            <textarea
+                                                                                defaultValue={currentVal}
+                                                                                onBlur={(e) => {
+                                                                                    if (e.target.value !== currentVal) {
+                                                                                        saveSurgeonPrefs(caseItem.attendingSurgeon, { [cat.key]: e.target.value });
+                                                                                    }
+                                                                                }}
+                                                                                placeholder={cat.placeholder}
+                                                                                className="w-full mt-0.5 px-2 py-1.5 bg-gray-50 border border-gray-200 rounded text-xs text-gray-700"
+                                                                                rows={cat.key === 'notes' ? 3 : 1}
+                                                                            />
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                            <p className="text-[10px] text-gray-400 mt-2 italic">These preferences are shared with your entire team and can be edited by anyone.</p>
+                                                        </div>
+                                                    )}
                                                 </div>
 
                                                 {/* Imaging Review */}
