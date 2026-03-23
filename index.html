@@ -2173,7 +2173,7 @@
             const [saving, setSaving] = React.useState(false);
             const handleSubmit = async (e) => {
                 if (e) e.preventDefault();
-                if (!formData.room || !formData.room.trim()) return;
+                if (!formData.room || !String(formData.room).trim()) return;
                 setSaving(true);
                 try {
                     await onSave({
