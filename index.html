@@ -9301,6 +9301,7 @@ To-do: Check AM labs, I/Os q4h`}
         function TeamSetup({ user, onTeamReady }) {
             const [mode, setMode] = React.useState(null); // null, 'create', 'join'
             const [teamName, setTeamName] = React.useState('');
+            const [customCode, setCustomCode] = React.useState('');
             const [joinCode, setJoinCode] = React.useState('');
             const [error, setError] = React.useState('');
             const [loading, setLoading] = React.useState(false);
@@ -9312,7 +9313,7 @@ To-do: Check AM labs, I/Os q4h`}
                 setLoading(true);
                 setError('');
                 try {
-                    const code = generateCode();
+                    const code = customCode.trim().length >= 4 ? customCode.trim().toUpperCase() : generateCode();
                     const teamRef = await db.collection('teams').add({
                         name: teamName.trim(),
                         inviteCode: code,
@@ -9404,6 +9405,16 @@ To-do: Check AM labs, I/Os q4h`}
                                     onChange={e => setTeamName(e.target.value)}
                                     className="w-full border border-gray-300 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-medical-500"
                                 />
+                                <div>
+                                    <input
+                                        type="text"
+                                        placeholder="Custom invite code (optional, 4+ chars)"
+                                        value={customCode}
+                                        onChange={e => setCustomCode(e.target.value.toUpperCase())}
+                                        className="w-full border border-gray-300 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-medical-500 font-mono tracking-widest"
+                                    />
+                                    <p className="text-[10px] text-gray-400 mt-1 px-1">Leave blank to auto-generate. This code also serves as your encryption key.</p>
+                                </div>
                                 <button onClick={handleCreate} disabled={loading} className="w-full bg-medical-600 text-white hover:bg-medical-700 font-semibold py-3 rounded-lg transition disabled:opacity-50">
                                     {loading ? 'Creating...' : 'Create Team'}
                                 </button>
@@ -10986,70 +10997,75 @@ To-do: Check AM labs, I/Os q4h`}
             const [hipaaUnlocked, setHipaaUnlocked] = React.useState(false);
             const [hipaaError, setHipaaError] = React.useState('');
 
-            // Check if team has HIPAA encryption enabled
+            // Auto-enable encryption using team invite code as default passphrase
             React.useEffect(() => {
-                if (teamData?.hipaaEncryption) {
-                    setHipaaEnabled(true);
-                    // Check if we have the passphrase cached in session
-                    const cached = sessionStorage.getItem('cr_hipaa_' + teamId);
-                    if (cached) {
-                        CryptoHelper.init(cached, teamId).then(() => setHipaaUnlocked(true));
-                    }
-                } else {
-                    setHipaaEnabled(false);
-                    setHipaaUnlocked(false);
+                if (teamData && teamId) {
+                    const passphrase = teamData.hipaaPassphrase || teamData.inviteCode || teamId;
+                    CryptoHelper.init(passphrase, teamId).then(() => {
+                        setHipaaEnabled(true);
+                        setHipaaUnlocked(true);
+                        // Ensure flag is set on team doc
+                        if (!teamData.hipaaEncryption) {
+                            db.collection('teams').doc(teamId).set({ hipaaEncryption: true }, { merge: true }).catch(() => {});
+                            setTeamData(prev => ({ ...prev, hipaaEncryption: true }));
+                            // Encrypt any existing unencrypted data in background
+                            (async () => {
+                                try {
+                                    const patients = await DB.getAll('patients');
+                                    for (const p of patients) { if (!p._encrypted) await DB.put('patients', p); }
+                                    const consults = await DB.getAll('consults');
+                                    for (const c of consults) { if (!c._encrypted) await DB.put('consults', c); }
+                                } catch (e) { console.error('Error encrypting existing data:', e); }
+                            })();
+                        }
+                    }).catch(e => console.error('Auto-encryption init failed:', e));
                 }
             }, [teamData, teamId]);
 
-            // Auto-logout on inactivity
+            // Auto-logout on inactivity (locks session, requires re-login)
             React.useEffect(() => {
-                if (user && teamData?.hipaaEncryption) {
+                if (user && hipaaEnabled) {
                     InactivityMonitor.start(() => {
-                        sessionStorage.removeItem('cr_hipaa_' + teamId);
                         CryptoHelper._enabled = false;
                         CryptoHelper._key = null;
+                        auth.signOut();
+                        setUser(null);
+                        setTeamId(null);
+                        setTeamData(null);
                         setHipaaUnlocked(false);
-                        alert('Session locked due to inactivity. Please enter your team passphrase to continue.');
-                    }, teamData.hipaaTimeoutMinutes || 15);
+                        alert('Signed out due to inactivity.');
+                    }, teamData?.hipaaTimeoutMinutes || 15);
                     return () => InactivityMonitor.stop();
                 }
-            }, [user, teamData]);
+            }, [user, hipaaEnabled]);
 
+            // Allow setting a custom passphrase (overrides invite code default)
             const enableHipaa = async () => {
                 if (!hipaaPassphrase || hipaaPassphrase.length < 8) {
                     setHipaaError('Passphrase must be at least 8 characters.');
                     return;
                 }
                 try {
+                    // First decrypt everything with old key
+                    const oldPatients = await DB.getAll('patients');
+                    const oldConsults = await DB.getAll('consults');
+
+                    // Init with new passphrase
                     await CryptoHelper.init(hipaaPassphrase, teamId);
-                    // Save HIPAA flag on team doc
-                    await db.collection('teams').doc(teamId).set({ hipaaEncryption: true }, { merge: true });
-                    sessionStorage.setItem('cr_hipaa_' + teamId, hipaaPassphrase);
+                    await db.collection('teams').doc(teamId).set({ hipaaEncryption: true, hipaaPassphrase: hipaaPassphrase }, { merge: true });
                     setHipaaEnabled(true);
                     setHipaaUnlocked(true);
                     setShowHipaaSetup(false);
                     setHipaaError('');
-                    setTeamData(prev => ({ ...prev, hipaaEncryption: true }));
+                    setTeamData(prev => ({ ...prev, hipaaEncryption: true, hipaaPassphrase: hipaaPassphrase }));
 
-                    // Re-encrypt existing patient data
-                    try {
-                        const patients = await DB.getAll('patients');
-                        for (const p of patients) {
-                            if (!p._encrypted) {
-                                await DB.put('patients', p);
-                            }
-                        }
-                        const consults = await DB.getAll('consults');
-                        for (const c of consults) {
-                            if (!c._encrypted) {
-                                await DB.put('consults', c);
-                            }
-                        }
-                    } catch (e) { console.error('Error encrypting existing data:', e); }
+                    // Re-encrypt with new key
+                    for (const p of oldPatients) { await DB.put('patients', p); }
+                    for (const c of oldConsults) { await DB.put('consults', c); }
 
-                    alert('HIPAA encryption enabled. All PHI is now encrypted at rest. Share this passphrase securely with team members.');
+                    alert('Custom passphrase set. Share it securely with team members. They will need it to access encrypted data.');
                 } catch (e) {
-                    setHipaaError('Failed to enable encryption: ' + e.message);
+                    setHipaaError('Failed to update encryption: ' + e.message);
                 }
             };
 
@@ -11057,15 +11073,12 @@ To-do: Check AM labs, I/Os q4h`}
                 if (!hipaaPassphrase) return;
                 try {
                     await CryptoHelper.init(hipaaPassphrase, teamId);
-                    // Test decryption by trying to read patients
                     const testRead = await DB.getAll('patients');
-                    // If first patient has garbled data, wrong passphrase
                     if (testRead.length > 0 && testRead[0]._encrypted) {
                         setHipaaError('Incorrect passphrase. Could not decrypt data.');
                         CryptoHelper._enabled = false;
                         return;
                     }
-                    sessionStorage.setItem('cr_hipaa_' + teamId, hipaaPassphrase);
                     setHipaaUnlocked(true);
                     setHipaaError('');
                 } catch (e) {
@@ -11110,8 +11123,8 @@ To-do: Check AM labs, I/Os q4h`}
                 return <TeamSetup user={user} onTeamReady={handleTeamReady} />;
             }
 
-            // HIPAA encryption enabled but not unlocked
-            if (hipaaEnabled && !hipaaUnlocked) {
+            // HIPAA encryption enabled with custom passphrase but not yet unlocked
+            if (hipaaEnabled && !hipaaUnlocked && teamData?.hipaaPassphrase) {
                 return (
                     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
                         <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-sm">
@@ -11551,23 +11564,18 @@ To-do: Check AM labs, I/Os q4h`}
                             <div className="p-3 border-b border-gray-100">
                                 <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-2">
-                                        <span className="text-sm">{hipaaEnabled ? '🔒' : '🔓'}</span>
+                                        <span className="text-sm">🔒</span>
                                         <span className="text-xs font-medium text-gray-600">HIPAA Encryption</span>
                                     </div>
-                                    {hipaaEnabled ? (
-                                        <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Active</span>
-                                    ) : (
-                                        <button
-                                            onClick={() => { setShowHipaaSetup(true); setShowProfile(false); }}
-                                            className="text-[10px] bg-medical-100 text-medical-700 px-2 py-0.5 rounded-full font-medium hover:bg-medical-200 transition"
-                                        >
-                                            Enable
-                                        </button>
-                                    )}
+                                    <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Active</span>
                                 </div>
-                                {hipaaEnabled && (
-                                    <p className="text-[10px] text-gray-400 mt-1">PHI encrypted at rest. Auto-lock after {teamData?.hipaaTimeoutMinutes || 15} min.</p>
-                                )}
+                                <p className="text-[10px] text-gray-400 mt-1">PHI encrypted at rest using {teamData?.hipaaPassphrase ? 'custom passphrase' : 'invite code'}. Auto-lock after {teamData?.hipaaTimeoutMinutes || 15} min idle.</p>
+                                <button
+                                    onClick={() => { setShowHipaaSetup(true); setShowProfile(false); }}
+                                    className="text-[10px] text-medical-600 hover:text-medical-700 mt-1 font-medium"
+                                >
+                                    {teamData?.hipaaPassphrase ? 'Change passphrase' : 'Set custom passphrase'}
+                                </button>
                             </div>
                             <div className="p-2 space-y-0.5">
                                 <button onClick={() => { setShowTeamManager(true); setShowProfile(false); }} className="w-full text-left px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-md transition">
@@ -11590,8 +11598,8 @@ To-do: Check AM labs, I/Os q4h`}
                         <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
                             <div className="text-center mb-4">
                                 <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center text-2xl mx-auto mb-3">🔒</div>
-                                <h2 className="text-xl font-bold text-gray-800">Enable HIPAA Encryption</h2>
-                                <p className="text-sm text-gray-500 mt-1">All PHI (room numbers, diagnoses, notes, etc.) will be encrypted using AES-256 before being stored in the database.</p>
+                                <h2 className="text-xl font-bold text-gray-800">Custom Passphrase</h2>
+                                <p className="text-sm text-gray-500 mt-1">By default, your team's invite code is used to encrypt PHI. You can set a separate passphrase for added security.</p>
                             </div>
 
                             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
@@ -11599,8 +11607,8 @@ To-do: Check AM labs, I/Os q4h`}
                                 <ul className="text-xs text-amber-700 mt-1 space-y-1">
                                     <li>- Choose a strong passphrase (8+ characters)</li>
                                     <li>- Share it securely with all team members</li>
+                                    <li>- Team members will need to enter it on login</li>
                                     <li>- If the passphrase is lost, encrypted data cannot be recovered</li>
-                                    <li>- The app will auto-lock after 15 minutes of inactivity</li>
                                 </ul>
                             </div>
 
