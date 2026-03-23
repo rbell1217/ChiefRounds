@@ -2203,6 +2203,247 @@
             );
         }
 
+        // ==================== UNIVERSAL DICTATION FIELD ====================
+        // Drop-in replacement for textarea/input with built-in speech-to-text
+        // Usage: <DictateField value={val} onChange={fn} rows={3} placeholder="..." />
+        // Handles its own speech recognition lifecycle; debounces onBlur for Firestore-backed fields
+        function DictateField({ value, onChange, onBlur, rows, placeholder, className, label, type, disabled }) {
+            const [localVal, setLocalVal] = React.useState(value || '');
+            const [listening, setListening] = React.useState(false);
+            const [interim, setInterim] = React.useState('');
+            const recRef = React.useRef(null);
+            const finalRef = React.useRef(value || '');
+            const dirty = React.useRef(false);
+
+            // Sync external value changes (e.g., parent resets)
+            React.useEffect(() => {
+                if (!dirty.current && !listening) {
+                    setLocalVal(value || '');
+                    finalRef.current = value || '';
+                }
+            }, [value]);
+
+            React.useEffect(() => {
+                const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+                if (!SR) return;
+                const rec = new SR();
+                rec.continuous = true;
+                rec.interimResults = true;
+                rec.lang = 'en-US';
+                rec.onstart = () => setListening(true);
+                rec.onresult = (event) => {
+                    let int = '';
+                    let ft = finalRef.current;
+                    for (let i = event.resultIndex; i < event.results.length; i++) {
+                        const t = event.results[i][0].transcript;
+                        if (event.results[i].isFinal) {
+                            const cleaned = cleanMedicalSpeech(t.trim());
+                            ft += (ft ? ' ' : '') + cleaned;
+                        } else { int += t; }
+                    }
+                    finalRef.current = ft;
+                    setLocalVal(ft);
+                    setInterim(int);
+                    dirty.current = true;
+                };
+                rec.onerror = (e) => { if (e.error !== 'no-speech') setListening(false); };
+                rec.onend = () => {
+                    setListening(false);
+                    setInterim('');
+                    // Fire onChange with final value when dictation stops
+                    if (dirty.current && onChange) {
+                        onChange(finalRef.current);
+                        dirty.current = false;
+                    }
+                };
+                recRef.current = rec;
+                return () => { try { rec.stop(); } catch(e) {} };
+            }, []);
+
+            const toggleDictation = () => {
+                if (!recRef.current) return;
+                if (listening) {
+                    try { recRef.current.stop(); } catch(e) {}
+                } else {
+                    finalRef.current = localVal;
+                    try { recRef.current.start(); } catch(e) {}
+                }
+            };
+
+            const handleChange = (e) => {
+                const v = e.target.value;
+                setLocalVal(v);
+                finalRef.current = v;
+                dirty.current = true;
+            };
+
+            const handleBlur = () => {
+                if (dirty.current && onChange) {
+                    onChange(localVal);
+                    dirty.current = false;
+                }
+                if (onBlur) onBlur();
+            };
+
+            const isTextarea = !type || type === 'textarea';
+            const display = listening ? localVal + (interim ? ' ' + interim : '') : localVal;
+            const baseClass = className || 'w-full border border-gray-200 rounded px-3 py-1.5 text-sm';
+            const micAvailable = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+
+            return (
+                <div>
+                    {label && (
+                        <div className="flex items-center justify-between mb-1">
+                            <label className="text-xs font-semibold text-gray-500">{label}</label>
+                            {micAvailable && (
+                                <button type="button" onClick={toggleDictation} disabled={disabled}
+                                    className={`px-2 py-0.5 rounded text-[10px] font-medium transition ${
+                                        listening ? 'bg-red-500 text-white animate-pulse' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                                    }`}>
+                                    {listening ? '|| Stop' : '🎤'}
+                                </button>
+                            )}
+                        </div>
+                    )}
+                    {!label && micAvailable && (
+                        <div className="flex justify-end mb-0.5">
+                            <button type="button" onClick={toggleDictation} disabled={disabled}
+                                className={`px-2 py-0.5 rounded text-[10px] font-medium transition ${
+                                    listening ? 'bg-red-500 text-white animate-pulse' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                                }`}>
+                                {listening ? '|| Stop' : '🎤'}
+                            </button>
+                        </div>
+                    )}
+                    {isTextarea ? (
+                        <textarea
+                            value={display}
+                            onChange={handleChange}
+                            onBlur={handleBlur}
+                            rows={rows || 2}
+                            placeholder={placeholder}
+                            className={baseClass + (listening ? ' ring-2 ring-red-300' : '')}
+                            disabled={disabled || listening}
+                        />
+                    ) : (
+                        <input
+                            type={type || 'text'}
+                            value={display}
+                            onChange={handleChange}
+                            onBlur={handleBlur}
+                            placeholder={placeholder}
+                            className={baseClass + (listening ? ' ring-2 ring-red-300' : '')}
+                            disabled={disabled || listening}
+                        />
+                    )}
+                </div>
+            );
+        }
+
+        // ==================== GLOBAL FLOATING DICTATION BUTTON ====================
+        // Adds speech-to-text to ANY focused input/textarea in the app
+        function GlobalDictateButton() {
+            const [listening, setListening] = React.useState(false);
+            const [visible, setVisible] = React.useState(false);
+            const recRef = React.useRef(null);
+            const targetRef = React.useRef(null);
+            const finalRef = React.useRef('');
+
+            React.useEffect(() => {
+                const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+                if (!SR) return;
+
+                const rec = new SR();
+                rec.continuous = true;
+                rec.interimResults = true;
+                rec.lang = 'en-US';
+                rec.onstart = () => setListening(true);
+                rec.onresult = (event) => {
+                    if (!targetRef.current) return;
+                    let ft = finalRef.current;
+                    for (let i = event.resultIndex; i < event.results.length; i++) {
+                        const t = event.results[i][0].transcript;
+                        if (event.results[i].isFinal) {
+                            const cleaned = cleanMedicalSpeech(t.trim());
+                            ft += (ft ? ' ' : '') + cleaned;
+                        }
+                    }
+                    finalRef.current = ft;
+                    // Update the target element natively so React picks it up
+                    const nativeSetter = Object.getOwnPropertyDescriptor(
+                        targetRef.current.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype,
+                        'value'
+                    ).set;
+                    nativeSetter.call(targetRef.current, ft);
+                    targetRef.current.dispatchEvent(new Event('input', { bubbles: true }));
+                };
+                rec.onerror = (e) => { if (e.error !== 'no-speech') setListening(false); };
+                rec.onend = () => {
+                    setListening(false);
+                    // Trigger blur/change so any save-on-blur logic fires
+                    if (targetRef.current) {
+                        targetRef.current.dispatchEvent(new Event('change', { bubbles: true }));
+                        targetRef.current.dispatchEvent(new Event('blur', { bubbles: true }));
+                    }
+                };
+                recRef.current = rec;
+
+                // Show button when an input/textarea is focused
+                const showHandler = (e) => {
+                    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+                        const type = e.target.type || 'text';
+                        if (['text', 'textarea', 'search', 'url', ''].includes(type)) {
+                            setVisible(true);
+                        }
+                    }
+                };
+                const hideHandler = (e) => {
+                    // Small delay to allow clicking the dictate button before hiding
+                    setTimeout(() => {
+                        if (!listening) setVisible(false);
+                    }, 200);
+                };
+                document.addEventListener('focusin', showHandler);
+                document.addEventListener('focusout', hideHandler);
+                return () => {
+                    document.removeEventListener('focusin', showHandler);
+                    document.removeEventListener('focusout', hideHandler);
+                    try { rec.stop(); } catch(e) {}
+                };
+            }, [listening]);
+
+            const toggle = () => {
+                if (!recRef.current) return;
+                if (listening) {
+                    try { recRef.current.stop(); } catch(e) {}
+                } else {
+                    // Capture the currently focused element
+                    const active = document.activeElement;
+                    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) {
+                        targetRef.current = active;
+                        finalRef.current = active.value || '';
+                        try { recRef.current.start(); } catch(e) {}
+                    }
+                }
+            };
+
+            if (!visible && !listening) return null;
+            const hasSR = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+            if (!hasSR) return null;
+
+            return (
+                <button
+                    onMouseDown={(e) => { e.preventDefault(); toggle(); }}
+                    className={`fixed z-40 right-4 bottom-24 md:bottom-8 w-12 h-12 rounded-full shadow-lg flex items-center justify-center text-xl transition-all ${
+                        listening ? 'bg-red-500 text-white animate-pulse scale-110' : 'bg-medical-600 text-white hover:bg-medical-700'
+                    }`}
+                    title={listening ? 'Stop dictation' : 'Dictate to focused field'}
+                >
+                    {listening ? '||' : '🎤'}
+                </button>
+            );
+        }
+
         // ==================== PATIENT TRACKER COMPONENT ====================
         function PatientTracker() {
             const [patients, setPatients] = React.useState([]);
@@ -11402,83 +11643,26 @@ To-do: Check AM labs, I/Os q4h`}
                                         </div>
                                         <div className="p-4 space-y-3">
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                                <div>
-                                                    <label className="text-xs font-semibold text-gray-500 block mb-1">Diagnosis</label>
-                                                    <input type="text" value={c.diagnosis || ''} onChange={e => updateCaseField(idx, 'diagnosis', e.target.value)}
-                                                        className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm" />
-                                                </div>
-                                                <div>
-                                                    <label className="text-xs font-semibold text-gray-500 block mb-1">Planned Procedure</label>
-                                                    <input type="text" value={c.procedure || ''} onChange={e => updateCaseField(idx, 'procedure', e.target.value)}
-                                                        className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm" />
-                                                </div>
+                                                <DictateField label="Diagnosis" type="text" value={c.diagnosis || ''} onChange={v => updateCaseField(idx, 'diagnosis', v)} />
+                                                <DictateField label="Planned Procedure" type="text" value={c.procedure || ''} onChange={v => updateCaseField(idx, 'procedure', v)} />
                                             </div>
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                                <div>
-                                                    <label className="text-xs font-semibold text-gray-500 block mb-1">PMH</label>
-                                                    <textarea value={c.pmh || ''} onChange={e => updateCaseField(idx, 'pmh', e.target.value)}
-                                                        className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm" rows="2" />
-                                                </div>
-                                                <div>
-                                                    <label className="text-xs font-semibold text-gray-500 block mb-1">PSH</label>
-                                                    <textarea value={c.psh || ''} onChange={e => updateCaseField(idx, 'psh', e.target.value)}
-                                                        className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm" rows="2" />
-                                                </div>
+                                                <DictateField label="PMH" value={c.pmh || ''} onChange={v => updateCaseField(idx, 'pmh', v)} rows={2} />
+                                                <DictateField label="PSH" value={c.psh || ''} onChange={v => updateCaseField(idx, 'psh', v)} rows={2} />
                                             </div>
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                                <div>
-                                                    <label className="text-xs font-semibold text-gray-500 block mb-1">Medications</label>
-                                                    <textarea value={c.meds || ''} onChange={e => updateCaseField(idx, 'meds', e.target.value)}
-                                                        className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm" rows="2" />
-                                                </div>
-                                                <div>
-                                                    <label className="text-xs font-semibold text-gray-500 block mb-1">Allergies</label>
-                                                    <input type="text" value={c.allergies || ''} onChange={e => updateCaseField(idx, 'allergies', e.target.value)}
-                                                        className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm" />
-                                                </div>
+                                                <DictateField label="Medications" value={c.meds || ''} onChange={v => updateCaseField(idx, 'meds', v)} rows={2} />
+                                                <DictateField label="Allergies" type="text" value={c.allergies || ''} onChange={v => updateCaseField(idx, 'allergies', v)} />
                                             </div>
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                                <div>
-                                                    <label className="text-xs font-semibold text-gray-500 block mb-1">Exam Findings</label>
-                                                    <textarea value={c.examFindings || ''} onChange={e => updateCaseField(idx, 'examFindings', e.target.value)}
-                                                        className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm" rows="2" />
-                                                </div>
-                                                <div>
-                                                    <label className="text-xs font-semibold text-gray-500 block mb-1">Lab Findings</label>
-                                                    <textarea value={c.labFindings || ''} onChange={e => updateCaseField(idx, 'labFindings', e.target.value)}
-                                                        className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm" rows="2" />
-                                                </div>
+                                                <DictateField label="Exam Findings" value={c.examFindings || ''} onChange={v => updateCaseField(idx, 'examFindings', v)} rows={2} />
+                                                <DictateField label="Lab Findings" value={c.labFindings || ''} onChange={v => updateCaseField(idx, 'labFindings', v)} rows={2} />
                                             </div>
-                                            <div>
-                                                <label className="text-xs font-semibold text-gray-500 block mb-1">Imaging Findings</label>
-                                                <textarea value={c.imagingFindings || ''} onChange={e => updateCaseField(idx, 'imagingFindings', e.target.value)}
-                                                    className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm" rows="2" />
-                                            </div>
-                                            <div>
-                                                <div className="flex items-center justify-between mb-1">
-                                                    <label className="text-xs font-semibold text-gray-500">Indications for Surgery</label>
-                                                    <button onClick={() => {
-                                                        if (indicationListening && dictatingCaseIdx === idx) { stopIndicationDictation(); }
-                                                        else { startIndicationDictation(idx, c.indications || ''); }
-                                                    }}
-                                                        className={`px-3 py-1 rounded text-xs font-medium ${indicationListening && dictatingCaseIdx === idx ? 'bg-red-500 text-white animate-pulse' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}>
-                                                        {indicationListening && dictatingCaseIdx === idx ? 'Stop' : 'Dictate'}
-                                                    </button>
-                                                </div>
-                                                <textarea
-                                                    value={indicationListening && dictatingCaseIdx === idx
-                                                        ? indicationText + (indicationInterim ? ' ' + indicationInterim : '')
-                                                        : c.indications || ''}
-                                                    onChange={e => updateCaseField(idx, 'indications', e.target.value)}
-                                                    className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm" rows="3"
-                                                    placeholder="Why is this surgery indicated? What are the clinical findings supporting operative intervention?" />
-                                            </div>
-                                            <div>
-                                                <label className="text-xs font-semibold text-gray-500 block mb-1">Key Operative Steps</label>
-                                                <textarea value={c.keySteps || ''} onChange={e => updateCaseField(idx, 'keySteps', e.target.value)}
-                                                    className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm" rows="3"
-                                                    placeholder="Key steps of the planned procedure..." />
-                                            </div>
+                                            <DictateField label="Imaging Findings" value={c.imagingFindings || ''} onChange={v => updateCaseField(idx, 'imagingFindings', v)} rows={2} />
+                                            <DictateField label="Indications for Surgery" value={c.indications || ''} onChange={v => updateCaseField(idx, 'indications', v)} rows={3}
+                                                placeholder="Why is this surgery indicated? What are the clinical findings supporting operative intervention?" />
+                                            <DictateField label="Key Operative Steps" value={c.keySteps || ''} onChange={v => updateCaseField(idx, 'keySteps', v)} rows={3}
+                                                placeholder="Key steps of the planned procedure..." />
                                             {c.casePrepId && (
                                                 <p className="text-[10px] text-gray-400">Linked to Case Prep</p>
                                             )}
@@ -12399,6 +12583,7 @@ To-do: Check AM labs, I/Os q4h`}
                     <div className="min-h-screen bg-slate-50 flex flex-col">
                         {showTeamManager && <TeamManagerModal />}
                         <HipaaSetupModal />
+                        <GlobalDictateButton />
                         <div className="bg-white border-b border-gray-200 p-3 sticky top-0 z-20 shadow-sm">
                             <div className="flex justify-between items-center">
                                 <div className="flex items-center gap-2">
