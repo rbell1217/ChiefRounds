@@ -1220,6 +1220,59 @@
             .sort((a, b) => b[0].length - a[0].length)
             .map(([wrong, right]) => [new RegExp('\\b' + wrong.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'gi'), right]);
 
+        // ==================== USER CUSTOM DICTIONARY ====================
+        // Allows users to teach the app new STT corrections that persist per team
+        const CustomDictionary = {
+            _entries: [],    // [{wrong, right, id}]
+            _patterns: [],   // compiled regex patterns
+            _loaded: false,
+
+            async load() {
+                try {
+                    const snap = await DB._col('customDictionary').get();
+                    this._entries = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+                    this._compile();
+                    this._loaded = true;
+                } catch(e) { console.error('CustomDictionary load error:', e); }
+            },
+
+            _compile() {
+                this._patterns = this._entries
+                    .sort((a, b) => b.wrong.length - a.wrong.length)
+                    .map(entry => {
+                        try {
+                            return [new RegExp('\\b' + entry.wrong.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'gi'), entry.right];
+                        } catch(e) { return null; }
+                    }).filter(Boolean);
+            },
+
+            async add(wrong, right) {
+                const entry = { wrong: wrong.toLowerCase().trim(), right: right.trim(), createdAt: new Date().toISOString() };
+                const ref = await DB._col('customDictionary').add(entry);
+                entry.id = ref.id;
+                this._entries.push(entry);
+                this._compile();
+                return entry;
+            },
+
+            async remove(id) {
+                await DB._col('customDictionary').doc(id).delete();
+                this._entries = this._entries.filter(e => e.id !== id);
+                this._compile();
+            },
+
+            apply(text) {
+                if (!text || this._patterns.length === 0) return text;
+                let cleaned = text;
+                for (const [pattern, replacement] of this._patterns) {
+                    cleaned = cleaned.replace(pattern, replacement);
+                }
+                return cleaned;
+            },
+
+            getAll() { return [...this._entries]; }
+        };
+
         // Remove duplicate phrases that occur when user re-dictates
         function removeDuplicatePhrases(text) {
             if (!text || text.length < 20) return text;
@@ -1309,10 +1362,23 @@
 
         function cleanMedicalSpeech(text) {
             if (!text) return text;
+            try {
             let cleaned = text;
 
             // Step 0: Phonetic/fuzzy regex corrections for surgical terms
             // These broad patterns catch the many ways STT garbles medical terminology
+
+            // --- Common short-word mishearings (context-aware) ---
+            // "city abdomen" / "city scan" -> "CT abdomen/scan"
+            cleaned = cleaned.replace(/\bcity\s+(abdomen|pelvis|chest|head|scan|angiogra)/gi, 'CT $1');
+            cleaned = cleaned.replace(/\bcity\b(?=\s+(?:with|without|showed?|reveal|demonstrat|s(?:can|lice)))/gi, 'CT');
+            // "estimate" / "the estimate" -> "ileostomy" in surgical context
+            cleaned = cleaned.replace(/\b(?:the\s+)?(?:estimate|estimating)\s+(?:in\s+place|site|bag|output|stoma)/gi, 'ileostomy $1');
+            cleaned = cleaned.replace(/\b(?:in|end)\s+(?:the\s+)?(?:estimate|estimating)\b/gi, 'end ileostomy');
+            // "would end" -> "with end" / "with an end"
+            cleaned = cleaned.replace(/\bwould\s+end\b/gi, 'with end');
+            // "he must a me" / "hemi must to me" etc for common garbles
+            cleaned = cleaned.replace(/\bin\s+the\s+estimate\s+in\s+place/gi, 'ileostomy in place');
 
             // --- Spelled-out letters ---
             cleaned = cleaned.replace(/\bC\s*[.]?\s*H\s*[.]?\s*O\s*[.]?\s*L\s*[.]?\s*E\b\.?/gi, 'chole');
@@ -1451,6 +1517,9 @@
                 cleaned = cleaned.replace(pattern, replacement);
             }
 
+            // Step 2.5: Apply user custom dictionary corrections
+            cleaned = CustomDictionary.apply(cleaned);
+
             // Step 3: Remove duplicate phrases from re-dictation
             cleaned = removeDuplicatePhrases(cleaned);
 
@@ -1458,6 +1527,7 @@
             cleaned = proofreadDictation(cleaned);
 
             return cleaned;
+            } catch(e) { console.error('cleanMedicalSpeech error:', e); return text; }
         }
 
         // ==================== RED FLAGS DETECTION ====================
@@ -2930,14 +3000,19 @@
             };
 
             const handleSavePatient = async (patientData) => {
-                if (editingPatient?.id) {
-                    await DB.put('patients', { ...patientData, id: editingPatient.id });
-                    setEditingPatient(null);
-                } else {
-                    await DB.add('patients', patientData);
+                try {
+                    if (editingPatient?.id) {
+                        await DB.put('patients', { ...patientData, id: editingPatient.id });
+                        setEditingPatient(null);
+                    } else {
+                        await DB.add('patients', patientData);
+                    }
+                    setShowPatientForm(false);
+                    loadPatients();
+                } catch(err) {
+                    console.error('Error saving patient:', err);
+                    alert('Error saving patient: ' + err.message);
                 }
-                setShowPatientForm(false);
-                loadPatients();
             };
 
             const handleDeletePatient = async (id) => {
@@ -12097,6 +12172,7 @@ To-do: Check AM labs, I/Os q4h`}
             const [isMobile, setIsMobile] = React.useState(window.innerWidth < 768);
             const [showProfile, setShowProfile] = React.useState(false);
             const [showTeamManager, setShowTeamManager] = React.useState(false);
+            const [showDictionary, setShowDictionary] = React.useState(false);
             const [hipaaAccepted, setHipaaAccepted] = React.useState(null); // null = loading, true/false
 
             // Load all teams a user belongs to
@@ -12276,6 +12352,8 @@ To-do: Check AM labs, I/Os q4h`}
                                 } catch (e) { console.error('Error encrypting existing data:', e); }
                             })();
                         }
+                        // Load custom dictionary for this team
+                        CustomDictionary.load().catch(e => console.error('Custom dictionary load error:', e));
                     }).catch(e => console.error('Auto-encryption init failed:', e));
                 }
             }, [teamData, teamId]);
@@ -12846,6 +12924,94 @@ To-do: Check AM labs, I/Os q4h`}
             };
 
             // Profile dropdown component
+            // ==================== SPEECH DICTIONARY MODAL ====================
+            const SpeechDictionaryModal = () => {
+                const [entries, setEntries] = React.useState([]);
+                const [newWrong, setNewWrong] = React.useState('');
+                const [newRight, setNewRight] = React.useState('');
+                const [saving, setSaving] = React.useState(false);
+
+                React.useEffect(() => {
+                    setEntries(CustomDictionary.getAll());
+                }, []);
+
+                const handleAdd = async () => {
+                    if (!newWrong.trim() || !newRight.trim()) return;
+                    setSaving(true);
+                    try {
+                        await CustomDictionary.add(newWrong, newRight);
+                        setEntries(CustomDictionary.getAll());
+                        setNewWrong('');
+                        setNewRight('');
+                    } catch(e) { alert('Error saving: ' + e.message); }
+                    setSaving(false);
+                };
+
+                const handleRemove = async (id) => {
+                    try {
+                        await CustomDictionary.remove(id);
+                        setEntries(CustomDictionary.getAll());
+                    } catch(e) { alert('Error removing: ' + e.message); }
+                };
+
+                return (
+                    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowDictionary(false)}>
+                        <div className="bg-white rounded-2xl w-full max-w-md max-h-[80vh] flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+                            <div className="p-4 border-b border-gray-100">
+                                <div className="flex justify-between items-center mb-1">
+                                    <h2 className="text-lg font-bold text-gray-800">Speech Dictionary</h2>
+                                    <button onClick={() => setShowDictionary(false)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+                                </div>
+                                <p className="text-xs text-gray-500">Teach the app to fix words that dictation gets wrong. When the mic hears the wrong word, it will automatically replace it with the correct one.</p>
+                            </div>
+
+                            <div className="p-4 border-b border-gray-100 bg-slate-50">
+                                <div className="flex gap-2 items-end">
+                                    <div className="flex-1">
+                                        <label className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Mic hears</label>
+                                        <input type="text" value={newWrong} onChange={e => setNewWrong(e.target.value)}
+                                            placeholder="e.g. city" className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm mt-0.5" />
+                                    </div>
+                                    <div className="text-gray-400 text-lg pb-1.5">&rarr;</div>
+                                    <div className="flex-1">
+                                        <label className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Replace with</label>
+                                        <input type="text" value={newRight} onChange={e => setNewRight(e.target.value)}
+                                            placeholder="e.g. CT" className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm mt-0.5"
+                                            onKeyDown={e => e.key === 'Enter' && handleAdd()} />
+                                    </div>
+                                    <button onClick={handleAdd} disabled={saving || !newWrong.trim() || !newRight.trim()}
+                                        className="bg-medical-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-medical-700 disabled:opacity-40 transition shrink-0">
+                                        Add
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="overflow-y-auto flex-1 p-3">
+                                {entries.length === 0 ? (
+                                    <div className="text-center py-8">
+                                        <p className="text-sm text-gray-400">No custom corrections yet.</p>
+                                        <p className="text-xs text-gray-300 mt-1">Add words the mic commonly gets wrong.</p>
+                                    </div>
+                                ) : entries.map(entry => (
+                                    <div key={entry.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+                                        <div className="flex items-center gap-2 text-sm min-w-0">
+                                            <span className="text-red-400 line-through truncate">{entry.wrong}</span>
+                                            <span className="text-gray-300">&rarr;</span>
+                                            <span className="text-green-600 font-medium truncate">{entry.right}</span>
+                                        </div>
+                                        <button onClick={() => handleRemove(entry.id)} className="text-gray-300 hover:text-red-400 text-lg ml-2 shrink-0">&times;</button>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="p-3 border-t border-gray-100 text-center">
+                                <p className="text-[10px] text-gray-400">{entries.length} custom correction{entries.length !== 1 ? 's' : ''} - shared with your team</p>
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
             const ProfileMenu = () => (
                 <div className="relative">
                     <button
@@ -12923,6 +13089,9 @@ To-do: Check AM labs, I/Os q4h`}
                                 <button onClick={() => { setShowTeamManager(true); setShowProfile(false); }} className="w-full text-left px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-md transition">
                                     Manage Teams
                                 </button>
+                                <button onClick={() => { setShowDictionary(true); setShowProfile(false); }} className="w-full text-left px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-md transition">
+                                    Speech Dictionary
+                                </button>
                                 <button onClick={handleSignOut} className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-md transition">
                                     Sign Out
                                 </button>
@@ -12992,6 +13161,7 @@ To-do: Check AM labs, I/Os q4h`}
                 return (
                     <div className="min-h-screen bg-slate-50 flex flex-col">
                         {showTeamManager && <TeamManagerModal />}
+                        {showDictionary && <SpeechDictionaryModal />}
                         <HipaaSetupModal />
                         <GlobalDictateButton />
                         <div className="bg-white border-b border-gray-200 p-3 sticky top-0 z-20 shadow-sm">
@@ -13042,6 +13212,7 @@ To-do: Check AM labs, I/Os q4h`}
             return (
                 <div className="min-h-screen bg-slate-50 flex flex-col">
                     {showTeamManager && <TeamManagerModal />}
+                    {showDictionary && <SpeechDictionaryModal />}
                         <HipaaSetupModal />
                     <div className="bg-white border-b border-gray-200 p-4 sticky top-0 z-20 shadow-sm">
                         <div className="flex justify-between items-center">
@@ -13087,9 +13258,31 @@ To-do: Check AM labs, I/Os q4h`}
             );
         }
 
+        // ==================== ERROR BOUNDARY ====================
+        class ErrorBoundary extends React.Component {
+            constructor(props) { super(props); this.state = { hasError: false, error: null }; }
+            static getDerivedStateFromError(error) { return { hasError: true, error }; }
+            componentDidCatch(error, info) { console.error('ChiefRounds Error:', error, info); }
+            render() {
+                if (this.state.hasError) {
+                    return (
+                        <div style={{padding: '2rem', textAlign: 'center'}}>
+                            <h2 style={{color: '#dc2626', marginBottom: '1rem'}}>Something went wrong</h2>
+                            <p style={{color: '#666', marginBottom: '1rem'}}>{this.state.error?.message}</p>
+                            <button onClick={() => { this.setState({ hasError: false, error: null }); window.location.reload(); }}
+                                style={{background: '#2563eb', color: 'white', padding: '0.5rem 1.5rem', borderRadius: '0.5rem', border: 'none', cursor: 'pointer'}}>
+                                Reload App
+                            </button>
+                        </div>
+                    );
+                }
+                return this.props.children;
+            }
+        }
+
         // ==================== RENDER APP ====================
         const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
+        root.render(<ErrorBoundary><App /></ErrorBoundary>);
     </script>
 </body>
 </html>
