@@ -3070,7 +3070,7 @@
 
             const loadPatients = async () => {
                 const patientsData = await DB.getAll('patients');
-                const active = patientsData.filter(p => p.status !== 'discharged');
+                const active = patientsData.filter(p => p.status !== 'discharged' && !p.deleted);
                 setPatients(active.sort((a, b) => {
                     if (sortBy === 'room') return parseInt(a.room) - parseInt(b.room);
                     if (sortBy === 'pod') return calculatePOD(b.admitDate) - calculatePOD(a.admitDate);
@@ -3090,10 +3090,12 @@
 
             const handleSavePatient = async (patientData) => {
                 try {
+                    // Use id from patientData (passed from form) or editingPatient state
+                    const existingId = patientData.id || editingPatient?.id;
                     let patientId;
-                    if (editingPatient?.id) {
-                        await DB.put('patients', { ...patientData, id: editingPatient.id });
-                        patientId = editingPatient.id;
+                    if (existingId) {
+                        await DB.put('patients', { ...patientData, id: existingId });
+                        patientId = existingId;
                     } else {
                         patientId = await DB.add('patients', patientData);
                     }
@@ -3112,9 +3114,34 @@
             };
 
             const handleDeletePatient = async (id) => {
-                if (confirm('Delete this patient?')) {
-                    await DB.delete('patients', id);
+                if (confirm('Delete this patient? You can restore them later from the Deleted Patients section.')) {
+                    const patient = patients.find(p => p.id === id);
+                    if (patient) {
+                        await DB.put('patients', { ...patient, deleted: true, deletedAt: new Date().toISOString(), deletedBy: currentUser?.displayName || currentUser?.email || 'Unknown' });
+                    }
                     loadPatients();
+                }
+            };
+
+            const [showDeletedPatients, setShowDeletedPatients] = React.useState(false);
+            const [deletedPatients, setDeletedPatients] = React.useState([]);
+
+            const loadDeletedPatients = async () => {
+                const allPatients = await DB.getAll('patients');
+                setDeletedPatients(allPatients.filter(p => p.deleted));
+            };
+
+            const handleRestorePatient = async (patient) => {
+                const { deleted, deletedAt, deletedBy, ...restored } = patient;
+                await DB.put('patients', { ...restored, id: patient.id });
+                loadPatients();
+                loadDeletedPatients();
+            };
+
+            const handlePermanentDelete = async (id) => {
+                if (confirm('Permanently delete this patient? This cannot be undone.')) {
+                    await DB.delete('patients', id);
+                    loadDeletedPatients();
                 }
             };
 
@@ -3981,6 +4008,40 @@
                         )}
                     </div>}
 
+                    {/* Deleted Patients */}
+                    <div className="mt-6">
+                        <button onClick={() => { setShowDeletedPatients(!showDeletedPatients); if (!showDeletedPatients) loadDeletedPatients(); }}
+                            className="text-sm text-gray-400 hover:text-gray-600 flex items-center gap-1">
+                            {showDeletedPatients ? '▼' : '▶'} Deleted Patients ({deletedPatients.length})
+                        </button>
+                        {showDeletedPatients && (
+                            <div className="mt-2 space-y-2">
+                                {deletedPatients.length === 0 ? (
+                                    <p className="text-sm text-gray-400 italic ml-4">No deleted patients</p>
+                                ) : deletedPatients.map(p => (
+                                    <div key={p.id} className="bg-gray-50 border border-gray-200 rounded-lg p-3 flex items-center justify-between">
+                                        <div>
+                                            <span className="font-medium text-gray-600">Room {p.room}</span>
+                                            <span className="text-gray-400 mx-2">-</span>
+                                            <span className="text-gray-500 text-sm">{p.diagnosis}</span>
+                                            <p className="text-xs text-gray-400 mt-0.5">Deleted {p.deletedAt ? new Date(p.deletedAt).toLocaleDateString() : 'unknown'} by {p.deletedBy || 'unknown'}</p>
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <button onClick={() => handleRestorePatient(p)}
+                                                className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-sm rounded font-medium">
+                                                Restore
+                                            </button>
+                                            <button onClick={() => handlePermanentDelete(p.id)}
+                                                className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-sm rounded font-medium">
+                                                Delete Forever
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
                     {/* Modals */}
                     {showPatientForm && (
                         <PatientFormModal
@@ -4036,7 +4097,7 @@
                 const tasksData = await DB.getAll('tasks');
 
                 // Filter out discharged, sort: red flags first, then by room
-                const sorted = patientsData.filter(p => p.status !== 'discharged').sort((a, b) => {
+                const sorted = patientsData.filter(p => p.status !== 'discharged' && !p.deleted).sort((a, b) => {
                     if ((b.concerns ? 1 : 0) !== (a.concerns ? 1 : 0)) {
                         return (b.concerns ? 1 : 0) - (a.concerns ? 1 : 0);
                     }
@@ -4664,7 +4725,7 @@
             const loadData = async () => {
                 const patientsData = await DB.getAll('patients');
                 let tasksData = await DB.getAll('tasks');
-                const activePatients = patientsData.filter(p => p.status !== 'discharged');
+                const activePatients = patientsData.filter(p => p.status !== 'discharged' && !p.deleted);
                 setPatients(activePatients.sort((a, b) => parseInt(a.room) - parseInt(b.room)));
 
                 // Auto-populate recurring tasks for today
@@ -5828,7 +5889,7 @@
                 loadPatients();
             };
 
-            const activePatients = patients.filter(p => p.status !== 'discharged');
+            const activePatients = patients.filter(p => p.status !== 'discharged' && !p.deleted);
             const dischargedToday = patients.filter(p => p.status === 'discharged' && p.dischargeDate &&
                 formatDate(p.dischargeDate) === getTodayDateString());
 
@@ -6492,7 +6553,7 @@
 
             const loadPatients = async () => {
                 const allPatients = await DB.getAll('patients');
-                const active = allPatients.filter(p => p.status !== 'discharged').sort((a, b) => parseInt(a.room) - parseInt(b.room));
+                const active = allPatients.filter(p => p.status !== 'discharged' && !p.deleted).sort((a, b) => parseInt(a.room) - parseInt(b.room));
                 setPatients(active);
 
                 const allTasks = await DB.getAll('tasks');
@@ -6591,7 +6652,7 @@
 
                     for (const parsed of parsedImport) {
                         // Check if a patient with this room already exists (and is not discharged)
-                        const existing = existingPatients.find(p => p.room === parsed.room && p.status !== 'discharged');
+                        const existing = existingPatients.find(p => p.room === parsed.room && p.status !== 'discharged' && !p.deleted);
 
                         let patientId;
 
@@ -7173,7 +7234,7 @@ To-do: Check AM labs, I/Os q4h`}
 
             const loadPatients = async () => {
                 const allPatients = await DB.getAll('patients');
-                const active = allPatients.filter(p => p.status !== 'discharged').sort((a, b) => parseInt(a.room) - parseInt(b.room));
+                const active = allPatients.filter(p => p.status !== 'discharged' && !p.deleted).sort((a, b) => parseInt(a.room) - parseInt(b.room));
                 setPatients(active);
 
                 const today = getTodayISO();
@@ -7514,7 +7575,7 @@ To-do: Check AM labs, I/Os q4h`}
 
             const loadPatients = async () => {
                 const allPatients = await DB.getAll('patients');
-                const active = allPatients.filter(p => p.status !== 'discharged').sort((a, b) => parseInt(a.room) - parseInt(b.room));
+                const active = allPatients.filter(p => p.status !== 'discharged' && !p.deleted).sort((a, b) => parseInt(a.room) - parseInt(b.room));
                 setPatients(active);
                 if (active.length > 0 && !selectedPatientId) {
                     setSelectedPatientId(active[0].id);
@@ -11632,7 +11693,7 @@ To-do: Check AM labs, I/Os q4h`}
             };
             const loadPatients = async () => {
                 const all = await DB.getAll('patients');
-                setPatients((all || []).filter(p => p.status !== 'discharged'));
+                setPatients((all || []).filter(p => p.status !== 'discharged' && !p.deleted));
             };
 
             const loadSurgeonPrefs = async () => {
@@ -13000,7 +13061,7 @@ To-do: Check AM labs, I/Os q4h`}
                 const confs = await DB.getAll('caseConference');
                 setConferences((confs || []).sort((a, b) => (b.date || '').localeCompare(a.date || '')));
                 const pts = await DB.getAll('patients');
-                setPatients((pts || []).filter(p => p.status !== 'discharged'));
+                setPatients((pts || []).filter(p => p.status !== 'discharged' && !p.deleted));
                 const cp = await DB.getAll('casePrep');
                 setCasePrepData(cp || []);
             };
@@ -14017,7 +14078,7 @@ To-do: Check AM labs, I/Os q4h`}
                 React.useEffect(() => {
                     (async () => {
                         try {
-                            const patients = (await DB.getAll('patients')).filter(p => p.status !== 'discharged');
+                            const patients = (await DB.getAll('patients')).filter(p => p.status !== 'discharged' && !p.deleted);
                             const tasks = await DB.getAll('tasks');
                             const incomplete = tasks.filter(t => !t.completed).length;
                             const today = getTodayISO();
