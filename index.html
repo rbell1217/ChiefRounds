@@ -5118,6 +5118,7 @@
             const [ifsThens, setIfsThens] = React.useState({});
             const [contactInfo, setContactInfo] = React.useState({});
             const [activePatientId, setActivePatientId] = React.useState(null);
+            const [tasks, setTasks] = React.useState([]);
             const [showImportModal, setShowImportModal] = React.useState(false);
             const [importText, setImportText] = React.useState('');
             const [parsedImport, setParsedImport] = React.useState(null);
@@ -5134,6 +5135,9 @@
                 const active = allPatients.filter(p => p.status !== 'discharged').sort((a, b) => parseInt(a.room) - parseInt(b.room));
                 setPatients(active);
 
+                const allTasks = await DB.getAll('tasks');
+                setTasks(allTasks.filter(t => !t.completed));
+
                 const plans = {};
                 const ifs = {};
                 const contact = {};
@@ -5145,6 +5149,28 @@
                 setHandoffPlans(plans);
                 setIfsThens(ifs);
                 setContactInfo(contact);
+            };
+
+            const getPatientTasks = (patientId) => tasks.filter(t => t.patientId === patientId);
+
+            const getPatientWarnings = (patient) => {
+                const warnings = [];
+                if (patient.concerns) warnings.push({ type: 'concern', text: patient.concerns });
+                const pod = calculatePOD(patient.admitDate);
+                if (pod >= 7) warnings.push({ type: 'los', text: 'Extended LOS (POD ' + pod + ')' });
+                if ((patient.problems || []).some(p => /sepsis|aki|pe\b|dvt|hemorrh|bleed/i.test(p))) {
+                    warnings.push({ type: 'critical', text: 'Active critical problem: ' + (patient.problems || []).filter(p => /sepsis|aki|pe\b|dvt|hemorrh|bleed/i.test(p)).join(', ') });
+                }
+                if (patient.antibiotics && patient.antibiotics.length > 0) {
+                    patient.antibiotics.filter(a => !a.stoppedDate).forEach(a => {
+                        const startDate = a.startDate || a.startedAt;
+                        if (startDate) {
+                            const days = Math.floor((new Date() - new Date(startDate)) / 86400000);
+                            if (days >= 7) warnings.push({ type: 'abx', text: a.name + ' day ' + days + ' - review antibiotic duration' });
+                        }
+                    });
+                }
+                return warnings;
             };
 
             const handleAutoGenerate = async () => {
@@ -5424,46 +5450,139 @@
                             if (!a.isTrauma && b.isTrauma) return 1;
                             return parseInt(a.room) - parseInt(b.room);
                         }).map(patient => (
-                            <div key={patient.id} className={`bg-white border rounded-xl p-4 ${patient.isTrauma ? 'border-red-500 border-l-4 border-l-red-600 bg-red-50/30' : 'border-gray-200'}`}>
-                                <div className="grid grid-cols-4 gap-3 mb-4 text-sm">
-                                    <div className={`font-bold ${patient.isTrauma ? 'text-red-600' : 'text-medical-600'}`}>Room {patient.room} {patient.isTrauma && <span className="text-xs bg-red-500 text-white px-1.5 py-0.5 rounded ml-1">{patient.traumaLevel || 'T'}</span>}</div>
-                                    <div className="text-gray-600">{patient.diagnosis || 'N/A'}</div>
-                                    <div className="text-amber-600">POD {calculatePOD(patient.admitDate)}</div>
-                                    <div className="text-gray-600">{patient.codeStatus || 'FULL'}</div>
+                            <div key={patient.id} className={`bg-white border rounded-xl overflow-hidden ${patient.isTrauma ? 'border-red-500 border-l-4 border-l-red-600' : 'border-gray-200'}`}>
+                                {/* Header */}
+                                <div className={`px-4 py-3 ${patient.isTrauma ? 'bg-red-50' : 'bg-gray-50'} border-b border-gray-200`}>
+                                    <div className="flex justify-between items-center">
+                                        <div className="flex items-center gap-3">
+                                            <span className={`font-bold text-lg ${patient.isTrauma ? 'text-red-600' : 'text-medical-600'}`}>
+                                                Room {patient.room}
+                                                {patient.isTrauma && <span className="text-xs bg-red-500 text-white px-1.5 py-0.5 rounded ml-2">{patient.traumaLevel || 'T'}</span>}
+                                            </span>
+                                            <span className="text-gray-600 font-medium">{patient.diagnosis || 'N/A'}</span>
+                                        </div>
+                                        <div className="flex items-center gap-3 text-sm">
+                                            <span className="text-amber-600 font-semibold">POD {calculatePOD(patient.admitDate)}</span>
+                                            <span className="text-gray-500">{patient.codeStatus || 'Full Code'}</span>
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-4 mt-2 text-xs text-gray-500">
+                                        <span>Diet: <strong className="text-gray-700">{patient.diet || 'N/A'}</strong></span>
+                                        <span>Activity: <strong className="text-gray-700">{patient.activity || 'N/A'}</strong></span>
+                                        <span>DVT: <strong className="text-gray-700">{patient.dvtProphylaxis || 'N/A'}</strong></span>
+                                        <span>GI: <strong className="text-gray-700">{patient.giProphylaxis || 'N/A'}</strong></span>
+                                    </div>
+                                    {((patient.pmh && patient.pmh.length > 0) || (patient.allergies && patient.allergies.length > 0)) && (
+                                        <div className="flex gap-4 mt-1 text-xs text-gray-500">
+                                            {patient.pmh && patient.pmh.length > 0 && <span>PMH: <strong className="text-gray-700">{patient.pmh.join(', ')}</strong></span>}
+                                            {patient.allergies && patient.allergies.length > 0 && <span>Allergies: <strong className="text-red-600">{patient.allergies.join(', ')}</strong></span>}
+                                        </div>
+                                    )}
                                 </div>
 
-                                <div className="space-y-3">
-                                    <div>
-                                        <label className="text-xs text-gray-500 font-semibold">Brief Summary</label>
-                                        <textarea value={handoffPlans[patient.id] || ''} onChange={(e) => setHandoffPlans({...handoffPlans, [patient.id]: e.target.value})}
-                                            className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded text-gray-600 text-sm"
-                                            rows="2" placeholder="Treatment plan and key points"/>
-                                    </div>
+                                <div className="p-4 space-y-3">
+                                    {/* Active Problems */}
+                                    {patient.problems && patient.problems.length > 0 && (
+                                        <div>
+                                            <p className="text-xs font-semibold text-gray-500 mb-1">ACTIVE PROBLEMS</p>
+                                            <div className="flex flex-wrap gap-1">
+                                                {patient.problems.map((prob, i) => (
+                                                    <span key={i} className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded">{prob}</span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
 
+                                    {/* Today's Rounds Summary */}
+                                    {patient.roundsHistory && patient.roundsHistory[getTodayISO()] && (
+                                        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-2">
+                                            <p className="text-xs font-semibold text-emerald-700 mb-1">TODAY'S ROUNDS</p>
+                                            {(() => {
+                                                const r = patient.roundsHistory[getTodayISO()];
+                                                const p = r.parsed || r;
+                                                return (
+                                                    <div className="text-xs text-gray-700 space-y-0.5">
+                                                        {p.subjective && <p><span className="font-semibold text-blue-700">S:</span> {p.subjective}</p>}
+                                                        {p.assessment && <p><span className="font-semibold text-indigo-700">A:</span> {p.assessment}</p>}
+                                                        {p.plan && <p><span className="font-semibold text-purple-700">P:</span> {p.plan}</p>}
+                                                        {p.diet && <p>Diet: {p.diet} | Activity: {p.activity || ''}</p>}
+                                                    </div>
+                                                );
+                                            })()}
+                                        </div>
+                                    )}
+
+                                    {/* Brief Summary / Overnight Plan */}
                                     <div>
                                         <div className="flex items-center justify-between mb-1">
-                                            <label className="text-xs text-gray-500 font-semibold">Overnight Plan</label>
+                                            <label className="text-xs font-semibold text-gray-500">OVERNIGHT PLAN</label>
                                             <button onClick={() => setActivePatientId(activePatientId === patient.id ? null : patient.id)}
-                                                className={`text-xs px-2 py-1 rounded transition ${activePatientId === patient.id ? 'bg-medical-600 text-white' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'}`}>
-                                                {activePatientId === patient.id ? '✓ Active' : 'Set Active'}
+                                                className={`text-xs px-2 py-0.5 rounded transition ${activePatientId === patient.id ? 'bg-medical-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                                                {activePatientId === patient.id ? 'Active' : 'Set Active'}
                                             </button>
                                         </div>
                                         <textarea value={handoffPlans[patient.id] || ''} onChange={(e) => setHandoffPlans({...handoffPlans, [patient.id]: e.target.value})}
-                                            className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded text-gray-600 text-sm"
+                                            className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded text-gray-700 text-sm"
                                             rows="2" placeholder="Continue current management..."/>
                                     </div>
 
+                                    {/* If/Then */}
                                     <div>
-                                        <label className="text-xs text-gray-500 font-semibold">If/Then Plan</label>
+                                        <label className="text-xs font-semibold text-gray-500">IF/THEN</label>
                                         <textarea value={ifsThens[patient.id] || ''} onChange={(e) => setIfsThens({...ifsThens, [patient.id]: e.target.value})}
-                                            className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded text-gray-600 text-sm"
-                                            rows="2" placeholder="E.g., If temp >38.5, then blood cultures x2"/>
+                                            className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded text-gray-700 text-sm"
+                                            rows="1" placeholder="If temp >38.5, then blood cultures x2..."/>
                                     </div>
 
+                                    {/* To-Do Tasks */}
+                                    {(() => {
+                                        const ptTasks = getPatientTasks(patient.id);
+                                        if (ptTasks.length === 0) return null;
+                                        return (
+                                            <div>
+                                                <p className="text-xs font-semibold text-gray-500 mb-1">TO-DO ({ptTasks.length})</p>
+                                                <div className="space-y-1">
+                                                    {ptTasks.slice(0, 5).map(task => (
+                                                        <div key={task.id} className="flex items-center gap-2 text-xs bg-gray-50 rounded px-2 py-1.5">
+                                                            <span className={`w-2 h-2 rounded-full shrink-0 ${task.priority === 'High' ? 'bg-red-500' : task.priority === 'Medium' ? 'bg-amber-500' : 'bg-gray-400'}`}></span>
+                                                            <span className="text-gray-700 flex-1">{task.description}</span>
+                                                            {task.category && <span className="text-gray-400">{task.category}</span>}
+                                                        </div>
+                                                    ))}
+                                                    {ptTasks.length > 5 && <p className="text-xs text-gray-400">+{ptTasks.length - 5} more tasks</p>}
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
+
+                                    {/* Warnings & Concerns */}
+                                    {(() => {
+                                        const warnings = getPatientWarnings(patient);
+                                        if (warnings.length === 0) return null;
+                                        return (
+                                            <div>
+                                                <p className="text-xs font-semibold text-red-600 mb-1">WARNINGS & CONCERNS</p>
+                                                <div className="space-y-1">
+                                                    {warnings.map((w, i) => (
+                                                        <div key={i} className={`flex items-start gap-2 text-xs rounded px-2 py-1.5 ${
+                                                            w.type === 'critical' ? 'bg-red-50 text-red-700 border border-red-200' :
+                                                            w.type === 'abx' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                                                            'bg-yellow-50 text-yellow-700 border border-yellow-200'
+                                                        }`}>
+                                                            <span className="shrink-0">{w.type === 'critical' ? '🔴' : w.type === 'abx' ? '💊' : '⚠️'}</span>
+                                                            <span>{w.text}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
+
+                                    {/* Contact Info */}
                                     <div>
-                                        <label className="text-xs text-gray-500 font-semibold">Contact Info</label>
+                                        <label className="text-xs font-semibold text-gray-500">CONTACT</label>
                                         <input type="text" value={contactInfo[patient.id] || ''} onChange={(e) => setContactInfo({...contactInfo, [patient.id]: e.target.value})}
-                                            className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded text-gray-600 text-sm"
+                                            className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded text-gray-700 text-sm"
                                             placeholder="Phone/Contact"/>
                                     </div>
                                 </div>
@@ -6970,6 +7089,9 @@ To-do: Check AM labs, I/Os q4h`}
             const [quickTranscript, setQuickTranscript] = React.useState('');
             const [quickListening, setQuickListening] = React.useState(false);
             const quickRecognitionRef = React.useRef(null);
+            const [hpNote, setHpNote] = React.useState(null);
+            const [hpData, setHpData] = React.useState(null);
+            const [hpCopied, setHpCopied] = React.useState(false);
             const [form, setForm] = React.useState({
                 patientId: '', service: '', reason: '', urgency: 'Routine',
                 requestedBy: '', requestTime: new Date().toISOString().slice(0, 16),
@@ -7031,11 +7153,124 @@ To-do: Check AM labs, I/Os q4h`}
                 }
             };
 
+            const parseToHP = (rawText) => {
+                const t = rawText.trim();
+                const lower = t.toLowerCase();
+                const hp = { cc: '', hpi: '', pmh: [], psh: [], meds: [], allergies: [], ros: '', pe: '', labs: '', assessment: '', plan: '', age: '', gender: '', room: '', diagnosis: '' };
+
+                // Chief Complaint - first sentence or reason for consult
+                const ccMatch = t.match(/(?:chief\s*complaint|cc|reason\s*(?:for)?\s*(?:consult|admission)|presenting\s*(?:with|for))[:\s]+(.+?)(?:\.|$)/i);
+                if (ccMatch) hp.cc = ccMatch[1].trim();
+                else {
+                    // Use first sentence as CC
+                    const firstSent = t.match(/^(.+?)[.!]/);
+                    if (firstSent) hp.cc = firstSent[1].trim();
+                }
+
+                // Room
+                const roomMatch = t.match(/(?:room|rm)\s*(\d+)/i);
+                if (roomMatch) hp.room = roomMatch[1];
+
+                // Age/Gender
+                const ageMatch = t.match(/(\d{1,3})\s*(?:year[s\-\s]*old|y\.?o\.?|yo)\s*(male|female|man|woman|m|f)\b/i);
+                if (ageMatch) { hp.age = ageMatch[1]; hp.gender = ageMatch[2].charAt(0).toUpperCase(); }
+
+                // HPI - everything from start or after CC to next section
+                const hpiMatch = t.match(/(?:hpi|history\s*of\s*present\s*illness)[:\s]+(.+?)(?=\b(?:pmh|past\s*medical|psh|past\s*surgical|medications|meds|allergies|ros|review|physical\s*exam|pe|labs|assessment|plan)\b)/is);
+                if (hpiMatch) hp.hpi = hpiMatch[1].trim();
+                else if (!hp.cc) {
+                    // If no labeled sections, treat the bulk as HPI
+                    hp.hpi = t.substring(0, 500);
+                }
+
+                // PMH
+                const pmhMatch = t.match(/(?:pmh|past\s*medical\s*history|medical\s*history)[:\s]+(.+?)(?=\b(?:psh|past\s*surgical|medications|meds|allergies|ros|review|physical|pe|labs|assessment|plan|$))/is);
+                if (pmhMatch) hp.pmh = pmhMatch[1].split(/[,;]/).map(s => s.trim()).filter(s => s.length > 1);
+                // Also detect inline
+                const inlinePmh = [];
+                if (/\b(?:htn|hypertension)\b/i.test(lower)) inlinePmh.push('HTN');
+                if (/\b(?:dm|dm2|diabetes|diabetic)\b/i.test(lower)) inlinePmh.push('DM2');
+                if (/\b(?:copd)\b/i.test(lower)) inlinePmh.push('COPD');
+                if (/\b(?:chf|heart\s*failure)\b/i.test(lower)) inlinePmh.push('CHF');
+                if (/\b(?:cad|coronary)\b/i.test(lower)) inlinePmh.push('CAD');
+                if (/\b(?:ckd|chronic\s*kidney)\b/i.test(lower)) inlinePmh.push('CKD');
+                if (/\b(?:afib|atrial\s*fib)\b/i.test(lower)) inlinePmh.push('Afib');
+                if (/\b(?:hld|hyperlipidemia)\b/i.test(lower)) inlinePmh.push('HLD');
+                if (/\b(?:obesity|obese|bmi\s*>\s*3)/i.test(lower)) inlinePmh.push('Obesity');
+                if (/\b(?:asthma)\b/i.test(lower)) inlinePmh.push('Asthma');
+                if (/\b(?:cirrhosis|liver\s*disease)\b/i.test(lower)) inlinePmh.push('Cirrhosis');
+                if (/\b(?:gerd|reflux)\b/i.test(lower)) inlinePmh.push('GERD');
+                inlinePmh.forEach(p => { if (!hp.pmh.some(e => e.toLowerCase().includes(p.toLowerCase()))) hp.pmh.push(p); });
+
+                // PSH
+                const pshMatch = t.match(/(?:psh|past\s*surgical\s*history|surgical\s*history|prior\s*surgeries)[:\s]+(.+?)(?=\b(?:medications|meds|allergies|ros|review|physical|pe|labs|assessment|plan|$))/is);
+                if (pshMatch) hp.psh = pshMatch[1].split(/[,;]/).map(s => s.trim()).filter(s => s.length > 1);
+
+                // Medications
+                const medsMatch = t.match(/(?:medications|meds|home\s*(?:meds|medications))[:\s]+(.+?)(?=\b(?:allergies|ros|review|physical|pe|labs|assessment|plan|$))/is);
+                if (medsMatch) hp.meds = medsMatch[1].split(/[,;]/).map(s => s.trim()).filter(s => s.length > 1);
+
+                // Allergies
+                const allergiesMatch = t.match(/(?:allergies|allergy|nkda)[:\s]+(.+?)(?=\b(?:ros|review|physical|pe|labs|assessment|plan|chief|hpi|$))/is);
+                if (allergiesMatch) {
+                    const allText = allergiesMatch[1].trim();
+                    if (/nkda|no\s*known/i.test(allText)) hp.allergies = ['NKDA'];
+                    else hp.allergies = allText.split(/[,;]/).map(s => s.trim()).filter(s => s.length > 1);
+                }
+                if (/\bnkda\b/i.test(lower) && hp.allergies.length === 0) hp.allergies = ['NKDA'];
+
+                // ROS
+                const rosMatch = t.match(/(?:ros|review\s*of\s*systems)[:\s]+(.+?)(?=\b(?:physical|pe|labs|assessment|plan|$))/is);
+                if (rosMatch) hp.ros = rosMatch[1].trim();
+
+                // Physical Exam
+                const peMatch = t.match(/(?:physical\s*exam|pe|exam(?:ination)?)[:\s]+(.+?)(?=\b(?:labs|assessment|plan|impression|$))/is);
+                if (peMatch) hp.pe = peMatch[1].trim();
+                // Inline exam findings
+                const examParts = [];
+                if (/(?:alert|oriented|a&o)/i.test(lower)) examParts.push('A&Ox3');
+                if (/(?:clear\s*to\s*auscultation|cta)/i.test(lower)) examParts.push('Lungs CTA bilat');
+                if (/(?:rrr|regular\s*rate)/i.test(lower)) examParts.push('Heart RRR');
+                if (/(?:soft|nt|nd|non.?tender|non.?distended)/i.test(lower) && /(?:abd|belly)/i.test(lower)) examParts.push('Abd soft, NT/ND');
+                if (/(?:wound|incision)\s*(?:clean|cdi|c\/d\/i|intact)/i.test(lower)) examParts.push('Wound CDI');
+                if (!hp.pe && examParts.length > 0) hp.pe = examParts.join('. ');
+
+                // Labs
+                const labsMatch = t.match(/(?:labs?|laboratory|results)[:\s]+(.+?)(?=\b(?:assessment|plan|impression|$))/is);
+                if (labsMatch) hp.labs = labsMatch[1].trim();
+
+                // Assessment/Plan
+                const apMatch = t.match(/(?:assessment\s*(?:and|&)?\s*plan|a\/?p|plan|impression)[:\s]+(.+?)$/is);
+                if (apMatch) hp.plan = apMatch[1].trim();
+
+                // Diagnosis
+                const dxMatch = t.match(/(?:diagnosis|dx|s\/p|status\s*post)[:\s]+(.+?)(?:\.|,|$)/i);
+                if (dxMatch) hp.diagnosis = dxMatch[1].trim();
+                else if (hp.cc) hp.diagnosis = hp.cc;
+
+                return hp;
+            };
+
+            const formatHP = (hp) => {
+                let note = '';
+                note += '=== HISTORY & PHYSICAL ===\n\n';
+                if (hp.cc) note += 'CHIEF COMPLAINT:\n' + hp.cc + '\n\n';
+                if (hp.hpi) note += 'HISTORY OF PRESENT ILLNESS:\n' + hp.hpi + '\n\n';
+                if (hp.pmh.length > 0) note += 'PAST MEDICAL HISTORY:\n' + hp.pmh.map(p => '- ' + p).join('\n') + '\n\n';
+                if (hp.psh.length > 0) note += 'PAST SURGICAL HISTORY:\n' + hp.psh.map(p => '- ' + p).join('\n') + '\n\n';
+                if (hp.meds.length > 0) note += 'MEDICATIONS:\n' + hp.meds.map(m => '- ' + m).join('\n') + '\n\n';
+                if (hp.allergies.length > 0) note += 'ALLERGIES:\n' + hp.allergies.join(', ') + '\n\n';
+                if (hp.ros) note += 'REVIEW OF SYSTEMS:\n' + hp.ros + '\n\n';
+                if (hp.pe) note += 'PHYSICAL EXAMINATION:\n' + hp.pe + '\n\n';
+                if (hp.labs) note += 'LABS/RESULTS:\n' + hp.labs + '\n\n';
+                if (hp.plan) note += 'ASSESSMENT & PLAN:\n' + hp.plan + '\n\n';
+                return note.trim();
+            };
+
             const saveQuickConsult = async () => {
                 const parsed = parseConsultSpeech(quickTranscript);
                 if (!parsed.service || !parsed.reason) {
-                    alert('Could not parse service and reason from speech. Please check the transcript.');
-                    return;
+                    // Try H&P parse if consult parse fails - still save
                 }
 
                 const patientId = parsed.patientId ? Number(parsed.patientId) : null;
@@ -7059,9 +7294,57 @@ To-do: Check AM labs, I/Os q4h`}
                 };
 
                 await DB.add('consults', data);
+
+                // Generate H&P from transcript
+                const hp = parseToHP(quickTranscript);
+                const formatted = formatHP(hp);
+                setHpNote(formatted);
+                setHpData(hp);
+                setHpCopied(false);
+
                 setQuickTranscript('');
-                setShowQuickDictate(false);
                 loadData();
+            };
+
+            const createPatientFromHP = async () => {
+                if (!hpData) return;
+                await DB.add('patients', {
+                    room: hpData.room || '',
+                    diagnosis: hpData.diagnosis || hpData.cc || '',
+                    problems: [],
+                    procedures: [],
+                    pmh: hpData.pmh || [],
+                    psh: hpData.psh || [],
+                    homeMeds: hpData.meds || [],
+                    allergies: hpData.allergies || [],
+                    antibiotics: [],
+                    examFindings: hpData.pe || '',
+                    treatmentPlan: hpData.plan || '',
+                    diet: 'Regular',
+                    activity: 'Ambulate TID',
+                    dvtProphylaxis: 'Heparin 5000 TID',
+                    giProphylaxis: 'Pantoprazole',
+                    dispositionPlan: '',
+                    concerns: '',
+                    codeStatus: 'Full Code',
+                    admitDate: getTodayISO(),
+                    status: 'active',
+                    fromConsult: true,
+                    createdAt: new Date().toISOString()
+                });
+                loadData();
+                alert('Patient added to your list from H&P.');
+                setHpNote(null);
+                setHpData(null);
+            };
+
+            const copyHP = () => {
+                if (hpNote) {
+                    navigator.clipboard.writeText(hpNote).then(() => {
+                        setHpCopied(true);
+                        setTimeout(() => setHpCopied(false), 2000);
+                    });
+                }
             };
 
             const loadData = async () => {
@@ -7157,6 +7440,31 @@ To-do: Check AM labs, I/Os q4h`}
                                     Clear
                                 </button>
                             </div>
+                        </div>
+                    )}
+
+                    {hpNote && (
+                        <div className="bg-white border border-emerald-200 rounded-xl p-4 mb-4">
+                            <div className="flex items-center justify-between mb-3">
+                                <h3 className="font-bold text-emerald-700">Generated H&P</h3>
+                                <div className="flex gap-2">
+                                    <button onClick={copyHP}
+                                        className={`px-3 py-1 rounded text-sm font-medium ${hpCopied ? 'bg-emerald-600 text-white' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'}`}>
+                                        {hpCopied ? 'Copied!' : 'Copy H&P'}
+                                    </button>
+                                    <button onClick={createPatientFromHP}
+                                        className="px-3 py-1 rounded text-sm font-medium bg-medical-600 text-white hover:bg-medical-700">
+                                        Create Patient
+                                    </button>
+                                    <button onClick={() => { setHpNote(null); setHpData(null); }}
+                                        className="px-3 py-1 rounded text-sm font-medium bg-gray-200 text-gray-700 hover:bg-gray-300">
+                                        Dismiss
+                                    </button>
+                                </div>
+                            </div>
+                            <pre className="whitespace-pre-wrap text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg p-4 max-h-96 overflow-y-auto font-mono leading-relaxed select-all">
+                                {hpNote}
+                            </pre>
                         </div>
                     )}
 
