@@ -7538,6 +7538,80 @@ To-do: Check AM labs, I/Os q4h`}
                 setParsedItems(parsed);
             };
 
+            const parsePE = () => {
+                let t = transcript.trim();
+                if (!t) return;
+                const lower = t.toLowerCase();
+                const examParts = [];
+
+                // Explicit exam statement patterns
+                const examPatterns = [
+                    /(?:exam|on\s*exam|physical\s*exam|examination|pe)\s*(?:shows?|reveals?|notable\s*for|significant\s*for|is|was|:)?\s*(.+?)(?:\.|$)/i,
+                    /(?:abdomen|abd|belly)\s+(?:is\s+)?(.+?)(?:\.|$)/i,
+                    /(?:lungs?|chest|breath\s*sounds?)\s+(?:is|are\s+)?(.+?)(?:\.|$)/i,
+                    /(?:heart|cardiac)\s+(?:is\s+)?(.+?)(?:\.|$)/i,
+                    /(?:extremit(?:y|ies)|legs?|arms?)\s+(?:is|are\s+)?(.+?)(?:\.|$)/i,
+                    /(?:wound|incision|surgical\s*site|staples|sutures)\s+(?:is|are\s+)?(.+?)(?:\.|$)/i,
+                    /(?:drain|jp|jackson.pratt)\s+(?:is\s+)?(.+?)(?:\.|$)/i,
+                    /(?:neuro|neurological)\s+(?:is\s+)?(.+?)(?:\.|$)/i,
+                ];
+                examPatterns.forEach(re => {
+                    const m = t.match(re);
+                    if (m && m[1].trim().length > 1) examParts.push(m[1].trim());
+                });
+
+                // Specific finding keywords
+                if (/(?:soft|non.?tender|non.?distended|nd|nt|nontender|nondistended)/i.test(lower) && /(?:abd|abdom|belly)/i.test(lower)) examParts.push('Abd soft, NT/ND');
+                else if (/(?:tender|distended|rigid|guarding|rebound)/i.test(lower) && /(?:abd|abdom|belly)/i.test(lower)) {
+                    const findings = [];
+                    if (/tender/i.test(lower)) findings.push('tender');
+                    if (/distended/i.test(lower)) findings.push('distended');
+                    if (/rigid/i.test(lower)) findings.push('rigid');
+                    if (/guarding/i.test(lower)) findings.push('guarding');
+                    if (/rebound/i.test(lower)) findings.push('rebound');
+                    examParts.push('Abd ' + findings.join(', '));
+                }
+                if (/(?:clear\s*to\s*auscultation|cta\s*bilat|ctab|clear\s*bilat)/i.test(lower)) examParts.push('Lungs CTA bilaterally');
+                if (/(?:crackles|rales|rhonchi|wheez|diminished\s*(?:breath|lung)|decreased\s*(?:breath|lung))/i.test(lower)) {
+                    const m = t.match(/(crackles|rales|rhonchi|wheez\w*|diminished\s*breath\s*sounds?|decreased\s*breath\s*sounds?)/i);
+                    if (m) examParts.push('Lungs: ' + m[1]);
+                }
+                if (/(?:rrr|regular\s*rate\s*(?:and|&)\s*rhythm)/i.test(lower)) examParts.push('Heart RRR');
+                if (/(?:murmur|gallop|irregular)/i.test(lower)) {
+                    const m = t.match(/(murmur|gallop|irregular\w*)/i);
+                    if (m) examParts.push('Heart: ' + m[1]);
+                }
+                if (/bowel\s*sounds?\s*(?:present|positive|active|normal|\+)/i.test(lower)) examParts.push('BS present');
+                if (/(?:no|absent|diminished|hypoactive)\s*bowel\s*sounds?/i.test(lower)) examParts.push('BS diminished');
+                if (/wound\s*(?:clean|healing|dry|intact|c\/d\/i|cdi|well.?healed)/i.test(lower)) examParts.push('Wound clean/dry/intact');
+                if (/wound\s*(?:open|draining|erythema|red|infected|dehisc)/i.test(lower)) examParts.push('Wound with concerning findings');
+                if (/(?:no\s+)?edema|swelling/i.test(lower)) {
+                    if (/no\s+(?:edema|swelling)/i.test(lower)) examParts.push('No edema');
+                    else examParts.push('Edema noted');
+                }
+                if (/drain\s*(?:output|putting\s*out|producing)\s*(\d+)/i.test(t)) {
+                    const m = t.match(/drain\s*(?:output|putting\s*out|producing)\s*(\d+)/i);
+                    examParts.push('Drain output ' + m[1] + 'mL');
+                }
+                if (/(?:alert|oriented|a\s*&?\s*o\s*x?\s*\d)/i.test(lower)) {
+                    const m = t.match(/(?:a\s*&?\s*o\s*x?\s*(\d))/i);
+                    examParts.push(m ? 'A&Ox' + m[1] : 'Alert and oriented');
+                }
+                if (/(?:ng|ngt|nasogastric)\s+(?:in\s*place|output|putting\s*out|draining)/i.test(lower)) examParts.push('NGT in place');
+                if (/(?:foley|catheter)\s+(?:in\s*place|draining|output|patent)/i.test(lower)) examParts.push('Foley in place');
+                if (/(?:ostomy|stoma)\s+(?:pink|functioning|output|viable|healthy)/i.test(lower)) examParts.push('Stoma pink/viable');
+
+                // Deduplicate
+                const unique = [...new Set(examParts)];
+                const examText = unique.length > 0 ? unique.join('. ') : t;
+
+                // Set only the exam field in parsed items
+                setParsedItems(prev => ({
+                    ...prev,
+                    examFindings: examText
+                }));
+            };
+
             const submitSOAP = async () => {
                 const patient = patients.find(p => p.id === selectedPatientId);
                 if (!patient || !transcript.trim()) return;
@@ -7904,6 +7978,10 @@ To-do: Check AM labs, I/Os q4h`}
                                         <button onClick={() => { parseTranscript(); submitSOAP(); }}
                                             className="flex-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded font-medium">
                                             Both
+                                        </button>
+                                        <button onClick={parsePE}
+                                            className="flex-1 px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded font-medium">
+                                            Parse PE
                                         </button>
                                     </div>
                                 </div>
