@@ -10888,8 +10888,9 @@ To-do: Check AM labs, I/Os q4h`}
                                 const teamDoc = await db.collection('teams').doc(tid).get();
                                 if (teamDoc.exists) setTeamData({ id: tid, ...teamDoc.data() });
                             }
-                            // Check HIPAA acceptance
-                            setHipaaAccepted(!!userData.hipaaAcceptedAt);
+                            // Check HIPAA acceptance (version-aware so policy updates re-prompt)
+                            const acceptedVersion = userData.hipaaAcceptedVersion || null;
+                            setHipaaAccepted(!!userData.hipaaAcceptedAt && acceptedVersion === '1.0');
                             await loadAllTeams(u.uid);
                         } catch (err) {
                             console.error('Error loading user/team data:', err);
@@ -11107,7 +11108,7 @@ To-do: Check AM labs, I/Os q4h`}
             };
 
             // Loading state
-            if (authLoading) {
+            if (authLoading || (user && hipaaAccepted === null)) {
                 return (
                     <div className="min-h-screen bg-slate-50 flex items-center justify-center">
                         <div className="text-center">
@@ -11124,11 +11125,15 @@ To-do: Check AM labs, I/Os q4h`}
             }
 
             // HIPAA Disclaimer - must accept before accessing anything
+            // Requires acceptance once per user. Version tracked so we can re-prompt on policy updates.
+            const CURRENT_HIPAA_VERSION = '1.0';
+            const needsHipaaAcceptance = !hipaaAccepted;
+
             const acceptHipaaDisclaimer = async () => {
                 try {
                     await db.collection('users').doc(user.uid).set({
                         hipaaAcceptedAt: new Date().toISOString(),
-                        hipaaAcceptedVersion: '1.0',
+                        hipaaAcceptedVersion: CURRENT_HIPAA_VERSION,
                         hipaaAcceptedFrom: navigator.userAgent
                     }, { merge: true });
                     setHipaaAccepted(true);
@@ -11137,7 +11142,7 @@ To-do: Check AM labs, I/Os q4h`}
                 }
             };
 
-            if (hipaaAccepted === false) {
+            if (needsHipaaAcceptance) {
                 return (
                     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
                         <div className="bg-white rounded-xl shadow-lg w-full max-w-lg overflow-hidden">
