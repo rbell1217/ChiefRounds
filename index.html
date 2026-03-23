@@ -10880,6 +10880,14 @@ To-do: Check AM labs, I/Os q4h`}
 
                 const mainCards = [
                     {
+                        title: 'Patients',
+                        subtitle: `${stats.patients} on service`,
+                        icon: '\uD83D\uDC65',
+                        color: 'bg-blue-600',
+                        lightBg: 'bg-blue-50',
+                        tab: 'Patients'
+                    },
+                    {
                         title: 'Tasks',
                         subtitle: stats.incompleteTasks > 0 ? `${stats.incompleteTasks} incomplete` : 'All caught up',
                         icon: '\u2611\uFE0F',
@@ -10914,7 +10922,7 @@ To-do: Check AM labs, I/Os q4h`}
                             <p className="text-gray-500 mt-1">{teamData?.name || 'Your team'} -- {stats.patients} patient{stats.patients !== 1 ? 's' : ''} on service</p>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
                             {mainCards.map(card => (
                                 <button
                                     key={card.tab}
