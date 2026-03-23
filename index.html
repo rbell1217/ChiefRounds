@@ -11234,8 +11234,10 @@ To-do: Check AM labs, I/Os q4h`}
             const [showSurgeonSuggestions, setShowSurgeonSuggestions] = React.useState(null);
             const [editingPrefs, setEditingPrefs] = React.useState({});
             const [savingPrefs, setSavingPrefs] = React.useState(false);
+            const [surgicalServices, setSurgicalServices] = React.useState([]);
+            const [surgeonDraft, setSurgeonDraft] = React.useState('');
 
-            React.useEffect(() => { DB.init().then(() => { loadCases(); loadPatients(); loadSurgeonPrefs(); }); }, []);
+            React.useEffect(() => { DB.init().then(() => { loadCases(); loadPatients(); loadSurgeonPrefs(); loadSurgicalServices(); }); }, []);
 
             const loadCases = async () => {
                 const all = await DB.getAll('casePrep');
@@ -11247,15 +11249,21 @@ To-do: Check AM labs, I/Os q4h`}
             };
 
             const loadSurgeonPrefs = async () => {
-                const all = await DB.getAll('surgeonPreferences');
-                setSurgeonPrefs(all || []);
+                const snap = await db.collection('globalSurgeonPreferences').get();
+                setSurgeonPrefs(snap.docs.map(d => ({ ...d.data(), id: d.id })));
             };
 
-            const saveSurgeonPrefs = async (surgeonName, updates) => {
+            const loadSurgicalServices = async () => {
+                const snap = await db.collection('globalSurgicalServices').get();
+                setSurgicalServices(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+            };
+
+            const saveSurgeonPrefs = async (surgeonName, serviceName, updates) => {
                 if (!surgeonName || !surgeonName.trim()) return;
                 const existing = surgeonPrefs.find(p => p.surgeonName?.toLowerCase() === surgeonName.trim().toLowerCase());
                 const prefData = {
                     surgeonName: surgeonName.trim(),
+                    service: serviceName || existing?.service || 'General',
                     sutures: updates.sutures ?? existing?.sutures ?? '',
                     instruments: updates.instruments ?? existing?.instruments ?? '',
                     positioning: updates.positioning ?? existing?.positioning ?? '',
@@ -11270,10 +11278,37 @@ To-do: Check AM labs, I/Os q4h`}
                 try { prefData.updatedBy = firebase.auth().currentUser?.displayName || firebase.auth().currentUser?.email || ''; } catch(e) {}
 
                 if (existing) {
-                    await DB.put('surgeonPreferences', { ...existing, ...prefData });
+                    await db.collection('globalSurgeonPreferences').doc(existing.id).set(prefData, { merge: true });
                 } else {
-                    await DB.add('surgeonPreferences', prefData);
+                    await db.collection('globalSurgeonPreferences').add(prefData);
                 }
+                await loadSurgeonPrefs();
+            };
+
+            const addSurgicalService = async (name) => {
+                if (!name || !name.trim()) return;
+                const exists = surgicalServices.find(s => s.name?.toLowerCase() === name.trim().toLowerCase());
+                if (exists) return;
+                await db.collection('globalSurgicalServices').add({
+                    name: name.trim(),
+                    createdAt: new Date().toISOString(),
+                    createdBy: firebase.auth().currentUser?.displayName || firebase.auth().currentUser?.email || ''
+                });
+                await loadSurgicalServices();
+            };
+
+            const deleteSurgicalService = async (serviceId) => {
+                await db.collection('globalSurgicalServices').doc(serviceId).delete();
+                await loadSurgicalServices();
+            };
+
+            const addSurgeonToService = async (surgeonName, serviceName) => {
+                if (!surgeonName || !surgeonName.trim()) return;
+                await saveSurgeonPrefs(surgeonName.trim(), serviceName, {});
+            };
+
+            const deleteSurgeon = async (surgeonId) => {
+                await db.collection('globalSurgeonPreferences').doc(surgeonId).delete();
                 await loadSurgeonPrefs();
             };
 
@@ -11300,6 +11335,8 @@ To-do: Check AM labs, I/Os q4h`}
                 { key: 'drains', label: 'Drains', placeholder: 'e.g. JP drain to bulb suction, Blake drain' },
                 { key: 'notes', label: 'Other Notes', placeholder: 'Any other preferences, tips, or things to remember...' },
             ];
+
+            const DEFAULT_SERVICES = ['Trauma', 'Acute Care Surgery', 'Colorectal', 'Hepatobiliary', 'Surgical Oncology', 'Vascular', 'Thoracic', 'Plastics', 'Transplant', 'Bariatric', 'Pediatric Surgery', 'Breast Surgery', 'Endocrine Surgery'];
 
             // Calendar helpers
             const getDaysInMonth = (year, month) => new Date(year, month, 0).getDate();
@@ -11833,22 +11870,31 @@ To-do: Check AM labs, I/Os q4h`}
                                                     <label className="text-xs font-semibold text-gray-600 mb-1 block">Attending Surgeon</label>
                                                     <div className="relative">
                                                         <input
-                                                            value={caseItem.attendingSurgeon || ''}
+                                                            value={surgeonDraft !== null && expandedCase === caseItem.id ? surgeonDraft : (caseItem.attendingSurgeon || '')}
                                                             onChange={(e) => {
-                                                                updateCase(caseItem.id, { attendingSurgeon: e.target.value });
+                                                                setSurgeonDraft(e.target.value);
                                                                 setShowSurgeonSuggestions(e.target.value.length > 0 ? caseItem.id : null);
                                                             }}
-                                                            onFocus={(e) => { if (e.target.value.length > 0) setShowSurgeonSuggestions(caseItem.id); }}
-                                                            onBlur={() => setTimeout(() => setShowSurgeonSuggestions(null), 200)}
+                                                            onFocus={(e) => {
+                                                                setSurgeonDraft(caseItem.attendingSurgeon || '');
+                                                                if (e.target.value.length > 0) setShowSurgeonSuggestions(caseItem.id);
+                                                            }}
+                                                            onBlur={(e) => {
+                                                                setTimeout(() => setShowSurgeonSuggestions(null), 200);
+                                                                if (e.target.value !== (caseItem.attendingSurgeon || '')) {
+                                                                    updateCase(caseItem.id, { attendingSurgeon: e.target.value });
+                                                                }
+                                                            }}
                                                             placeholder="Type surgeon name..."
                                                             className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded text-sm text-gray-700"
                                                         />
-                                                        {showSurgeonSuggestions === caseItem.id && getSurgeonSuggestions(caseItem.attendingSurgeon).length > 0 && (
+                                                        {showSurgeonSuggestions === caseItem.id && getSurgeonSuggestions(surgeonDraft).length > 0 && (
                                                             <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
-                                                                {getSurgeonSuggestions(caseItem.attendingSurgeon).map((name, i) => (
+                                                                {getSurgeonSuggestions(surgeonDraft).map((name, i) => (
                                                                     <button key={i} className="w-full text-left px-3 py-2 hover:bg-medical-50 text-sm text-gray-700 border-b border-gray-100 last:border-0"
                                                                         onMouseDown={(e) => {
                                                                             e.preventDefault();
+                                                                            setSurgeonDraft(name);
                                                                             updateCase(caseItem.id, { attendingSurgeon: name });
                                                                             setShowSurgeonSuggestions(null);
                                                                         }}>
@@ -11872,7 +11918,8 @@ To-do: Check AM labs, I/Os q4h`}
                                                             </div>
                                                             <div className="space-y-2">
                                                                 {PREF_CATEGORIES.map(cat => {
-                                                                    const prefs = getPrefsForSurgeon(caseItem.attendingSurgeon);
+                                                                    const resolvedSurgeon = expandedCase === caseItem.id && surgeonDraft !== null ? surgeonDraft : (caseItem.attendingSurgeon || '');
+                                                                    const prefs = getPrefsForSurgeon(resolvedSurgeon);
                                                                     const currentVal = prefs?.[cat.key] || '';
                                                                     return (
                                                                         <div key={cat.key}>
@@ -11881,7 +11928,7 @@ To-do: Check AM labs, I/Os q4h`}
                                                                                 defaultValue={currentVal}
                                                                                 onBlur={(e) => {
                                                                                     if (e.target.value !== currentVal) {
-                                                                                        saveSurgeonPrefs(caseItem.attendingSurgeon, { [cat.key]: e.target.value });
+                                                                                        saveSurgeonPrefs(resolvedSurgeon, 'General', { [cat.key]: e.target.value });
                                                                                     }
                                                                                 }}
                                                                                 placeholder={cat.placeholder}
@@ -11892,7 +11939,7 @@ To-do: Check AM labs, I/Os q4h`}
                                                                     );
                                                                 })}
                                                             </div>
-                                                            <p className="text-[10px] text-gray-400 mt-2 italic">These preferences are shared with your entire team and can be edited by anyone.</p>
+                                                            <p className="text-[10px] text-gray-400 mt-2 italic">Preferences are shared across the platform. Manage all preferences in the Att. Prefs tab.</p>
                                                         </div>
                                                     )}
                                                 </div>
@@ -11998,6 +12045,285 @@ To-do: Check AM labs, I/Os q4h`}
                             </div>
                         )}
                     </div>
+                </div>
+            );
+        }
+
+        // ==================== ATTENDING PREFERENCES ====================
+        function AttendingPreferences() {
+            const [surgeonPrefs, setSurgeonPrefs] = React.useState([]);
+            const [surgicalServices, setSurgicalServices] = React.useState([]);
+            const [expandedService, setExpandedService] = React.useState(null);
+            const [expandedSurgeon, setExpandedSurgeon] = React.useState(null);
+            const [newServiceName, setNewServiceName] = React.useState('');
+            const [showAddService, setShowAddService] = React.useState(false);
+            const [newSurgeonName, setNewSurgeonName] = React.useState('');
+            const [addingSurgeonToService, setAddingSurgeonToService] = React.useState(null);
+            const [searchQuery, setSearchQuery] = React.useState('');
+
+            const DEFAULT_SERVICES = ['Trauma', 'Acute Care Surgery', 'Colorectal', 'Hepatobiliary', 'Surgical Oncology', 'Vascular', 'Thoracic', 'Plastics', 'Transplant', 'Bariatric', 'Pediatric Surgery', 'Breast Surgery', 'Endocrine Surgery'];
+
+            const PREF_CATEGORIES = [
+                { key: 'positioning', label: 'Positioning', placeholder: 'e.g. Supine, arms tucked, reverse Trendelenburg' },
+                { key: 'antibiotics', label: 'Antibiotics', placeholder: 'e.g. Cefazolin 2g IV within 60 min' },
+                { key: 'prepDrape', label: 'Prep & Drape', placeholder: 'e.g. ChloraPrep, square drape, Ioban' },
+                { key: 'instruments', label: 'Instruments', placeholder: 'e.g. Harmonic scalpel, 5mm trocars, Endocatch bag' },
+                { key: 'sutures', label: 'Sutures', placeholder: 'e.g. 0-Vicryl for fascia, 4-0 Monocryl for skin' },
+                { key: 'skinClosing', label: 'Skin Closing', placeholder: 'e.g. Dermabond, Steri-Strips, staples' },
+                { key: 'drains', label: 'Drains', placeholder: 'e.g. JP drain to bulb suction, Blake drain' },
+                { key: 'notes', label: 'Other Notes', placeholder: 'Any other preferences, tips, or things to remember...' },
+            ];
+
+            React.useEffect(() => { loadAll(); }, []);
+
+            const loadAll = async () => {
+                const prefsSnap = await db.collection('globalSurgeonPreferences').get();
+                setSurgeonPrefs(prefsSnap.docs.map(d => ({ ...d.data(), id: d.id })));
+                const servSnap = await db.collection('globalSurgicalServices').get();
+                const savedServices = servSnap.docs.map(d => ({ ...d.data(), id: d.id }));
+                setSurgicalServices(savedServices);
+            };
+
+            const addService = async (name) => {
+                if (!name || !name.trim()) return;
+                const exists = surgicalServices.find(s => s.name?.toLowerCase() === name.trim().toLowerCase());
+                if (exists) return;
+                await db.collection('globalSurgicalServices').add({
+                    name: name.trim(),
+                    createdAt: new Date().toISOString(),
+                    createdBy: firebase.auth().currentUser?.displayName || firebase.auth().currentUser?.email || ''
+                });
+                setNewServiceName('');
+                setShowAddService(false);
+                await loadAll();
+            };
+
+            const deleteService = async (serviceId) => {
+                if (!confirm('Remove this service? Surgeons under it will not be deleted.')) return;
+                await db.collection('globalSurgicalServices').doc(serviceId).delete();
+                await loadAll();
+            };
+
+            const addSurgeon = async (surgeonName, serviceName) => {
+                if (!surgeonName || !surgeonName.trim()) return;
+                const existing = surgeonPrefs.find(p => p.surgeonName?.toLowerCase() === surgeonName.trim().toLowerCase());
+                if (existing) {
+                    // Update service if already exists
+                    await db.collection('globalSurgeonPreferences').doc(existing.id).set({ ...existing, service: serviceName }, { merge: true });
+                } else {
+                    await db.collection('globalSurgeonPreferences').add({
+                        surgeonName: surgeonName.trim(),
+                        service: serviceName,
+                        sutures: '', instruments: '', positioning: '', prepDrape: '',
+                        antibiotics: '', skinClosing: '', drains: '', notes: '',
+                        updatedAt: new Date().toISOString(),
+                        updatedBy: firebase.auth().currentUser?.displayName || firebase.auth().currentUser?.email || ''
+                    });
+                }
+                setNewSurgeonName('');
+                setAddingSurgeonToService(null);
+                await loadAll();
+            };
+
+            const deleteSurgeon = async (surgeonId) => {
+                if (!confirm('Remove this surgeon and their preferences?')) return;
+                await db.collection('globalSurgeonPreferences').doc(surgeonId).delete();
+                if (expandedSurgeon === surgeonId) setExpandedSurgeon(null);
+                await loadAll();
+            };
+
+            const savePref = async (surgeonId, key, value) => {
+                const surgeon = surgeonPrefs.find(s => s.id === surgeonId);
+                if (!surgeon) return;
+                await db.collection('globalSurgeonPreferences').doc(surgeonId).set({
+                    ...surgeon,
+                    [key]: value,
+                    updatedAt: new Date().toISOString(),
+                    updatedBy: firebase.auth().currentUser?.displayName || firebase.auth().currentUser?.email || ''
+                }, { merge: true });
+                await loadAll();
+            };
+
+            // Build list of all services (saved + defaults that haven't been added yet)
+            const allServiceNames = [...new Set([
+                ...surgicalServices.map(s => s.name),
+                ...DEFAULT_SERVICES
+            ])].sort();
+
+            // Get services that actually have data (either in surgicalServices collection or have surgeons)
+            const getServiceId = (name) => {
+                const svc = surgicalServices.find(s => s.name === name);
+                return svc?.id || null;
+            };
+
+            const surgeonsForService = (serviceName) => {
+                return surgeonPrefs.filter(p => (p.service || 'General') === serviceName)
+                    .sort((a, b) => (a.surgeonName || '').localeCompare(b.surgeonName || ''));
+            };
+
+            // Filter by search
+            const filteredServiceNames = searchQuery.trim()
+                ? allServiceNames.filter(name => {
+                    const lower = searchQuery.toLowerCase();
+                    if (name.toLowerCase().includes(lower)) return true;
+                    return surgeonsForService(name).some(s => s.surgeonName?.toLowerCase().includes(lower));
+                })
+                : allServiceNames;
+
+            return (
+                <div className="p-4 md:p-6 max-w-4xl mx-auto">
+                    <h2 className="text-2xl font-bold text-medical-600 mb-2">Attending Preferences</h2>
+                    <p className="text-sm text-gray-500 mb-6">Shared across all users on the platform. Organized by surgical service.</p>
+
+                    {/* Search */}
+                    <div className="mb-4">
+                        <input
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder="Search services or surgeons..."
+                            className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm"
+                        />
+                    </div>
+
+                    {/* Add Service Button */}
+                    <div className="mb-4">
+                        {showAddService ? (
+                            <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+                                <label className="text-xs font-semibold text-gray-500">New Surgical Service</label>
+                                <input value={newServiceName} onChange={(e) => setNewServiceName(e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') addService(newServiceName); }}
+                                    placeholder="e.g. Cardiac Surgery, Urology..."
+                                    className="w-full mt-1 px-3 py-2 bg-white border border-gray-300 rounded text-sm" autoFocus />
+                                <div className="flex gap-2 mt-2">
+                                    <button onClick={() => addService(newServiceName)}
+                                        className="flex-1 px-4 py-2 bg-medical-600 hover:bg-medical-700 text-white rounded font-medium text-sm">Add Service</button>
+                                    <button onClick={() => { setShowAddService(false); setNewServiceName(''); }}
+                                        className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded font-medium text-sm">Cancel</button>
+                                </div>
+                            </div>
+                        ) : (
+                            <button onClick={() => setShowAddService(true)}
+                                className="px-4 py-2 bg-medical-600 hover:bg-medical-700 text-white rounded-lg text-sm font-medium">
+                                + Add Surgical Service
+                            </button>
+                        )}
+                    </div>
+
+                    {/* Services List */}
+                    <div className="space-y-3">
+                        {filteredServiceNames.map(serviceName => {
+                            const serviceId = getServiceId(serviceName);
+                            const surgeons = surgeonsForService(serviceName);
+                            const isExpanded = expandedService === serviceName;
+                            const highlightedSurgeons = searchQuery.trim()
+                                ? surgeons.filter(s => s.surgeonName?.toLowerCase().includes(searchQuery.toLowerCase()))
+                                : [];
+
+                            return (
+                                <div key={serviceName} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+                                    {/* Service Header */}
+                                    <div className="flex items-center gap-3 p-4 cursor-pointer hover:bg-gray-50"
+                                        onClick={() => setExpandedService(isExpanded ? null : serviceName)}>
+                                        <span className="w-10 h-10 rounded-lg bg-medical-100 text-medical-700 flex items-center justify-center text-lg font-bold shrink-0">
+                                            {serviceName.charAt(0)}
+                                        </span>
+                                        <div className="flex-1 min-w-0">
+                                            <h4 className="font-bold text-gray-800">{serviceName}</h4>
+                                            <p className="text-xs text-gray-500">{surgeons.length} attending{surgeons.length !== 1 ? 's' : ''}</p>
+                                        </div>
+                                        <span className="text-gray-400 text-lg">{isExpanded ? '\u25B2' : '\u25BC'}</span>
+                                    </div>
+
+                                    {/* Expanded Service */}
+                                    {isExpanded && (
+                                        <div className="border-t border-gray-100 p-4 bg-gray-50/50">
+                                            {/* Surgeons in this service */}
+                                            {surgeons.length === 0 ? (
+                                                <p className="text-sm text-gray-400 text-center py-4">No attendings added yet.</p>
+                                            ) : (
+                                                <div className="space-y-2 mb-4">
+                                                    {surgeons.map(surgeon => (
+                                                        <div key={surgeon.id} className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                                                            <div className="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-50"
+                                                                onClick={() => setExpandedSurgeon(expandedSurgeon === surgeon.id ? null : surgeon.id)}>
+                                                                <div>
+                                                                    <span className="font-semibold text-gray-800 text-sm">{surgeon.surgeonName}</span>
+                                                                    {surgeon.updatedBy && (
+                                                                        <span className="text-[10px] text-gray-400 ml-2">updated by {surgeon.updatedBy}</span>
+                                                                    )}
+                                                                </div>
+                                                                <div className="flex items-center gap-2">
+                                                                    <button onClick={(e) => { e.stopPropagation(); deleteSurgeon(surgeon.id); }}
+                                                                        className="text-red-400 hover:text-red-600 text-xs px-2 py-1">Remove</button>
+                                                                    <span className="text-gray-400 text-sm">{expandedSurgeon === surgeon.id ? '\u25B2' : '\u25BC'}</span>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Expanded Surgeon Preferences */}
+                                                            {expandedSurgeon === surgeon.id && (
+                                                                <div className="border-t border-gray-100 p-3 bg-slate-50 space-y-2">
+                                                                    {PREF_CATEGORIES.map(cat => (
+                                                                        <div key={cat.key}>
+                                                                            <label className="text-[11px] font-semibold text-gray-500">{cat.label}</label>
+                                                                            <textarea
+                                                                                defaultValue={surgeon[cat.key] || ''}
+                                                                                onBlur={(e) => {
+                                                                                    if (e.target.value !== (surgeon[cat.key] || '')) {
+                                                                                        savePref(surgeon.id, cat.key, e.target.value);
+                                                                                    }
+                                                                                }}
+                                                                                placeholder={cat.placeholder}
+                                                                                className="w-full mt-0.5 px-2 py-1.5 bg-white border border-gray-200 rounded text-xs text-gray-700"
+                                                                                rows={cat.key === 'notes' ? 3 : 1}
+                                                                            />
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+
+                                            {/* Add Surgeon */}
+                                            {addingSurgeonToService === serviceName ? (
+                                                <div className="bg-white border border-gray-200 rounded-lg p-3">
+                                                    <label className="text-xs font-semibold text-gray-500">Attending Name</label>
+                                                    <input value={newSurgeonName} onChange={(e) => setNewSurgeonName(e.target.value)}
+                                                        onKeyDown={(e) => { if (e.key === 'Enter') addSurgeon(newSurgeonName, serviceName); }}
+                                                        placeholder="e.g. Dr. Smith"
+                                                        className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded text-sm" autoFocus />
+                                                    <div className="flex gap-2 mt-2">
+                                                        <button onClick={() => addSurgeon(newSurgeonName, serviceName)}
+                                                            className="flex-1 px-3 py-1.5 bg-medical-600 hover:bg-medical-700 text-white rounded text-sm font-medium">Add</button>
+                                                        <button onClick={() => { setAddingSurgeonToService(null); setNewSurgeonName(''); }}
+                                                            className="px-3 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded text-sm font-medium">Cancel</button>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <button onClick={() => setAddingSurgeonToService(serviceName)}
+                                                    className="w-full px-3 py-2 border-2 border-dashed border-gray-300 hover:border-medical-400 rounded-lg text-sm text-gray-500 hover:text-medical-600 font-medium">
+                                                    + Add Attending to {serviceName}
+                                                </button>
+                                            )}
+
+                                            {/* Remove service if it was user-added */}
+                                            {serviceId && (
+                                                <button onClick={() => deleteService(serviceId)}
+                                                    className="mt-3 text-xs text-red-400 hover:text-red-600">
+                                                    Remove this service
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    <p className="text-xs text-gray-400 mt-6 text-center italic">
+                        Preferences are shared across the entire platform. Any user can view and edit them.
+                    </p>
                 </div>
             );
         }
@@ -13040,7 +13366,7 @@ To-do: Check AM labs, I/Os q4h`}
                 );
             }
 
-            const tabs = ['Patients', 'Attending', 'Tasks', 'Consults', 'Trauma', 'Census', 'Handoff', 'Pre-Round', 'Rounds', 'M&M', 'Case Prep', 'Case Conf'];
+            const tabs = ['Patients', 'Attending', 'Tasks', 'Consults', 'Trauma', 'Census', 'Handoff', 'Pre-Round', 'Rounds', 'M&M', 'Case Prep', 'Case Conf', 'Att. Prefs'];
 
             // Home landing page component
             const HomeScreen = () => {
@@ -13152,6 +13478,7 @@ To-do: Check AM labs, I/Os q4h`}
                     case 'M&M': return <MMLessonsLearned currentUser={user} />;
                     case 'Case Prep': return <CasePrep />;
                     case 'Case Conf': return <CaseConference />;
+                    case 'Att. Prefs': return <AttendingPreferences />;
                     default: return <HomeScreen />;
                 }
             };
