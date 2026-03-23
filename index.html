@@ -3097,8 +3097,8 @@
             };
 
             const filteredPatients = patients.filter(p =>
-                p.room.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                p.diagnosis?.toLowerCase().includes(searchQuery.toLowerCase())
+                String(p.room || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+                String(p.diagnosis || '').toLowerCase().includes(searchQuery.toLowerCase())
             );
 
             const sortedPatients = [...filteredPatients].sort((a, b) => {
