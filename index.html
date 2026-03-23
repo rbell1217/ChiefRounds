@@ -2955,6 +2955,22 @@
                 const todayEntry = roundsHistory[today] || {};
                 const parsed = todayEntry.parsed || todayEntry;
                 parsed[fieldName] = roundsFieldDraft;
+
+                // Rebuild summary to reflect updated fields
+                const sp = [];
+                if (parsed.subjective) sp.push('S: ' + parsed.subjective);
+                if (parsed.vitals) sp.push('Vitals: ' + parsed.vitals);
+                if (parsed.labNotes) sp.push('Labs: ' + parsed.labNotes);
+                if (parsed.examFindings) sp.push('Exam: ' + parsed.examFindings);
+                if (parsed.assessment) sp.push('A: ' + parsed.assessment);
+                if (parsed.plan) sp.push('P: ' + parsed.plan);
+                if ((parsed.orders || []).length > 0) sp.push('Orders: ' + parsed.orders.join(', '));
+                if (parsed.diet) sp.push('Diet: ' + parsed.diet);
+                if (parsed.activity) sp.push('Activity: ' + parsed.activity);
+                if (parsed.disposition) sp.push('Dispo: ' + parsed.disposition);
+                if (parsed.concerns) sp.push('Concerns: ' + parsed.concerns);
+                if (sp.length > 0) parsed.summary = sp.join(' | ');
+
                 if (todayEntry.parsed) {
                     roundsHistory[today] = { ...todayEntry, parsed };
                 } else {
