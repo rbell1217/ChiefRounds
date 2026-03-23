@@ -6398,17 +6398,15 @@
                                                 {activePatientId === patient.id ? 'Active' : 'Set Active'}
                                             </button>
                                         </div>
-                                        <textarea value={handoffPlans[patient.id] || ''} onChange={(e) => setHandoffPlans({...handoffPlans, [patient.id]: e.target.value})}
+                                        <DictateField value={handoffPlans[patient.id] || ''} onChange={(v) => setHandoffPlans({...handoffPlans, [patient.id]: v})}
                                             className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded text-gray-700 text-sm"
-                                            rows="2" placeholder="Continue current management..."/>
+                                            rows={2} placeholder="Continue current management..."/>
                                     </div>
 
                                     {/* If/Then */}
-                                    <div>
-                                        <label className="text-xs font-semibold text-gray-500">IF/THEN</label>
-                                        <textarea value={ifsThens[patient.id] || ''} onChange={(e) => setIfsThens({...ifsThens, [patient.id]: e.target.value})}
-                                            className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded text-gray-700 text-sm"
-                                            rows="1" placeholder="If temp >38.5, then blood cultures x2..."/>
+                                    <DictateField label="IF/THEN" value={ifsThens[patient.id] || ''} onChange={(v) => setIfsThens({...ifsThens, [patient.id]: v})}
+                                        className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded text-gray-700 text-sm"
+                                        rows={1} placeholder="If temp >38.5, then blood cultures x2..."/>
                                     </div>
 
                                     {/* To-Do Tasks */}
@@ -6951,6 +6949,8 @@ To-do: Check AM labs, I/Os q4h`}
             const [liveTranscript, setLiveTranscript] = React.useState('');
             const [parsedItems, setParsedItems] = React.useState({ subjective: null, assessment: null, diet: null, activity: null, orders: [], disposition: null, plan: null, dvtProphylaxis: null, giProphylaxis: null, concerns: null, problems: [], examFindings: null, vitals: null, labNotes: null, summary: null });
             const [recordingsList, setRecordingsList] = React.useState({});
+            const [editingRecIdx, setEditingRecIdx] = React.useState(null);
+            const [editingRecText, setEditingRecText] = React.useState('');
             const recordingRef = React.useRef(null);
             const recognitionRef = React.useRef(null);
 
@@ -7736,10 +7736,9 @@ To-do: Check AM labs, I/Os q4h`}
                             {/* Transcript Editing */}
                             {transcript && !isRecording && (
                                 <div className="mb-4">
-                                    <label className="text-sm text-gray-500 font-semibold">Transcript</label>
-                                    <textarea value={transcript} onChange={(e) => setTranscript(e.target.value)}
-                                        className="w-full mt-2 px-3 py-2 bg-gray-50 border border-gray-300 rounded text-gray-600"
-                                        rows="4"/>
+                                    <DictateField label="Transcript" value={transcript} onChange={(v) => setTranscript(v)}
+                                        className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded text-gray-600"
+                                        rows={4}/>
                                     <div className="flex gap-2 mt-2">
                                         <button onClick={parseTranscript}
                                             className="flex-1 px-4 py-2 bg-medical-600 hover:bg-medical-700 text-white rounded font-medium">
@@ -7747,7 +7746,11 @@ To-do: Check AM labs, I/Os q4h`}
                                         </button>
                                         <button onClick={submitSOAP}
                                             className="flex-1 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-medium">
-                                            Submit SOAP
+                                            Add SOAP
+                                        </button>
+                                        <button onClick={() => { parseTranscript(); submitSOAP(); }}
+                                            className="flex-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded font-medium">
+                                            Both
                                         </button>
                                     </div>
                                 </div>
@@ -7868,11 +7871,66 @@ To-do: Check AM labs, I/Os q4h`}
                         {recordingsList[selectedPatientId] && recordingsList[selectedPatientId].length > 0 && (
                             <div className="bg-white border border-gray-100 rounded-xl p-4">
                                 <h3 className="text-sm font-semibold text-gray-600 mb-3">Previous Recordings</h3>
-                                <div className="space-y-2 max-h-60 overflow-y-auto">
+                                <div className="space-y-2 max-h-80 overflow-y-auto">
                                     {recordingsList[selectedPatientId].map((recording, i) => (
-                                        <div key={i} className="text-xs text-gray-500 p-2 bg-gray-50 rounded">
-                                            <p className="font-semibold">{recording.timestamp}</p>
-                                            <p className="mt-1 text-gray-600">{recording.transcript}</p>
+                                        <div key={i} className="text-xs text-gray-500 p-2 bg-gray-50 rounded border border-gray-200">
+                                            <div className="flex items-center justify-between mb-1">
+                                                <p className="font-semibold">{recording.timestamp}</p>
+                                                {editingRecIdx === i ? (
+                                                    <button onClick={() => { setEditingRecIdx(null); setEditingRecText(''); }}
+                                                        className="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
+                                                ) : (
+                                                    <button onClick={() => { setEditingRecIdx(i); setEditingRecText(recording.transcript); }}
+                                                        className="text-xs text-medical-600 hover:text-medical-800 font-medium">Edit</button>
+                                                )}
+                                            </div>
+                                            {editingRecIdx === i ? (
+                                                <div>
+                                                    <DictateField label="" value={editingRecText} onChange={(v) => setEditingRecText(v)}
+                                                        className="w-full px-2 py-1 bg-white border border-medical-300 rounded text-gray-700 text-xs"
+                                                        rows={3}/>
+                                                    <div className="flex gap-1 mt-2">
+                                                        <button onClick={() => {
+                                                            setRecordingsList(prev => {
+                                                                const updated = { ...prev };
+                                                                updated[selectedPatientId] = [...updated[selectedPatientId]];
+                                                                updated[selectedPatientId][i] = { ...updated[selectedPatientId][i], transcript: editingRecText };
+                                                                return updated;
+                                                            });
+                                                            setEditingRecIdx(null); setEditingRecText('');
+                                                        }} className="px-2 py-1 bg-gray-600 hover:bg-gray-700 text-white rounded text-xs font-medium">
+                                                            Save
+                                                        </button>
+                                                        <button onClick={() => {
+                                                            setTranscript(editingRecText);
+                                                            setRecordingsList(prev => {
+                                                                const updated = { ...prev };
+                                                                updated[selectedPatientId] = [...updated[selectedPatientId]];
+                                                                updated[selectedPatientId][i] = { ...updated[selectedPatientId][i], transcript: editingRecText };
+                                                                return updated;
+                                                            });
+                                                            setEditingRecIdx(null); setEditingRecText('');
+                                                        }} className="px-2 py-1 bg-medical-600 hover:bg-medical-700 text-white rounded text-xs font-medium">
+                                                            Load &amp; Parse
+                                                        </button>
+                                                        <button onClick={() => {
+                                                            setRecordingsList(prev => {
+                                                                const updated = { ...prev };
+                                                                updated[selectedPatientId] = updated[selectedPatientId].filter((_, idx) => idx !== i);
+                                                                return updated;
+                                                            });
+                                                            setEditingRecIdx(null); setEditingRecText('');
+                                                        }} className="px-2 py-1 bg-red-500 hover:bg-red-600 text-white rounded text-xs font-medium">
+                                                            Delete
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <p className="mt-1 text-gray-600 cursor-pointer hover:text-gray-800"
+                                                    onClick={() => { setEditingRecIdx(i); setEditingRecText(recording.transcript); }}>
+                                                    {recording.transcript}
+                                                </p>
+                                            )}
                                         </div>
                                     ))}
                                 </div>
@@ -8907,29 +8965,17 @@ To-do: Check AM labs, I/Os q4h`}
                                 </div>
                             </div>
 
-                            <div>
-                                <label className="text-sm text-gray-500 block mb-1">Reason for Consult *</label>
-                                <textarea value={form.reason} onChange={e => setForm({...form, reason: e.target.value})}
-                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800 h-16" placeholder="e.g., Elevated troponin POD1, r/o NSTEMI"/>
-                            </div>
+                            <DictateField label="Reason for Consult *" value={form.reason} onChange={v => setForm({...form, reason: v})}
+                                className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800" rows={2} placeholder="e.g., Elevated troponin POD1, r/o NSTEMI"/>
 
-                            <div>
-                                <label className="text-sm text-gray-500 block mb-1">Consultant Findings</label>
-                                <textarea value={form.findings} onChange={e => setForm({...form, findings: e.target.value})}
-                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800 h-16" placeholder="What did the consultant find on evaluation?"/>
-                            </div>
+                            <DictateField label="Consultant Findings" value={form.findings} onChange={v => setForm({...form, findings: v})}
+                                className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800" rows={2} placeholder="What did the consultant find on evaluation?"/>
 
-                            <div>
-                                <label className="text-sm text-gray-500 block mb-1">Recommendations</label>
-                                <textarea value={form.recommendations} onChange={e => setForm({...form, recommendations: e.target.value})}
-                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800 h-16" placeholder="e.g., Start heparin drip, serial troponins q6h, echo in AM"/>
-                            </div>
+                            <DictateField label="Recommendations" value={form.recommendations} onChange={v => setForm({...form, recommendations: v})}
+                                className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800" rows={2} placeholder="e.g., Start heparin drip, serial troponins q6h, echo in AM"/>
 
-                            <div>
-                                <label className="text-sm text-gray-500 block mb-1">Follow-Up Needed</label>
-                                <textarea value={form.followUpNeeded} onChange={e => setForm({...form, followUpNeeded: e.target.value})}
-                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800 h-12" placeholder="e.g., Will re-evaluate after echo results"/>
-                            </div>
+                            <DictateField label="Follow-Up Needed" value={form.followUpNeeded} onChange={v => setForm({...form, followUpNeeded: v})}
+                                className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800" rows={2} placeholder="e.g., Will re-evaluate after echo results"/>
 
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
@@ -8946,11 +8992,8 @@ To-do: Check AM labs, I/Os q4h`}
                                 </div>
                             </div>
 
-                            <div>
-                                <label className="text-sm text-gray-500 block mb-1">Notes</label>
-                                <textarea value={form.notes} onChange={e => setForm({...form, notes: e.target.value})}
-                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800 h-12" placeholder="Additional notes..."/>
-                            </div>
+                            <DictateField label="Notes" value={form.notes} onChange={v => setForm({...form, notes: v})}
+                                className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800" rows={2} placeholder="Additional notes..."/>
                         </div>
 
                         <div className="flex gap-3 mt-4">
@@ -9780,23 +9823,14 @@ To-do: Check AM labs, I/Os q4h`}
                                     className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800" placeholder="Or type mechanism..."/>
                             </div>
 
-                            <div>
-                                <label className="text-sm text-gray-500 block mb-1">Injuries / Description</label>
-                                <textarea value={form.injuries} onChange={e => setForm({...form, injuries: e.target.value})}
-                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800 h-16" placeholder="e.g., Blunt abdominal trauma, L rib fractures 6-9, grade III splenic lac"/>
-                            </div>
+                            <DictateField label="Injuries / Description" value={form.injuries} onChange={v => setForm({...form, injuries: v})}
+                                className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800" rows={2} placeholder="e.g., Blunt abdominal trauma, L rib fractures 6-9, grade III splenic lac"/>
 
-                            <div>
-                                <label className="text-sm text-gray-500 block mb-1">Primary Survey (ABCDE)</label>
-                                <textarea value={form.primarySurvey} onChange={e => setForm({...form, primarySurvey: e.target.value})}
-                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800 h-16" placeholder="A: Patent, B: CTA bilat, C: Tachy to 110s, D: GCS 15, E: Abrasions L flank"/>
-                            </div>
+                            <DictateField label="Primary Survey (ABCDE)" value={form.primarySurvey} onChange={v => setForm({...form, primarySurvey: v})}
+                                className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800" rows={2} placeholder="A: Patent, B: CTA bilat, C: Tachy to 110s, D: GCS 15, E: Abrasions L flank"/>
 
-                            <div>
-                                <label className="text-sm text-gray-500 block mb-1">Secondary Survey</label>
-                                <textarea value={form.secondarySurvey} onChange={e => setForm({...form, secondarySurvey: e.target.value})}
-                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800 h-16" placeholder="Head-to-toe findings..."/>
-                            </div>
+                            <DictateField label="Secondary Survey" value={form.secondarySurvey} onChange={v => setForm({...form, secondarySurvey: v})}
+                                className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800" rows={2} placeholder="Head-to-toe findings..."/>
 
                             <div>
                                 <label className="text-sm text-gray-500 block mb-1">Imaging Ordered</label>
@@ -9819,17 +9853,11 @@ To-do: Check AM labs, I/Os q4h`}
                                     className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800 text-sm"/>
                             </div>
 
-                            <div>
-                                <label className="text-sm text-gray-500 block mb-1">Radiology Findings</label>
-                                <textarea value={form.imagingFindings} onChange={e => setForm({...form, imagingFindings: e.target.value})}
-                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800 h-20" placeholder="e.g., CT A/P: Grade III splenic laceration with small hemoperitoneum, no active extravasation. L rib fx 6-9, small L PTX."/>
-                            </div>
+                            <DictateField label="Radiology Findings" value={form.imagingFindings} onChange={v => setForm({...form, imagingFindings: v})}
+                                className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800" rows={2} placeholder="e.g., CT A/P: Grade III splenic laceration with small hemoperitoneum, no active extravasation. L rib fx 6-9, small L PTX."/>
 
-                            <div>
-                                <label className="text-sm text-gray-500 block mb-1">Lab Findings</label>
-                                <textarea value={form.labFindings} onChange={e => setForm({...form, labFindings: e.target.value})}
-                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800 h-12" placeholder="e.g., Hgb 11.2, Lactate 3.1, INR 1.0, FAST positive"/>
-                            </div>
+                            <DictateField label="Lab Findings" value={form.labFindings} onChange={v => setForm({...form, labFindings: v})}
+                                className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800" rows={2} placeholder="e.g., Hgb 11.2, Lactate 3.1, INR 1.0, FAST positive"/>
 
                             <div>
                                 <label className="text-sm text-gray-500 block mb-1">Consulting Services</label>
@@ -9843,23 +9871,14 @@ To-do: Check AM labs, I/Os q4h`}
                                 </div>
                             </div>
 
-                            <div>
-                                <label className="text-sm text-gray-500 block mb-1">Consultant Findings & Recommendations</label>
-                                <textarea value={form.consultFindings} onChange={e => setForm({...form, consultFindings: e.target.value})}
-                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800 h-20" placeholder="e.g., Ortho: L tib-fib fx, plan for IM nail POD1. NSG: No surgical intervention needed for small EDH, serial neuro checks q1h."/>
-                            </div>
+                            <DictateField label="Consultant Findings & Recommendations" value={form.consultFindings} onChange={v => setForm({...form, consultFindings: v})}
+                                className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800" rows={2} placeholder="e.g., Ortho: L tib-fib fx, plan for IM nail POD1. NSG: No surgical intervention needed for small EDH, serial neuro checks q1h."/>
 
-                            <div>
-                                <label className="text-sm text-gray-500 block mb-1">Plan</label>
-                                <textarea value={form.plan} onChange={e => setForm({...form, plan: e.target.value})}
-                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800 h-16" placeholder="Admit to Trauma ICU, serial H/H q6h, repeat CT 6h..."/>
-                            </div>
+                            <DictateField label="Plan" value={form.plan} onChange={v => setForm({...form, plan: v})}
+                                className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800" rows={2} placeholder="Admit to Trauma ICU, serial H/H q6h, repeat CT 6h..."/>
 
-                            <div>
-                                <label className="text-sm text-gray-500 block mb-1">Next Steps / Action Items</label>
-                                <textarea value={form.nextSteps} onChange={e => setForm({...form, nextSteps: e.target.value})}
-                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800 h-16" placeholder="e.g., Repeat H/H in 4h, if drop >2 consider angio. Chest tube if PTX increases. Family at bedside, update after repeat imaging."/>
-                            </div>
+                            <DictateField label="Next Steps / Action Items" value={form.nextSteps} onChange={v => setForm({...form, nextSteps: v})}
+                                className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800" rows={2} placeholder="e.g., Repeat H/H in 4h, if drop >2 consider angio. Chest tube if PTX increases. Family at bedside, update after repeat imaging."/>
 
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
@@ -9879,11 +9898,8 @@ To-do: Check AM labs, I/Os q4h`}
                                 </div>
                             </div>
 
-                            <div>
-                                <label className="text-sm text-gray-500 block mb-1">Notes</label>
-                                <textarea value={form.notes} onChange={e => setForm({...form, notes: e.target.value})}
-                                    className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800 h-12" placeholder="Additional notes..."/>
-                            </div>
+                            <DictateField label="Notes" value={form.notes} onChange={v => setForm({...form, notes: v})}
+                                className="w-full bg-gray-50 border border-gray-300 rounded p-2 text-gray-800" rows={2} placeholder="Additional notes..."/>
                         </div>
 
                         <div className="flex gap-3 mt-4">
@@ -10802,10 +10818,9 @@ To-do: Check AM labs, I/Os q4h`}
 
                                     {/* Lesson - text + dictation */}
                                     <div>
-                                        <label className="text-xs font-semibold text-gray-500 block mb-1">Lesson Learned</label>
-                                        <textarea value={form.lesson} onChange={e => setForm(prev => ({ ...prev, lesson: e.target.value }))}
+                                        <DictateField label="Lesson Learned" value={form.lesson} onChange={v => setForm(prev => ({ ...prev, lesson: v }))}
                                             rows={5} placeholder="Dictate or type what you learned from this case..."
-                                            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800 resize-y" />
+                                            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800" />
                                         <div className="flex items-center gap-2 mt-2">
                                             <button
                                                 onClick={() => {
@@ -11524,11 +11539,11 @@ To-do: Check AM labs, I/Os q4h`}
                                                             className="w-5 h-5 rounded text-blue-600" />
                                                         <span className="font-semibold text-gray-800 text-sm">Imaging Reviewed</span>
                                                     </div>
-                                                    <textarea value={caseItem.imagingComment || ''}
-                                                        onChange={(e) => updateCase(caseItem.id, { imagingComment: e.target.value })}
+                                                    <DictateField value={caseItem.imagingComment || ''}
+                                                        onChange={(v) => updateCase(caseItem.id, { imagingComment: v })}
                                                         placeholder="Unique anatomy, considerations, notable findings..."
                                                         className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded text-sm text-gray-700"
-                                                        rows="2" />
+                                                        rows={2} />
                                                 </div>
 
                                                 {/* Surgical History Review */}
@@ -11539,11 +11554,11 @@ To-do: Check AM labs, I/Os q4h`}
                                                             className="w-5 h-5 rounded text-purple-600" />
                                                         <span className="font-semibold text-gray-800 text-sm">Surgical History Reviewed</span>
                                                     </div>
-                                                    <textarea value={caseItem.surgicalHistoryComment || ''}
-                                                        onChange={(e) => updateCase(caseItem.id, { surgicalHistoryComment: e.target.value })}
+                                                    <DictateField value={caseItem.surgicalHistoryComment || ''}
+                                                        onChange={(v) => updateCase(caseItem.id, { surgicalHistoryComment: v })}
                                                         placeholder="Previous surgeries, adhesions, relevant anatomy changes..."
                                                         className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded text-sm text-gray-700"
-                                                        rows="2" />
+                                                        rows={2} />
                                                 </div>
 
                                                 {/* Key Operative Steps with Dictation */}
