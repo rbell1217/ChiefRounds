@@ -4580,10 +4580,32 @@
                 setTasks(tasksData);
             };
 
+            // Rebuild patient plan from their active (incomplete) tasks
+            const rebuildPatientPlan = async (patientId, allTasks) => {
+                const patient = (await DB.getAll('patients')).find(p => p.id === patientId);
+                if (!patient) return;
+                const incompleteTasks = (allTasks || tasks).filter(t => t.patientId === patientId && !t.completed);
+                const taskLines = incompleteTasks.map(t => t.description);
+                // Preserve any existing plan text that isn't a task description
+                const currentPlan = patient.treatmentPlan || '';
+                const existingLines = currentPlan.split(/[.\n]/).map(s => s.trim()).filter(s => s);
+                // Merge: keep existing non-task lines + add task lines
+                const allTaskDescriptions = tasks.filter(t => t.patientId === patientId).map(t => t.description.toLowerCase());
+                const nonTaskLines = existingLines.filter(line => !allTaskDescriptions.includes(line.toLowerCase()));
+                const combined = [...nonTaskLines, ...taskLines].filter(s => s);
+                const newPlan = combined.join('. ') + (combined.length > 0 ? '.' : '');
+                if (newPlan !== currentPlan) {
+                    await DB.put('patients', { ...patient, treatmentPlan: newPlan });
+                }
+            };
+
             const handleSaveTask = async (taskData) => {
                 await DB.add('tasks', { ...taskData, assignedBy: currentUser?.displayName || currentUser?.email });
                 setShowTaskForm(false);
                 setSelectedPatientForTask(null);
+                // Sync plan
+                const allTasks = await DB.getAll('tasks');
+                await rebuildPatientPlan(taskData.patientId, allTasks);
                 loadData();
             };
 
@@ -4591,6 +4613,9 @@
                 const task = tasks.find(t => t.id === taskId);
                 if (task) {
                     await DB.put('tasks', { ...task, completed: !currentState, completedBy: !currentState ? (currentUser?.displayName || currentUser?.email) : null, completedAt: !currentState ? new Date().toISOString() : null });
+                    // Sync plan after toggling
+                    const allTasks = await DB.getAll('tasks');
+                    await rebuildPatientPlan(task.patientId, allTasks);
                     loadData();
                 }
             };
@@ -6202,6 +6227,15 @@
                 setNewTodoText(prev => ({ ...prev, [patientId]: '' }));
                 const allTasks = await DB.getAll('tasks');
                 setTasks(allTasks.filter(t => !t.completed));
+                // Sync plan: append new task to patient plan if not already there
+                const patient = patients.find(p => p.id === patientId);
+                if (patient) {
+                    const currentPlan = patient.treatmentPlan || '';
+                    if (!currentPlan.toLowerCase().includes(text.toLowerCase())) {
+                        const newPlan = currentPlan ? currentPlan.replace(/\.?\s*$/, '') + '. ' + text + '.' : text + '.';
+                        await DB.put('patients', { ...patient, treatmentPlan: newPlan });
+                    }
+                }
             };
 
             const handleAutoGenerate = async () => {
