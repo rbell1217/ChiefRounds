@@ -3973,6 +3973,7 @@
             const [patients, setPatients] = React.useState([]);
             const [labs, setLabs] = React.useState([]);
             const [outputs, setOutputs] = React.useState([]);
+            const [tasks, setTasks] = React.useState([]);
             const [presentMode, setPresentMode] = React.useState(false);
             const [lastRefresh, setLastRefresh] = React.useState(new Date());
 
@@ -3984,6 +3985,7 @@
                 const patientsData = await DB.getAll('patients');
                 const labsData = await DB.getAll('labs');
                 const outputsData = await DB.getAll('outputs');
+                const tasksData = await DB.getAll('tasks');
 
                 // Filter out discharged, sort: red flags first, then by room
                 const sorted = patientsData.filter(p => p.status !== 'discharged').sort((a, b) => {
@@ -3996,6 +3998,7 @@
                 setPatients(sorted);
                 setLabs(labsData);
                 setOutputs(outputsData);
+                setTasks(tasksData);
                 setLastRefresh(new Date());
             };
 
@@ -4386,7 +4389,19 @@
 
                                     {patient.treatmentPlan && (
                                         <div className="mb-2 text-sm">
-                                            <span className="font-semibold">Plan:</span> {patient.treatmentPlan}
+                                            <span className="font-semibold">Plan:</span>{' '}
+                                            {patient.treatmentPlan.split(/\.\s*/).filter(s => s.trim()).map((item, i, arr) => {
+                                                const trimmed = item.trim();
+                                                if (!trimmed) return null;
+                                                const patientTasks = tasks.filter(t => t.patientId === patient.id);
+                                                const matchingTask = patientTasks.find(t => t.description.toLowerCase() === trimmed.toLowerCase());
+                                                const isCompleted = matchingTask?.completed;
+                                                return (
+                                                    <span key={i} className={isCompleted ? 'line-through text-gray-400' : ''}>
+                                                        {trimmed}{i < arr.length - 1 ? '. ' : '.'}
+                                                    </span>
+                                                );
+                                            })}
                                         </div>
                                     )}
 
@@ -5253,7 +5268,10 @@
                                     <div key={patient.id} className="bg-white border border-gray-100 rounded-xl p-4">
                                         {/* Patient Header */}
                                         <div className="flex justify-between items-center mb-3">
-                                            <h3 className="text-lg font-bold text-medical-500">Room {patient.room}</h3>
+                                            <div>
+                                                <h3 className="text-lg font-bold text-medical-500">Room {patient.room}</h3>
+                                                <p className="text-xs text-gray-500">{patient.diagnosis}{patient.procedures?.length > 0 ? ` s/p ${patient.procedures.join(', ')}` : ''} {patient.admitDate ? `| POD ${calculatePOD(patient.admitDate)}` : ''}</p>
+                                            </div>
                                             <div className="flex items-center gap-2">
                                                 {tasks.some(t => t.patientId === patient.id && t.description === 'M&M Conference') && (
                                                     <button
