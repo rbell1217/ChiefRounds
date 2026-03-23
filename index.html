@@ -7087,8 +7087,10 @@ To-do: Check AM labs, I/Os q4h`}
             const [filter, setFilter] = React.useState('all');
             const [showQuickDictate, setShowQuickDictate] = React.useState(false);
             const [quickTranscript, setQuickTranscript] = React.useState('');
+            const [quickInterim, setQuickInterim] = React.useState('');
             const [quickListening, setQuickListening] = React.useState(false);
             const quickRecognitionRef = React.useRef(null);
+            const quickFinalRef = React.useRef('');
             const [hpNote, setHpNote] = React.useState(null);
             const [hpData, setHpData] = React.useState(null);
             const [hpCopied, setHpCopied] = React.useState(false);
@@ -7122,34 +7124,39 @@ To-do: Check AM labs, I/Os q4h`}
                         quickRecognitionRef.current.interimResults = true;
                         quickRecognitionRef.current.onstart = () => setQuickListening(true);
                         quickRecognitionRef.current.onresult = (event) => {
-                            let interimTranscript = '';
-                            let finalTranscript = '';
+                            let interim = '';
+                            let finalText = quickFinalRef.current;
                             for (let i = event.resultIndex; i < event.results.length; i++) {
-                                const transcript = event.results[i][0].transcript;
+                                const t = event.results[i][0].transcript;
                                 if (event.results[i].isFinal) {
-                                    finalTranscript += transcript + ' ';
+                                    const cleaned = cleanMedicalSpeech(t.trim());
+                                    finalText += (finalText ? ' ' : '') + cleaned;
                                 } else {
-                                    interimTranscript += transcript;
+                                    interim += t;
                                 }
                             }
-                            setQuickTranscript(prev => prev + finalTranscript + interimTranscript);
+                            quickFinalRef.current = finalText;
+                            setQuickTranscript(finalText);
+                            setQuickInterim(interim);
                         };
-                        quickRecognitionRef.current.onerror = () => setQuickListening(false);
-                        quickRecognitionRef.current.onend = () => setQuickListening(false);
+                        quickRecognitionRef.current.onerror = (e) => { if (e.error !== 'no-speech') setQuickListening(false); };
+                        quickRecognitionRef.current.onend = () => { setQuickListening(false); setQuickInterim(''); };
                     }
                 }
             };
 
             const startQuickDictation = () => {
                 if (quickRecognitionRef.current) {
+                    quickFinalRef.current = '';
                     setQuickTranscript('');
-                    quickRecognitionRef.current.start();
+                    setQuickInterim('');
+                    try { quickRecognitionRef.current.start(); } catch(e) {}
                 }
             };
 
             const stopQuickDictation = () => {
                 if (quickRecognitionRef.current) {
-                    quickRecognitionRef.current.stop();
+                    try { quickRecognitionRef.current.stop(); } catch(e) {}
                 }
             };
 
@@ -7425,17 +7432,18 @@ To-do: Check AM labs, I/Os q4h`}
                                 }`}>
                                 {quickListening ? '🎤 Listening...' : '🎤 Start Dictating'}
                             </button>
-                            {quickTranscript && (
-                                <div className="bg-slate-50 border border-gray-300 rounded p-3 text-gray-600 text-sm min-h-[60px] mb-3 max-h-[120px] overflow-y-auto">
-                                    {quickTranscript}
+                            {(quickTranscript || quickInterim) && (
+                                <div className="bg-slate-50 border border-gray-300 rounded p-3 text-sm min-h-[60px] mb-3 max-h-[120px] overflow-y-auto">
+                                    <span className="text-gray-700">{quickTranscript}</span>
+                                    {quickInterim && <span className="text-gray-400 italic"> {quickInterim}</span>}
                                 </div>
                             )}
                             <div className="flex gap-2">
-                                <button onClick={saveQuickConsult}
-                                    className="flex-1 bg-medical-500 hover:bg-medical-600 text-white py-2 rounded-lg font-medium transition">
+                                <button onClick={saveQuickConsult} disabled={!quickTranscript.trim()}
+                                    className={`flex-1 py-2 rounded-lg font-medium transition ${quickTranscript.trim() ? 'bg-medical-500 hover:bg-medical-600 text-white' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}>
                                     Save Consult
                                 </button>
-                                <button onClick={() => setQuickTranscript('')}
+                                <button onClick={() => { quickFinalRef.current = ''; setQuickTranscript(''); setQuickInterim(''); }}
                                     className="bg-gray-50 hover:bg-gray-100 text-gray-600 px-3 py-2 rounded-lg transition">
                                     Clear
                                 </button>
@@ -7577,8 +7585,10 @@ To-do: Check AM labs, I/Os q4h`}
 
         function ConsultFormModal({ form, setForm, patients, CONSULT_SERVICES, editingConsult, handleSave, onClose }) {
             const [transcript, setTranscript] = React.useState('');
+            const [formInterim, setFormInterim] = React.useState('');
             const [listening, setListening] = React.useState(false);
             const recognitionRef = React.useRef(null);
+            const formFinalRef = React.useRef('');
 
             React.useEffect(() => {
                 if (typeof window !== 'undefined') {
@@ -7589,28 +7599,33 @@ To-do: Check AM labs, I/Os q4h`}
                         recognitionRef.current.interimResults = true;
                         recognitionRef.current.onstart = () => setListening(true);
                         recognitionRef.current.onresult = (event) => {
-                            let interimTranscript = '';
-                            let finalTranscript = '';
+                            let interim = '';
+                            let finalText = formFinalRef.current;
                             for (let i = event.resultIndex; i < event.results.length; i++) {
                                 const t = event.results[i][0].transcript;
                                 if (event.results[i].isFinal) {
-                                    finalTranscript += t + ' ';
+                                    const cleaned = cleanMedicalSpeech(t.trim());
+                                    finalText += (finalText ? ' ' : '') + cleaned;
                                 } else {
-                                    interimTranscript += t;
+                                    interim += t;
                                 }
                             }
-                            setTranscript(prev => prev + finalTranscript + interimTranscript);
+                            formFinalRef.current = finalText;
+                            setTranscript(finalText);
+                            setFormInterim(interim);
                         };
-                        recognitionRef.current.onerror = () => setListening(false);
-                        recognitionRef.current.onend = () => setListening(false);
+                        recognitionRef.current.onerror = (e) => { if (e.error !== 'no-speech') setListening(false); };
+                        recognitionRef.current.onend = () => { setListening(false); setFormInterim(''); };
                     }
                 }
             }, []);
 
             const startListening = () => {
                 if (recognitionRef.current) {
+                    formFinalRef.current = '';
                     setTranscript('');
-                    recognitionRef.current.start();
+                    setFormInterim('');
+                    try { recognitionRef.current.start(); } catch(e) {}
                 }
             };
 
@@ -7640,9 +7655,10 @@ To-do: Check AM labs, I/Os q4h`}
                                 }`}>
                                 {listening ? '🎤 Listening...' : '🎤 Tap to Dictate'}
                             </button>
-                            {transcript && (
-                                <div className="bg-slate-50 border border-gray-300 rounded p-3 text-gray-600 text-sm min-h-[60px] mb-3 max-h-[100px] overflow-y-auto">
-                                    {transcript}
+                            {(transcript || formInterim) && (
+                                <div className="bg-slate-50 border border-gray-300 rounded p-3 text-sm min-h-[60px] mb-3 max-h-[100px] overflow-y-auto">
+                                    <span className="text-gray-700">{transcript}</span>
+                                    {formInterim && <span className="text-gray-400 italic"> {formInterim}</span>}
                                 </div>
                             )}
                             <div className="flex gap-2">
@@ -7650,7 +7666,7 @@ To-do: Check AM labs, I/Os q4h`}
                                     className="flex-1 bg-medical-500 hover:bg-medical-600 text-white py-2 rounded font-medium transition text-sm">
                                     Parse & Fill
                                 </button>
-                                <button onClick={() => setTranscript('')}
+                                <button onClick={() => { formFinalRef.current = ''; setTranscript(''); setFormInterim(''); }}
                                     className="bg-gray-50 hover:bg-gray-100 text-gray-600 px-3 py-2 rounded transition text-sm">
                                     Clear
                                 </button>
