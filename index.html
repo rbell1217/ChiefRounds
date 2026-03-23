@@ -3097,14 +3097,14 @@
                     } else {
                         patientId = await DB.add('patients', patientData);
                     }
-                    // Create tasks from plan text if present
-                    if (patientData.treatmentPlan && patientId) {
-                        await createTasksFromPlanText(patientId, patientData.treatmentPlan, 'Patient Form');
-                    }
                     // Close dialog first, then clear state
                     setShowPatientForm(false);
                     setEditingPatient(null);
                     loadPatients();
+                    // Create tasks from plan text (non-blocking, after dialog closes)
+                    if (patientData.treatmentPlan && patientId) {
+                        createTasksFromPlanText(patientId, patientData.treatmentPlan, 'Patient Form').catch(e => console.error('Task sync error:', e));
+                    }
                 } catch(err) {
                     console.error('Error saving patient:', err);
                     alert('Error saving patient: ' + err.message);
