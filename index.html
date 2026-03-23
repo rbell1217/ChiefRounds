@@ -7422,13 +7422,13 @@ To-do: Check AM labs, I/Os q4h`}
                     {showQuickDictate && (
                         <div className="bg-white border border-medical-500/50 rounded-xl p-4 mb-4 shadow-lg shadow-sky-500/10">
                             <div className="flex items-center justify-between mb-3">
-                                <h3 className="text-white font-bold">Quick Dictate Consult</h3>
+                                <h3 className="text-gray-800 font-bold">Quick Dictate Consult</h3>
                                 <button onClick={() => { stopQuickDictation(); setShowQuickDictate(false); setQuickTranscript(''); }}
                                     className="text-gray-500 hover:text-gray-600 text-xl">×</button>
                             </div>
                             <button onClick={quickListening ? stopQuickDictation : startQuickDictation}
-                                className={`w-full py-3 rounded-lg font-bold text-white mb-3 transition ${
-                                    quickListening ? 'bg-red-500 text-white animate-pulse' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+                                className={`w-full py-3 rounded-lg font-bold mb-3 transition ${
+                                    quickListening ? 'bg-red-500 text-white animate-pulse' : 'bg-medical-600 text-white hover:bg-medical-700'
                                 }`}>
                                 {quickListening ? '🎤 Listening...' : '🎤 Start Dictating'}
                             </button>
@@ -7518,7 +7518,7 @@ To-do: Check AM labs, I/Os q4h`}
                             <div className="flex justify-between items-start mb-2">
                                 <div>
                                     <div className="flex items-center gap-2 flex-wrap">
-                                        <span className="font-bold text-white text-lg">{c.service}</span>
+                                        <span className="font-bold text-medical-700 text-lg">{c.service}</span>
                                         <span className={`text-xs font-medium ${urgencyColors[c.urgency]}`}>({c.urgency})</span>
                                         <span className={`text-xs px-2 py-0.5 rounded-full border ${statusColors[c.status]}`}>{c.status}</span>
                                     </div>
@@ -7645,13 +7645,13 @@ To-do: Check AM labs, I/Os q4h`}
             return (
                 <div className="fixed inset-0 bg-black/60 flex items-start justify-center pt-8 z-50 overflow-y-auto modal-backdrop" onClick={onClose}>
                     <div className="bg-white rounded-xl p-5 w-full max-w-lg mx-4 mb-8 modal-content" onClick={e => e.stopPropagation()}>
-                        <h3 className="text-lg font-bold text-white mb-4">{editingConsult ? 'Edit Consult' : 'New Consult'}</h3>
+                        <h3 className="text-lg font-bold text-gray-800 mb-4">{editingConsult ? 'Edit Consult' : 'New Consult'}</h3>
 
                         {/* Voice Dictation Section */}
                         <div className="bg-slate-50 border border-gray-200 rounded-lg p-4 mb-4">
                             <button onClick={listening ? stopListening : startListening}
-                                className={`w-full py-3 rounded-lg font-bold text-white mb-3 transition ${
-                                    listening ? 'bg-red-500 text-white animate-pulse' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+                                className={`w-full py-3 rounded-lg font-bold mb-3 transition ${
+                                    listening ? 'bg-red-500 text-white animate-pulse' : 'bg-medical-600 text-white hover:bg-medical-700'
                                 }`}>
                                 {listening ? '🎤 Listening...' : '🎤 Tap to Dictate'}
                             </button>
@@ -8524,8 +8524,8 @@ To-do: Check AM labs, I/Os q4h`}
                         {/* Voice Dictation Section */}
                         <div className="bg-slate-50 border border-gray-200 rounded-lg p-4 mb-4">
                             <button onClick={listening ? stopListening : startListening}
-                                className={`w-full py-3 rounded-lg font-bold text-white mb-3 transition ${
-                                    listening ? 'bg-red-500 text-white animate-pulse' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+                                className={`w-full py-3 rounded-lg font-bold mb-3 transition ${
+                                    listening ? 'bg-red-500 text-white animate-pulse' : 'bg-medical-600 text-white hover:bg-medical-700'
                                 }`}>
                                 {listening ? '🎤 Listening...' : '🎤 Tap to Dictate'}
                             </button>
