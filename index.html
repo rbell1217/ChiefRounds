@@ -974,11 +974,335 @@
 
         // ==================== SMART SPEECH CLEANUP ====================
         // Cleans up speech-to-text output while preserving medical terminology
+
+        // --- Surgical procedure misrecognition dictionary ---
+        // Maps common STT mishearings to correct surgical/medical terms
+        const SURGICAL_TERM_CORRECTIONS = {
+            // Procedures - ectomies
+            'heliocestomy': 'ileocecectomy', 'helio cestomy': 'ileocecectomy', 'illio sectomy': 'ileocecectomy',
+            'illio cecectomy': 'ileocecectomy', 'ilio cecectomy': 'ileocecectomy', 'ileal cecectomy': 'ileocecectomy',
+            'heal you a sectomy': 'ileocecectomy', 'ileus ectomy': 'ileocecectomy',
+            'cole a cyst ectomy': 'cholecystectomy', 'cola cyst ectomy': 'cholecystectomy',
+            'cole assist ectomy': 'cholecystectomy', 'cole assist to me': 'cholecystectomy',
+            'coley cyst ectomy': 'cholecystectomy', 'collie sister me': 'cholecystectomy',
+            'cole a sister me': 'cholecystectomy', 'cola sister me': 'cholecystectomy',
+            'call a cyst ectomy': 'cholecystectomy', 'colleague cyst ectomy': 'cholecystectomy',
+            'app and ectomy': 'appendectomy', 'a pen dectomy': 'appendectomy', 'append ectomy': 'appendectomy',
+            'hemi coal ectomy': 'hemicolectomy', 'hemi collect to me': 'hemicolectomy',
+            'hemi coal a sectomy': 'hemicolectomy', 'semi colectomy': 'hemicolectomy',
+            'hemi collect a me': 'hemicolectomy', 'hemi colectomy': 'hemicolectomy',
+            'coal ectomy': 'colectomy', 'collect to me': 'colectomy', 'colon ectomy': 'colectomy',
+            'gas trectomy': 'gastrectomy', 'gastr ectomy': 'gastrectomy',
+            'gastrointestinal': 'gastrointestinal', 'gastro intestinal': 'gastrointestinal',
+            'throws a sectomy': 'thoracotomy', 'thorough cotton me': 'thoracotomy',
+            'thorough cost to me': 'thoracotomy', 'thoracic otomy': 'thoracotomy',
+            'throw a cost to me': 'thoracotomy', 'thorough economy': 'thoracotomy',
+            'lap arose copy': 'laparoscopy', 'lap or oscopy': 'laparoscopy',
+            'laparoscopy': 'laparoscopy', 'lap a raw scopy': 'laparoscopy',
+            'whipple': 'Whipple', 'whip all': 'Whipple', 'whip pull': 'Whipple',
+            'spleen ectomy': 'splenectomy', 'splene ectomy': 'splenectomy',
+            'nephr ectomy': 'nephrectomy', 'nephre ectomy': 'nephrectomy',
+            'syst ectomy': 'cystectomy', 'sister ectomy': 'cystectomy',
+            'master ectomy': 'mastectomy', 'mass tectomy': 'mastectomy',
+            'thigh ride ectomy': 'thyroidectomy', 'thyroid ectomy': 'thyroidectomy',
+            'parathyroid ectomy': 'parathyroidectomy',
+            'adrenal ectomy': 'adrenalectomy',
+            'lumpectomy': 'lumpectomy', 'lump ectomy': 'lumpectomy',
+            'esophageal ectomy': 'esophagectomy', 'a saw forjectomy': 'esophagectomy',
+            'pan create ectomy': 'pancreatectomy', 'pancreatic otomy': 'pancreatectomy',
+            'pancreaticoduodenectomy': 'pancreaticoduodenectomy',
+            'sigmoid ectomy': 'sigmoidectomy',
+            'proc toe ectomy': 'proctocolectomy', 'procto colectomy': 'proctocolectomy',
+            'her knee a raffy': 'herniorrhaphy', 'hernia raffy': 'herniorrhaphy',
+            'hernia repair': 'hernia repair', 'hernia ography': 'herniorrhaphy',
+            'inguinal hernia': 'inguinal hernia',
+            'ventral hernia': 'ventral hernia',
+            'incisional hernia': 'incisional hernia',
+            'umbilical hernia': 'umbilical hernia',
+            'hemorrhoid ectomy': 'hemorrhoidectomy',
+            'fissure otomy': 'fissurectomy',
+            'fistula otomy': 'fistulotomy',
+            // Procedures - ostomies/otomies
+            'ileus to me': 'ileostomy', 'ileus dummy': 'ileostomy', 'illegal stony': 'ileostomy',
+            'ilia stoma': 'ileostomy', 'ilio stony': 'ileostomy', 'ileal stomy': 'ileostomy',
+            'colas to me': 'colostomy', 'cola stomy': 'colostomy', 'colon stomy': 'colostomy',
+            'trach ee ostomy': 'tracheostomy', 'tricky ostomy': 'tracheostomy', 'trake ostomy': 'tracheostomy',
+            'gas trost to me': 'gastrostomy', 'gastro stomy': 'gastrostomy',
+            'la parrot to me': 'laparotomy', 'lap a rot to me': 'laparotomy', 'la parrot amy': 'laparotomy',
+            'lap arotomy': 'laparotomy',
+            'jest you know stony': 'jejunostomy', 'juju nostomy': 'jejunostomy', 'jejune ostomy': 'jejunostomy',
+            // Anatomy
+            'cecum': 'cecum', 'see come': 'cecum', 'seek um': 'cecum',
+            'sigmoyed': 'sigmoid', 'sigma': 'sigmoid', 'sig moid': 'sigmoid',
+            'duodenum': 'duodenum', 'duo denum': 'duodenum', 'do odd enum': 'duodenum',
+            'jejunum': 'jejunum', 'juju num': 'jejunum', 'jejune um': 'jejunum',
+            'ileum': 'ileum', 'ill ee um': 'ileum',
+            'peritoneum': 'peritoneum', 'perry toe neum': 'peritoneum',
+            'peritoneal': 'peritoneal', 'perry to neil': 'peritoneal',
+            'mesentery': 'mesentery', 'messentery': 'mesentery', 'mess and terry': 'mesentery',
+            'omentum': 'omentum', 'oh mentum': 'omentum',
+            'retroperitoneal': 'retroperitoneal', 'retro peritoneal': 'retroperitoneal',
+            'mediastinum': 'mediastinum', 'media style num': 'mediastinum',
+            'fascia': 'fascia', 'fashia': 'fascia',
+            'periosteum': 'periosteum',
+            'anastomosis': 'anastomosis', 'anna stoma sis': 'anastomosis', 'anna stow Moses': 'anastomosis',
+            'anna stow mo sis': 'anastomosis',
+            // Conditions/Diagnoses
+            'cholecystitis': 'cholecystitis', 'cole a sis tight is': 'cholecystitis',
+            'cole assist itis': 'cholecystitis', 'cola cyst itis': 'cholecystitis',
+            'choledocholithiasis': 'choledocholithiasis',
+            'cholelithiasis': 'cholelithiasis', 'cole a lie thesis': 'cholelithiasis',
+            'diverticulitis': 'diverticulitis', 'diver tick you lie tis': 'diverticulitis',
+            'diverticulosis': 'diverticulosis',
+            'appendicitis': 'appendicitis', 'a pen to cite is': 'appendicitis',
+            'pancreatitis': 'pancreatitis', 'pancreatic titus': 'pancreatitis',
+            'peritonitis': 'peritonitis', 'perry toe night is': 'peritonitis',
+            'abscess': 'abscess', 'ab says': 'abscess', 'ab cess': 'abscess',
+            'fistula': 'fistula', 'fish tula': 'fistula',
+            'adhesions': 'adhesions', 'add he shuns': 'adhesions',
+            'stenosis': 'stenosis', 'steno sis': 'stenosis',
+            'ischemia': 'ischemia', 'is key mia': 'ischemia',
+            'ischemic': 'ischemic', 'is key mic': 'ischemic',
+            'necrosis': 'necrosis', 'neh crow sis': 'necrosis',
+            'necrotic': 'necrotic',
+            'hematoma': 'hematoma', 'he ma toma': 'hematoma',
+            'seroma': 'seroma', 'sarah ma': 'seroma',
+            'pneumothorax': 'pneumothorax', 'new mo thorax': 'pneumothorax',
+            'hemothorax': 'hemothorax', 'he mo thorax': 'hemothorax',
+            'pneumoperitoneum': 'pneumoperitoneum',
+            'ileus': 'ileus', 'ill ee us': 'ileus',
+            'volvulus': 'volvulus', 'vol view lus': 'volvulus',
+            'intussusception': 'intussusception', 'in to suscept shun': 'intussusception',
+            'malrotation': 'malrotation',
+            'sepsis': 'sepsis', 'sep sis': 'sepsis',
+            'septic': 'septic',
+            'cellulitis': 'cellulitis', 'sell you lie tis': 'cellulitis',
+            'thrombosis': 'thrombosis', 'from bow sis': 'thrombosis',
+            'embolism': 'embolism', 'in bowl is um': 'embolism',
+            'pulmonary embolism': 'pulmonary embolism',
+            'atelectasis': 'atelectasis', 'at elect a sis': 'atelectasis',
+            'pleural effusion': 'pleural effusion', 'plural effusion': 'pleural effusion',
+            'empyema': 'empyema',
+            // Imaging/Studies
+            'cat scan': 'CT scan', 'c t a': 'CTA', 'CTA': 'CTA',
+            'magnetic resonance': 'MRI', 'MRI': 'MRI', 'M R I': 'MRI',
+            'MRCP': 'MRCP', 'M R C P': 'MRCP',
+            'ultrasound': 'ultrasound', 'ultra sound': 'ultrasound',
+            'HIDA scan': 'HIDA scan', 'hide a scan': 'HIDA scan', 'high to scan': 'HIDA scan',
+            'chest x-ray': 'CXR', 'chest x ray': 'CXR',
+            'abdominal x-ray': 'AXR', 'abdominal x ray': 'AXR',
+            'KUB': 'KUB', 'K U B': 'KUB',
+            'fluoroscopy': 'fluoroscopy', 'floor oscopy': 'fluoroscopy',
+            'angiography': 'angiography', 'angie ography': 'angiography',
+            'endoscopy': 'endoscopy', 'indo scopy': 'endoscopy',
+            'colonoscopy': 'colonoscopy', 'cologne oscopy': 'colonoscopy',
+            'esophagogastroduodenoscopy': 'EGD', 'EGD': 'EGD', 'E G D': 'EGD',
+            'ERCP': 'ERCP', 'E R C P': 'ERCP',
+            // Medications
+            'heparin': 'heparin', 'hep a rin': 'heparin',
+            'enoxaparin': 'enoxaparin', 'in ox a par in': 'enoxaparin',
+            'lovenox': 'Lovenox', 'love a knocks': 'Lovenox', 'love an ox': 'Lovenox',
+            'metronidazole': 'metronidazole', 'metro nida zole': 'metronidazole',
+            'flagyl': 'Flagyl', 'fla jill': 'Flagyl',
+            'piperacillin tazobactam': 'piperacillin-tazobactam', 'zosyn': 'Zosyn', 'zo sin': 'Zosyn',
+            'cefazolin': 'cefazolin', 'sef as oh lin': 'cefazolin',
+            'ancef': 'Ancef', 'an sef': 'Ancef',
+            'vancomycin': 'vancomycin', 'vanco my sin': 'vancomycin',
+            'meropenem': 'meropenem', 'mare oh pen em': 'meropenem',
+            'ciprofloxacin': 'ciprofloxacin', 'cipro': 'Cipro',
+            'levofloxacin': 'levofloxacin', 'levaquin': 'Levaquin',
+            'amoxicillin': 'amoxicillin',
+            'ondansetron': 'ondansetron', 'on dan set ron': 'ondansetron',
+            'zofran': 'Zofran', 'zo fran': 'Zofran',
+            'ketorolac': 'ketorolac', 'key tore a lack': 'ketorolac',
+            'toradol': 'Toradol', 'tore a doll': 'Toradol',
+            'acetaminophen': 'acetaminophen', 'tylenol': 'Tylenol',
+            'ibuprofen': 'ibuprofen', 'motrin': 'Motrin',
+            'morphine': 'morphine', 'more feen': 'morphine',
+            'hydromorphone': 'hydromorphone', 'dilaudid': 'Dilaudid', 'dill odd id': 'Dilaudid',
+            'oxycodone': 'oxycodone', 'oxy code own': 'oxycodone',
+            'fentanyl': 'fentanyl', 'fen ton ill': 'fentanyl',
+            'lidocaine': 'lidocaine', 'lie doe cane': 'lidocaine',
+            'bupivacaine': 'bupivacaine', 'boo piv a cane': 'bupivacaine',
+            'propofol': 'propofol', 'proper fall': 'propofol',
+            'pantoprazole': 'pantoprazole', 'protonix': 'Protonix',
+            'famotidine': 'famotidine', 'pepcid': 'Pepcid',
+            'metoclopramide': 'metoclopramide', 'reglan': 'Reglan',
+            'lactated ringers': "lactated Ringer's", 'lactated ringer': "lactated Ringer's",
+            'normal saline': 'normal saline', 'NS': 'NS',
+            'albumin': 'albumin',
+            'TPA': 'tPA', 'alteplase': 'alteplase',
+            // Lab values/terms
+            'troponin': 'troponin', 'trow pone in': 'troponin',
+            'procalcitonin': 'procalcitonin', 'pro cal sit tone in': 'procalcitonin',
+            'lactate': 'lactate', 'lack tate': 'lactate',
+            'bilirubin': 'bilirubin', 'billy reuben': 'bilirubin', 'billy reubin': 'bilirubin',
+            'lipase': 'lipase', 'lie pace': 'lipase',
+            'amylase': 'amylase',
+            'INR': 'INR', 'I N R': 'INR',
+            'PTT': 'PTT', 'P T T': 'PTT',
+            'prothrombin': 'prothrombin',
+            'platelet': 'platelet', 'platelets': 'platelets',
+            'hematocrit': 'hematocrit', 'he mat a crit': 'hematocrit',
+            'leukocytosis': 'leukocytosis', 'loo co sigh toe sis': 'leukocytosis',
+            'bandemia': 'bandemia',
+            'hyponatremia': 'hyponatremia', 'hypo nah tree me ah': 'hyponatremia',
+            'hyperkalemia': 'hyperkalemia', 'hyper kale ee me ah': 'hyperkalemia',
+            'hypokalemia': 'hypokalemia',
+            'acidosis': 'acidosis', 'ass a dose is': 'acidosis',
+            'alkalosis': 'alkalosis',
+            'coagulopathy': 'coagulopathy', 'co ag you la pathy': 'coagulopathy',
+            // Medical devices/equipment
+            'foley catheter': 'Foley catheter', 'foley': 'Foley', 'fully catheter': 'Foley catheter',
+            'penrose drain': 'Penrose drain', 'pen rose drain': 'Penrose drain',
+            'wound vac': 'wound VAC', 'wound back': 'wound VAC',
+            'pigtail catheter': 'pigtail catheter',
+            'chest tube': 'chest tube',
+            'central line': 'central line',
+            'PICC line': 'PICC line', 'pick line': 'PICC line', 'pic line': 'PICC line',
+            'arterial line': 'arterial line', 'a line': 'A-line',
+            'endotracheal tube': 'ETT', 'ET tube': 'ETT', 'E T tube': 'ETT',
+            'ventilator': 'ventilator', 'vent': 'vent',
+            'bipap': 'BiPAP', 'by pap': 'BiPAP', 'bye pap': 'BiPAP',
+            'cpap': 'CPAP', 'see pap': 'CPAP',
+            'nasal cannula': 'nasal cannula', 'nasal canula': 'nasal cannula',
+            'high flow': 'high-flow', 'hi flow': 'high-flow',
+            'stapler': 'stapler', 'staple line': 'staple line',
+            'bovie': 'Bovie', 'bow v': 'Bovie',
+            'harmonic': 'Harmonic', 'ligasure': 'LigaSure', 'liga sure': 'LigaSure',
+            // Misc clinical terms
+            'hemodynamically stable': 'hemodynamically stable',
+            'hemodynamically': 'hemodynamically', 'he mo dynamically': 'hemodynamically',
+            'afebrile': 'afebrile', 'a feb rile': 'afebrile', 'a febrile': 'afebrile',
+            'tachycardic': 'tachycardic', 'tacky cardiac': 'tachycardic',
+            'tachycardia': 'tachycardia', 'tacky card ia': 'tachycardia',
+            'bradycardic': 'bradycardic', 'brady cardiac': 'bradycardic',
+            'hypotensive': 'hypotensive', 'hypo tensive': 'hypotensive',
+            'hypertensive': 'hypertensive', 'hyper tensive': 'hypertensive',
+            'tachypneic': 'tachypneic', 'tacky neigh ick': 'tachypneic',
+            'euvolemic': 'euvolemic', 'you bowl eh mic': 'euvolemic',
+            'diaphoretic': 'diaphoretic', 'die a for etic': 'diaphoretic',
+            'guarding': 'guarding', 'rebound': 'rebound',
+            'peritoneal signs': 'peritoneal signs',
+            'bowel sounds': 'bowel sounds',
+            'distended': 'distended', 'diss tended': 'distended',
+            'nontender': 'nontender', 'non-tender': 'nontender', 'non tender': 'nontender',
+            'erythematous': 'erythematous', 'err a theme a tus': 'erythematous',
+            'ecchymosis': 'ecchymosis', 'echo moe sis': 'ecchymosis',
+            'purulent': 'purulent', 'pure you lint': 'purulent',
+            'sanguineous': 'sanguineous', 'sang win ee us': 'sanguineous',
+            'serosanguineous': 'serosanguineous',
+            'dehiscence': 'dehiscence', 'dee his sense': 'dehiscence',
+            'evisceration': 'evisceration',
+            'prophylaxis': 'prophylaxis', 'pro fill axis': 'prophylaxis',
+            'anticoagulation': 'anticoagulation', 'anti coagulation': 'anticoagulation',
+            'thromboprophylaxis': 'thromboprophylaxis',
+            'ambulate': 'ambulate', 'ambulating': 'ambulating',
+            'incentive spirometry': 'incentive spirometry', 'incentive spy rom a tree': 'incentive spirometry',
+        };
+
+        // Build regex for surgical term corrections (longest match first to avoid partial replacements)
+        const _surgicalCorrectionPatterns = Object.entries(SURGICAL_TERM_CORRECTIONS)
+            .sort((a, b) => b[0].length - a[0].length)
+            .map(([wrong, right]) => [new RegExp('\\b' + wrong.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'gi'), right]);
+
+        // Remove duplicate phrases that occur when user re-dictates
+        function removeDuplicatePhrases(text) {
+            if (!text || text.length < 20) return text;
+            // Split into sentences
+            const sentences = text.split(/(?<=[.!?])\s+/).filter(s => s.trim());
+            if (sentences.length < 2) return text;
+
+            const unique = [sentences[0]];
+            for (let i = 1; i < sentences.length; i++) {
+                const curr = sentences[i].toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
+                let isDupe = false;
+                // Check against recent sentences (window of 3 lookback)
+                for (let j = Math.max(0, i - 3); j < i; j++) {
+                    const prev = sentences[j].toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
+                    // Exact or near-exact match (Dice coefficient > 0.85)
+                    if (curr === prev) { isDupe = true; break; }
+                    const similarity = _diceSimilarity(curr, prev);
+                    if (similarity > 0.85) { isDupe = true; break; }
+                }
+                if (!isDupe) unique.push(sentences[i]);
+            }
+
+            // Also detect repeated phrases within a single "sentence" (non-sentence-ending text)
+            let result = unique.join(' ');
+            // Match repeated consecutive phrase blocks (3+ words repeated)
+            result = result.replace(/\b((?:\S+\s+){3,}?)(\s*\1)+/gi, '$1');
+
+            return result;
+        }
+
+        // Dice coefficient for fuzzy sentence matching
+        function _diceSimilarity(a, b) {
+            if (!a || !b) return 0;
+            if (a === b) return 1;
+            const bigramsA = new Set();
+            const bigramsB = new Set();
+            for (let i = 0; i < a.length - 1; i++) bigramsA.add(a.substring(i, i + 2));
+            for (let i = 0; i < b.length - 1; i++) bigramsB.add(b.substring(i, i + 2));
+            let intersection = 0;
+            for (const bg of bigramsA) if (bigramsB.has(bg)) intersection++;
+            return (2 * intersection) / (bigramsA.size + bigramsB.size);
+        }
+
+        // Proofread/clean up dictated text for conciseness and readability
+        function proofreadDictation(text) {
+            if (!text) return text;
+            let cleaned = text;
+
+            // Remove filler words/phrases common in dictation
+            const fillerPatterns = [
+                /\b(um+|uh+|ah+|er+|hmm+|like I said|you know|basically|I mean|so+)\b\s*/gi,
+                /\b(let me see|how do I say this|what's the word)\b\s*/gi,
+                /\b(go ahead and|I want to say|I would say|kind of like)\b\s*/gi,
+            ];
+            for (const pat of fillerPatterns) {
+                cleaned = cleaned.replace(pat, '');
+            }
+
+            // Remove false starts and corrections: "the patient, I mean the patient" -> "the patient"
+            cleaned = cleaned.replace(/\b(\w+(?:\s+\w+){0,3}),?\s*(?:I mean|no|sorry|actually|wait|correction)\s+\1/gi, '$1');
+
+            // Remove "period" and "comma" spoken as words (speech commands)
+            cleaned = cleaned.replace(/\bperiod\b/gi, '.').replace(/\bcomma\b/gi, ',').replace(/\bnew line\b/gi, '\n');
+
+            // Clean up punctuation spacing
+            cleaned = cleaned.replace(/\s+([.,;:!?])/g, '$1');
+            cleaned = cleaned.replace(/([.,;:!?])(?=[A-Za-z])/g, '$1 ');
+
+            // Fix double spaces
+            cleaned = cleaned.replace(/\s{2,}/g, ' ').trim();
+
+            // Capitalize first letter of each sentence
+            cleaned = cleaned.replace(/(^|[.!?]\s+)([a-z])/g, (m, pre, letter) => pre + letter.toUpperCase());
+
+            // Capitalize first letter overall
+            if (cleaned.length > 0) {
+                cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+            }
+
+            // Add period at end if missing punctuation
+            if (cleaned.length > 0 && !/[.!?\n]$/.test(cleaned.trim())) {
+                cleaned = cleaned.trim() + '.';
+            }
+
+            return cleaned;
+        }
+
         function cleanMedicalSpeech(text) {
             if (!text) return text;
             let cleaned = text;
 
-            // Medical abbreviation corrections (speech-to-text often expands these)
+            // Step 1: Apply surgical/procedure term corrections (misrecognition fixes)
+            for (const [pattern, replacement] of _surgicalCorrectionPatterns) {
+                cleaned = cleaned.replace(pattern, replacement);
+            }
+
+            // Step 2: Medical abbreviation corrections (speech-to-text often expands these)
             const medTerms = [
                 [/\bstatus post\b/gi, 's/p'],
                 [/\bpost op(erative)?\b/gi, 'postop'],
@@ -1032,21 +1356,11 @@
                 cleaned = cleaned.replace(pattern, replacement);
             }
 
-            // Capitalize first letter of each sentence
-            cleaned = cleaned.replace(/(^|[.!?]\s+)([a-z])/g, (m, pre, letter) => pre + letter.toUpperCase());
+            // Step 3: Remove duplicate phrases from re-dictation
+            cleaned = removeDuplicatePhrases(cleaned);
 
-            // Capitalize first letter overall
-            if (cleaned.length > 0) {
-                cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
-            }
-
-            // Fix double spaces
-            cleaned = cleaned.replace(/\s{2,}/g, ' ').trim();
-
-            // Add period at end if missing punctuation
-            if (cleaned.length > 0 && !/[.!?]$/.test(cleaned)) {
-                cleaned += '.';
-            }
+            // Step 4: Proofread for conciseness and readability
+            cleaned = proofreadDictation(cleaned);
 
             return cleaned;
         }
@@ -6489,7 +6803,8 @@ To-do: Check AM labs, I/Os q4h`}
                         for (let i = event.resultIndex; i < event.results.length; i++) {
                             const t = event.results[i][0].transcript;
                             if (event.results[i].isFinal) {
-                                setTranscript(prev => prev + t + ' ');
+                                const cleaned = cleanMedicalSpeech(t.trim());
+                                setTranscript(prev => prev + cleaned + ' ');
                             } else {
                                 interim += t;
                             }
@@ -8803,7 +9118,7 @@ To-do: Check AM labs, I/Os q4h`}
                             for (let i = 0; i < event.results.length; i++) {
                                 const t = event.results[i][0].transcript;
                                 if (event.results[i].isFinal) {
-                                    finalTranscript += t + ' ';
+                                    finalTranscript += cleanMedicalSpeech(t.trim()) + ' ';
                                 } else {
                                     interimTranscript += t;
                                 }
@@ -9198,7 +9513,7 @@ To-do: Check AM labs, I/Os q4h`}
                             for (let i = event.resultIndex; i < event.results.length; i++) {
                                 const t = event.results[i][0].transcript;
                                 if (event.results[i].isFinal) {
-                                    finalTranscript += t + ' ';
+                                    finalTranscript += cleanMedicalSpeech(t.trim()) + ' ';
                                 } else {
                                     interimTranscript += t;
                                 }
