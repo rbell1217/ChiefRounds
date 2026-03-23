@@ -195,6 +195,44 @@
             }
         };
 
+        // ==================== PLAN-TO-TASKS SYNC ====================
+        // Creates tasks from plan text items that don't already have matching tasks
+        const createTasksFromPlanText = async (patientId, planText, source) => {
+            if (!planText || !planText.trim()) return;
+            // Split plan into individual items by period or semicolon
+            const planItems = planText.split(/[.;]\s*/).map(s => s.trim()).filter(s => s.length > 2);
+            if (planItems.length === 0) return;
+            // Get existing tasks for this patient
+            const existingTasks = await DB.getAll('tasks');
+            const patientTasks = existingTasks.filter(t => t.patientId === patientId);
+            const existingDescs = patientTasks.map(t => t.description.toLowerCase());
+            for (const item of planItems) {
+                // Skip if a matching task already exists
+                if (existingDescs.some(d => d === item.toLowerCase() || d.includes(item.toLowerCase().substring(0, 15)) || item.toLowerCase().includes(d.substring(0, 15)))) continue;
+                // Determine category
+                let category = 'Plan';
+                const il = item.toLowerCase();
+                if (/check|draw|send|cbc|bmp|cmp|coag|culture|ua|lipase|troponin|lactate|lab/i.test(il)) category = 'Labs';
+                else if (/ct |cxr|x-ray|xray|mri|ultrasound|echo|ekg|order\s*(ct|mr|us|xr)/i.test(il)) category = 'Imaging';
+                else if (/consult/i.test(il)) category = 'Consults';
+                else if (/pt\s*eval|ot\s*eval|ambulate|physical\s*therapy|occupational/i.test(il)) category = 'Activity';
+                else if (/wound|dressing/i.test(il)) category = 'Other';
+                else if (/start|stop|dc |switch|give|administer|bolus|transfuse|antibiotic|heparin|lovenox/i.test(il)) category = 'Orders';
+                else if (/discharge|dispo/i.test(il)) category = 'Disposition';
+                await DB.add('tasks', {
+                    patientId,
+                    category,
+                    description: item,
+                    priority: 'Medium',
+                    assignee: '',
+                    completed: false,
+                    createdAt: new Date().toISOString(),
+                    assignedBy: source || 'Plan',
+                    fromPlan: true
+                });
+            }
+        };
+
         // ==================== PHI ENCRYPTION (AES-256-GCM) ====================
         const PHI_FIELDS = ['room', 'diagnosis', 'problems', 'procedures', 'pmh', 'psh', 'homeMeds', 'allergies',
             'antibiotics', 'examFindings', 'treatmentPlan', 'concerns', 'dispositionPlan', 'codeStatus',
@@ -2984,6 +3022,10 @@
                     updates[patientFieldMap[fieldName]] = roundsFieldDraft;
                 }
                 await DB.put('patients', updates);
+                // Create tasks from plan items when plan is edited
+                if (fieldName === 'plan' && roundsFieldDraft) {
+                    await createTasksFromPlanText(patientId, roundsFieldDraft, 'Rounds');
+                }
                 setEditingRoundsField(null);
                 setRoundsFieldDraft('');
                 loadPatients();
@@ -3048,10 +3090,16 @@
 
             const handleSavePatient = async (patientData) => {
                 try {
+                    let patientId;
                     if (editingPatient?.id) {
                         await DB.put('patients', { ...patientData, id: editingPatient.id });
+                        patientId = editingPatient.id;
                     } else {
-                        await DB.add('patients', patientData);
+                        patientId = await DB.add('patients', patientData);
+                    }
+                    // Create tasks from plan text if present
+                    if (patientData.treatmentPlan && patientId) {
+                        await createTasksFromPlanText(patientId, patientData.treatmentPlan, 'Patient Form');
                     }
                     // Close dialog first, then clear state
                     setShowPatientForm(false);
@@ -8118,6 +8166,11 @@ To-do: Check AM labs, I/Os q4h`}
 
                 await DB.put('patients', updates);
 
+                // Create tasks from plan items
+                if (plan) {
+                    await createTasksFromPlanText(selectedPatientId, plan, 'SOAP Note');
+                }
+
                 // Save to recordings list
                 setRecordingsList(prev => ({
                     ...prev,
@@ -8218,6 +8271,11 @@ To-do: Check AM labs, I/Os q4h`}
                             fromRounds: true
                         });
                     }
+                }
+
+                // Also create tasks from parsed plan text (beyond just orders)
+                if (parsedItems.plan) {
+                    await createTasksFromPlanText(selectedPatientId, parsedItems.plan, 'Rounds Recorder');
                 }
 
                 loadPatients();
