@@ -12030,6 +12030,13 @@ To-do: Check AM labs, I/Os q4h`}
             const [newProcedureName, setNewProcedureName] = React.useState('');
             const [searchQuery, setSearchQuery] = React.useState('');
             const [shareMessage, setShareMessage] = React.useState(null);
+            const [sharingAttending, setSharingAttending] = React.useState(null); // attending being shared
+            const [platformUsers, setPlatformUsers] = React.useState([]);
+            const [shareSearch, setShareSearch] = React.useState('');
+            const [shareSuccess, setShareSuccess] = React.useState(null);
+            const [sharedWithList, setSharedWithList] = React.useState([]); // track who prefs were shared with
+            const [receivedShares, setReceivedShares] = React.useState([]);
+            const [expandedShare, setExpandedShare] = React.useState(null);
 
             const PREF_FIELDS = [
                 { key: 'positioning', label: 'Positioning', placeholder: 'e.g. Supine, arms tucked, reverse Trendelenburg' },
@@ -12049,6 +12056,24 @@ To-do: Check AM labs, I/Os q4h`}
                 setServices(sSnap.docs.map(d => ({ ...d.data(), id: d.id })));
                 const aSnap = await db.collection('globalSurgeonPreferences').get();
                 setAttendings(aSnap.docs.map(d => ({ ...d.data(), id: d.id })));
+                const uSnap = await db.collection('users').get();
+                const currentUid = firebase.auth().currentUser?.uid;
+                setPlatformUsers(uSnap.docs.map(d => ({ ...d.data(), id: d.id })).filter(u => u.id !== currentUid));
+                // Load received shares
+                if (currentUid) {
+                    const rSnap = await db.collection('sharedPreferences').where('sharedWithUid', '==', currentUid).get();
+                    setReceivedShares(rSnap.docs.map(d => ({ ...d.data(), id: d.id })).sort((a, b) => (b.sharedAt || '').localeCompare(a.sharedAt || '')));
+                }
+            };
+
+            const dismissShare = async (shareId) => {
+                await db.collection('sharedPreferences').doc(shareId).delete();
+                setReceivedShares(prev => prev.filter(s => s.id !== shareId));
+            };
+
+            const markShareRead = async (shareId) => {
+                await db.collection('sharedPreferences').doc(shareId).update({ read: true });
+                setReceivedShares(prev => prev.map(s => s.id === shareId ? { ...s, read: true } : s));
             };
 
             // Services
@@ -12162,36 +12187,45 @@ To-do: Check AM labs, I/Os q4h`}
             };
 
             // Share
-            const shareAttendingPrefs = (attending) => {
-                const procs = attending.procedures || [];
-                let text = `Attending Preferences: ${attending.surgeonName}\nService: ${attending.service}\n`;
-                text += `${'='.repeat(50)}\n`;
-                if (procs.length === 0) {
-                    text += 'No procedures added yet.\n';
-                } else {
-                    procs.forEach(proc => {
-                        text += `\nProcedure: ${proc.name}\n${'-'.repeat(30)}\n`;
-                        PREF_FIELDS.forEach(f => {
-                            if (proc[f.key]) text += `${f.label}: ${proc[f.key]}\n`;
-                        });
+            const openShareModal = (attending) => {
+                setSharingAttending(attending);
+                setShareSearch('');
+                setShareSuccess(null);
+                // Load who this attending has already been shared with
+                db.collection('sharedPreferences')
+                    .where('attendingId', '==', attending.id)
+                    .get()
+                    .then(snap => {
+                        setSharedWithList(snap.docs.map(d => d.data().sharedWithUid));
                     });
-                }
-                text += `\nLast updated by: ${attending.updatedBy || 'Unknown'}`;
-                navigator.clipboard.writeText(text).then(() => {
-                    setShareMessage(attending.id);
-                    setTimeout(() => setShareMessage(null), 2000);
-                }).catch(() => {
-                    // Fallback: select text in a temporary textarea
-                    const ta = document.createElement('textarea');
-                    ta.value = text;
-                    document.body.appendChild(ta);
-                    ta.select();
-                    document.execCommand('copy');
-                    document.body.removeChild(ta);
-                    setShareMessage(attending.id);
-                    setTimeout(() => setShareMessage(null), 2000);
-                });
             };
+
+            const shareWithUser = async (targetUser) => {
+                if (!sharingAttending) return;
+                const currentUser = firebase.auth().currentUser;
+                await db.collection('sharedPreferences').add({
+                    attendingId: sharingAttending.id,
+                    attendingName: sharingAttending.surgeonName,
+                    service: sharingAttending.service,
+                    procedures: sharingAttending.procedures || [],
+                    sharedByUid: currentUser?.uid || '',
+                    sharedByName: currentUser?.displayName || currentUser?.email || '',
+                    sharedWithUid: targetUser.id,
+                    sharedWithName: targetUser.displayName || targetUser.email || '',
+                    sharedAt: new Date().toISOString(),
+                    read: false
+                });
+                setSharedWithList(prev => [...prev, targetUser.id]);
+                setShareSuccess(targetUser.displayName || targetUser.email);
+                setTimeout(() => setShareSuccess(null), 2000);
+            };
+
+            const filteredShareUsers = shareSearch.trim()
+                ? platformUsers.filter(u => {
+                    const q = shareSearch.toLowerCase();
+                    return (u.displayName?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q));
+                })
+                : platformUsers;
 
             // Filter
             const attendingsForService = (serviceName) => {
@@ -12216,6 +12250,60 @@ To-do: Check AM labs, I/Os q4h`}
                 <div className="p-4 md:p-6 max-w-4xl mx-auto">
                     <h2 className="text-2xl font-bold text-medical-600 mb-2">Attending Preferences</h2>
                     <p className="text-sm text-gray-500 mb-6">Add surgical services, then attendings, then their procedures with specific preferences.</p>
+
+                    {/* Shared With Me */}
+                    {receivedShares.length > 0 && (
+                        <div className="mb-6">
+                            <h3 className="text-sm font-bold text-gray-700 mb-2">
+                                Shared with you
+                                {receivedShares.filter(s => !s.read).length > 0 && (
+                                    <span className="ml-2 px-1.5 py-0.5 bg-red-500 text-white text-[10px] rounded-full font-bold">
+                                        {receivedShares.filter(s => !s.read).length} new
+                                    </span>
+                                )}
+                            </h3>
+                            <div className="space-y-2">
+                                {receivedShares.map(share => (
+                                    <div key={share.id} className={`rounded-xl border overflow-hidden ${share.read ? 'bg-white border-gray-200' : 'bg-blue-50 border-blue-200'}`}>
+                                        <div className="flex items-center justify-between p-3 cursor-pointer"
+                                            onClick={() => { setExpandedShare(expandedShare === share.id ? null : share.id); if (!share.read) markShareRead(share.id); }}>
+                                            <div>
+                                                <span className="font-semibold text-gray-800 text-sm">{share.attendingName}</span>
+                                                <span className="text-xs text-gray-500 ml-2">{share.service}</span>
+                                                <p className="text-xs text-gray-400 mt-0.5">From {share.sharedByName} - {new Date(share.sharedAt).toLocaleDateString()}</p>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                {!share.read && <span className="w-2 h-2 rounded-full bg-blue-500"></span>}
+                                                <button onClick={(e) => { e.stopPropagation(); dismissShare(share.id); }}
+                                                    className="text-gray-400 hover:text-red-500 text-xs px-1">Dismiss</button>
+                                                <span className="text-gray-400 text-sm">{expandedShare === share.id ? '\u25B2' : '\u25BC'}</span>
+                                            </div>
+                                        </div>
+                                        {expandedShare === share.id && (
+                                            <div className="border-t border-gray-100 p-3 bg-white space-y-2">
+                                                {(share.procedures || []).length === 0 ? (
+                                                    <p className="text-xs text-gray-400">No procedures in this share.</p>
+                                                ) : (
+                                                    (share.procedures || []).map((proc, i) => (
+                                                        <div key={i} className="bg-gray-50 rounded-lg p-2.5">
+                                                            <span className="text-xs font-bold text-gray-700">{proc.name}</span>
+                                                            <div className="mt-1 space-y-0.5">
+                                                                {PREF_FIELDS.filter(f => proc[f.key]).map(f => (
+                                                                    <p key={f.key} className="text-[11px] text-gray-600">
+                                                                        <span className="font-semibold text-gray-500">{f.label}:</span> {proc[f.key]}
+                                                                    </p>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    ))
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
 
                     {/* Search */}
                     <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
@@ -12299,9 +12387,9 @@ To-do: Check AM labs, I/Os q4h`}
                                                                     <span className="text-xs text-gray-400 ml-2">{procedures.length} procedure{procedures.length !== 1 ? 's' : ''}</span>
                                                                 </div>
                                                                 <div className="flex items-center gap-1">
-                                                                    <button onClick={(e) => { e.stopPropagation(); shareAttendingPrefs(att); }}
-                                                                        className={`px-2 py-1 rounded text-xs font-medium transition-all ${shareMessage === att.id ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}>
-                                                                        {shareMessage === att.id ? 'Copied!' : 'Share'}
+                                                                    <button onClick={(e) => { e.stopPropagation(); openShareModal(att); }}
+                                                                        className="px-2 py-1 rounded text-xs font-medium bg-blue-50 text-blue-600 hover:bg-blue-100">
+                                                                        Share
                                                                     </button>
                                                                     <button onClick={(e) => { e.stopPropagation(); removeAttending(att.id); }}
                                                                         className="text-red-400 hover:text-red-600 text-xs px-2 py-1">Remove</button>
@@ -12431,6 +12519,65 @@ To-do: Check AM labs, I/Os q4h`}
                     <p className="text-xs text-gray-400 mt-6 text-center italic">
                         Preferences are shared across the platform. Any user can view and edit them.
                     </p>
+
+                    {/* Share Modal */}
+                    {sharingAttending && (
+                        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setSharingAttending(null)}>
+                            <div className="bg-white rounded-2xl w-full max-w-md max-h-[80vh] overflow-hidden shadow-xl" onClick={(e) => e.stopPropagation()}>
+                                <div className="p-4 border-b border-gray-200">
+                                    <div className="flex items-center justify-between mb-1">
+                                        <h3 className="font-bold text-gray-800 text-lg">Share Preferences</h3>
+                                        <button onClick={() => setSharingAttending(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+                                    </div>
+                                    <p className="text-sm text-gray-500">{sharingAttending.surgeonName} - {sharingAttending.service}</p>
+                                </div>
+
+                                <div className="p-4">
+                                    <input
+                                        value={shareSearch}
+                                        onChange={(e) => setShareSearch(e.target.value)}
+                                        placeholder="Search by name or email..."
+                                        className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm mb-3"
+                                        autoFocus
+                                    />
+
+                                    {shareSuccess && (
+                                        <div className="mb-3 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-700">
+                                            Shared with {shareSuccess}!
+                                        </div>
+                                    )}
+
+                                    <div className="overflow-y-auto max-h-64 space-y-1">
+                                        {filteredShareUsers.length === 0 ? (
+                                            <p className="text-sm text-gray-400 text-center py-6">
+                                                {shareSearch ? 'No users found' : 'No other users on the platform yet'}
+                                            </p>
+                                        ) : (
+                                            filteredShareUsers.map(u => {
+                                                const alreadyShared = sharedWithList.includes(u.id);
+                                                return (
+                                                    <div key={u.id} className="flex items-center justify-between p-2.5 rounded-lg hover:bg-gray-50">
+                                                        <div>
+                                                            <p className="text-sm font-medium text-gray-800">{u.displayName || u.email?.split('@')[0]}</p>
+                                                            <p className="text-xs text-gray-400">{u.email}</p>
+                                                        </div>
+                                                        {alreadyShared ? (
+                                                            <span className="text-xs text-emerald-600 font-medium px-2 py-1 bg-emerald-50 rounded">Shared</span>
+                                                        ) : (
+                                                            <button onClick={() => shareWithUser(u)}
+                                                                className="px-3 py-1.5 bg-medical-600 hover:bg-medical-700 text-white rounded text-xs font-medium">
+                                                                Send
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             );
         }
