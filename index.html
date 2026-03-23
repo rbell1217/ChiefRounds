@@ -9611,8 +9611,52 @@ To-do: Check AM labs, I/Os q4h`}
                     text = text.replace(pat, rep);
                 }
 
+                // --- Conciseness pass: strip filler and convert to terse surgical shorthand ---
+                // Remove filler phrases and verbal hedges
+                text = text
+                    .replace(/\b(?:so\s+)?(?:the\s+)?(?:first|next|second|third|fourth|fifth)\s+(?:thing\s+)?(?:we(?:'re|\s+are)\s+going\s+to\s+do\s+is\s+)?(?:we(?:'re|\s+are)\s+going\s+to\s+)?/gi, '')
+                    .replace(/\b(?:we(?:'re|\s+are)\s+going\s+to|we\s+(?:will|want\s+to|need\s+to|have\s+to)|you(?:'re|\s+are)\s+going\s+to|you\s+(?:will|want\s+to|need\s+to))\s+/gi, '')
+                    .replace(/\b(?:what\s+we\s+do\s+(?:here|now)\s+is|what\s+(?:I|we)\s+(?:like\s+to|usually)\s+do\s+is)\s+/gi, '')
+                    .replace(/\b(?:at\s+this\s+point\s+(?:in\s+time\s+)?(?:we|you|I)\s+(?:will|are\s+going\s+to)\s+)/gi, '')
+                    .replace(/\b(?:go\s+ahead\s+and|proceed\s+to|make\s+sure\s+(?:to|you|we))\s+/gi, '')
+                    .replace(/\b(?:basically|essentially|obviously|actually|literally|really|just|simply)\s+/gi, '')
+                    .replace(/\b(?:kind\s+of|sort\s+of|type\s+of)\s+/gi, '')
+                    .replace(/\b(?:you\s+know|I\s+mean|if\s+you\s+will)\s*/gi, '')
+                    .replace(/\b(?:we\s+then|we\s+now|we)\s+/gi, '')
+                    .replace(/\b(?:I\s+then|I\s+now|I\s+would)\s+/gi, '')
+                    .replace(/\b(?:it\s+is\s+important\s+to|it\s+is\s+(?:critical|crucial|essential)\s+(?:that\s+(?:we|you)\s+)?)\s*/gi, '')
+                    .replace(/\b(?:in\s+order\s+to)\b/gi, 'to')
+                    .replace(/\b(?:at\s+the\s+level\s+of\s+the)\b/gi, 'at')
+                    .replace(/\b(?:in\s+the\s+area\s+of\s+the)\b/gi, 'at')
+                    .replace(/\b(?:on\s+the\s+(?:right|left)\s+side)\b/gi, (m) => m.includes('right') ? 'on the right' : 'on the left')
+                    .replace(/\b(?:is\s+used\s+to)\b/gi, 'to')
+                    .replace(/\b(?:using\s+(?:a|the|our))\b/gi, 'with')
+                    .replace(/\b(?:utilize|utilization\s+of)\b/gi, 'use')
+                    .replace(/\b(?:the\s+patient\s+is\s+(?:then\s+)?(?:placed|positioned)\s+in)\b/gi, 'Position:')
+                    .replace(/\b(?:place\s+the\s+patient\s+in)\b/gi, 'Position:')
+                    .replace(/\b(?:a\s+skin\s+incision\s+is\s+(?:then\s+)?made)\b/gi, 'Incision')
+                    .replace(/\b(?:make\s+(?:a|an|the)\s+(?:skin\s+)?incision)\b/gi, 'Incision')
+                    .replace(/\b(?:an?\s+(?:\d+\s*mm\s+)?(?:trocar|port)\s+is\s+(?:then\s+)?(?:placed|inserted|introduced))/gi, (m) => {
+                        const sizeM = m.match(/(\d+\s*mm)/i);
+                        return 'Place ' + (sizeM ? sizeM[1] + ' ' : '') + (m.toLowerCase().includes('trocar') ? 'trocar' : 'port');
+                    })
+                    .replace(/\b(?:we\s+(?:place|insert|put)\s+(?:a|an|the)\s+)/gi, 'Place ')
+                    .replace(/\b(?:(?:identify|identif(?:ied|ying))\s+(?:the|and\s+(?:isolate|dissect)))\s+/gi, 'Identify ')
+                    .replace(/\b(?:(?:dissect|dissection)\s+(?:is\s+(?:then\s+)?(?:carried|performed|done)\s+)?(?:down\s+to|through|around))\b/gi, 'Dissect')
+                    .replace(/\b(?:(?:the\s+)?(?:specimen|gallbladder|appendix|bowel|colon)\s+is\s+(?:then\s+)?(?:removed|extracted|retrieved)\s+(?:from\s+the\s+abdomen\s+)?(?:using|through|via))/gi, 'Extract specimen via')
+                    .replace(/\b(?:(?:hemostasis|haemostasis)\s+is\s+(?:then\s+)?(?:achieved|confirmed|obtained|ensured|verified))\b/gi, 'Confirm hemostasis')
+                    .replace(/\b(?:(?:the\s+)?fascia\s+is\s+(?:then\s+)?closed)\b/gi, 'Close fascia')
+                    .replace(/\b(?:(?:the\s+)?skin\s+is\s+(?:then\s+)?closed)\b/gi, 'Close skin')
+                    .replace(/\b(?:(?:the\s+)?(?:pneumoperitoneum|pneumo)\s+is\s+(?:then\s+)?(?:established|created|obtained|achieved))\b/gi, 'Establish pneumoperitoneum')
+                    .replace(/\b(?:(?:the\s+)?camera\s+is\s+(?:then\s+)?(?:placed|inserted|introduced))\b/gi, 'Insert camera')
+                    .replace(/\b(?:under\s+direct\s+(?:vision|visualization))\b/gi, 'under direct vision')
+                    .replace(/\b(?:take\s+(?:a\s+)?(?:look|survey)\s+(?:around|at)\s+(?:the\s+)?(?:abdomen|cavity|field))\b/gi, 'Survey abdomen')
+                    .replace(/\b(?:(?:we\s+)?(?:perform|do)\s+(?:a\s+)?(?:diagnostic\s+)?(?:laparoscopy|survey))\b/gi, 'Diagnostic laparoscopy');
+
+                // Clean up double spaces and repeated words from removals
+                text = text.replace(/\s{2,}/g, ' ').trim();
+
                 // --- Split into individual steps ---
-                // Split on: numbered markers, "then", "next", "after that", "step", sentence boundaries
                 let steps = text
                     .replace(/\b(?:step\s*\d+[.:]\s*)/gi, '|||')
                     .replace(/\b(\d+)[.)]\s+/g, '|||')
@@ -9629,18 +9673,17 @@ To-do: Check AM labs, I/Os q4h`}
 
                 // Clean up each step
                 steps = steps.map(s => {
-                    // Capitalize first letter
-                    s = s.charAt(0).toUpperCase() + s.slice(1);
-                    // Remove trailing conjunctions
-                    s = s.replace(/\s+(?:and|or|then|next)\s*$/i, '');
-                    // Remove leading conjunctions
-                    s = s.replace(/^(?:and|or|so|also)\s+/i, '');
-                    // Capitalize first letter again after cleanup
+                    // Strip leading articles/filler
+                    s = s.replace(/^(?:the|a|an|so|and|or|also|now|okay|ok|um|uh|like)\s+/i, '');
+                    // Remove trailing filler
+                    s = s.replace(/\s+(?:and|or|then|next|so|okay|ok)\s*$/i, '');
+                    // Start with action verb capitalized
                     if (s.length > 0) s = s.charAt(0).toUpperCase() + s.slice(1);
-                    // Add period if missing
-                    if (s.length > 0 && !/[.!?]$/.test(s)) s += '.';
+                    // Remove period then re-add for consistency
+                    s = s.replace(/\.\s*$/, '').trim();
+                    if (s.length > 0) s += '.';
                     return s;
-                }).filter(s => s.length > 4);
+                }).filter(s => s.replace(/\./g, '').trim().length > 3);
 
                 // --- Detect missing standard elements and suggest additions ---
                 const allText = steps.join(' ').toLowerCase();
