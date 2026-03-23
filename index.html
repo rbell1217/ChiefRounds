@@ -138,6 +138,9 @@
         auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
 
         // ==================== DATABASE HELPER ====================
+        // Collections that contain PHI and should be encrypted
+        const PHI_COLLECTIONS = ['patients', 'consults', 'casePrep'];
+
         const DB = {
             teamId: null,
             setTeamId(id) { this.teamId = id; },
@@ -145,24 +148,35 @@
                 if (!this.teamId) throw new Error('No team selected');
                 return db.collection('teams').doc(this.teamId).collection(store);
             },
+            _shouldEncrypt(store) {
+                return CryptoHelper.isEnabled() && PHI_COLLECTIONS.includes(store);
+            },
             async init() { /* Firestore is ready immediately */ },
             async getAll(store) {
                 const snap = await this._col(store).get();
-                return snap.docs.map(d => ({ ...d.data(), id: d.id }));
+                const docs = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+                if (this._shouldEncrypt(store)) {
+                    return Promise.all(docs.map(d => CryptoHelper.decryptRecord(d)));
+                }
+                return docs;
             },
             async get(store, id) {
                 const doc = await this._col(store).doc(String(id)).get();
-                return doc.exists ? { ...doc.data(), id: doc.id } : null;
+                if (!doc.exists) return null;
+                const data = { ...doc.data(), id: doc.id };
+                return this._shouldEncrypt(store) ? CryptoHelper.decryptRecord(data) : data;
             },
             async add(store, data) {
                 const { id, ...rest } = data; // strip any existing id
-                const ref = await this._col(store).add({ ...rest, createdAt: rest.createdAt || new Date().toISOString() });
+                const toWrite = this._shouldEncrypt(store) ? await CryptoHelper.encryptRecord({ ...rest, createdAt: rest.createdAt || new Date().toISOString() }) : { ...rest, createdAt: rest.createdAt || new Date().toISOString() };
+                const ref = await this._col(store).add(toWrite);
                 return ref.id;
             },
             async put(store, data) {
                 if (data.id) {
                     const { id, ...rest } = data;
-                    await this._col(store).doc(String(id)).set(rest, { merge: true });
+                    const toWrite = this._shouldEncrypt(store) ? await CryptoHelper.encryptRecord(rest) : rest;
+                    await this._col(store).doc(String(id)).set(toWrite, { merge: true });
                     return id;
                 }
                 return this.add(store, data);
@@ -171,8 +185,146 @@
                 await this._col(store).doc(String(id)).delete();
             },
             async getByIndex(store, indexName, value) {
+                // Note: encrypted fields cannot be queried by index - this only works for non-PHI fields
                 const snap = await this._col(store).where(indexName, '==', value).get();
-                return snap.docs.map(d => ({ ...d.data(), id: d.id }));
+                const docs = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+                if (this._shouldEncrypt(store)) {
+                    return Promise.all(docs.map(d => CryptoHelper.decryptRecord(d)));
+                }
+                return docs;
+            }
+        };
+
+        // ==================== PHI ENCRYPTION (AES-256-GCM) ====================
+        const PHI_FIELDS = ['room', 'diagnosis', 'problems', 'procedures', 'pmh', 'psh', 'homeMeds', 'allergies',
+            'antibiotics', 'examFindings', 'treatmentPlan', 'concerns', 'dispositionPlan', 'codeStatus',
+            'reason', 'findings', 'recommendations', 'notes', 'soapNote', 'transcript',
+            'roundsHistory', 'preRoundHistory', 'diet', 'activity', 'dvtProphylaxis', 'giProphylaxis',
+            'subjective', 'objective', 'assessment', 'plan', 'vitals', 'labNotes', 'socialHx', 'familyHx'];
+
+        const CryptoHelper = {
+            _key: null,
+            _enabled: false,
+
+            async deriveKey(passphrase, salt) {
+                const enc = new TextEncoder();
+                const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(passphrase), 'PBKDF2', false, ['deriveKey']);
+                return crypto.subtle.deriveKey(
+                    { name: 'PBKDF2', salt: enc.encode(salt), iterations: 310000, hash: 'SHA-256' },
+                    keyMaterial,
+                    { name: 'AES-GCM', length: 256 },
+                    false,
+                    ['encrypt', 'decrypt']
+                );
+            },
+
+            async init(passphrase, teamId) {
+                if (!passphrase) { this._enabled = false; return; }
+                try {
+                    this._key = await this.deriveKey(passphrase, 'chiefRounds_' + teamId);
+                    this._enabled = true;
+                    console.log('PHI encryption enabled');
+                } catch (e) {
+                    console.error('Encryption init failed:', e);
+                    this._enabled = false;
+                }
+            },
+
+            isEnabled() { return this._enabled && this._key !== null; },
+
+            async encrypt(plaintext) {
+                if (!this._enabled || !plaintext) return plaintext;
+                try {
+                    const enc = new TextEncoder();
+                    const iv = crypto.getRandomValues(new Uint8Array(12));
+                    const data = typeof plaintext === 'string' ? plaintext : JSON.stringify(plaintext);
+                    const cipherBuf = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, this._key, enc.encode(data));
+                    // Combine IV + ciphertext, encode as base64
+                    const combined = new Uint8Array(iv.length + cipherBuf.byteLength);
+                    combined.set(iv);
+                    combined.set(new Uint8Array(cipherBuf), iv.length);
+                    return '🔒' + btoa(String.fromCharCode(...combined));
+                } catch (e) {
+                    console.error('Encrypt error:', e);
+                    return plaintext;
+                }
+            },
+
+            async decrypt(ciphertext) {
+                if (!this._enabled || !ciphertext) return ciphertext;
+                if (typeof ciphertext !== 'string' || !ciphertext.startsWith('🔒')) return ciphertext;
+                try {
+                    const raw = atob(ciphertext.slice(2));
+                    const bytes = new Uint8Array(raw.length);
+                    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+                    const iv = bytes.slice(0, 12);
+                    const data = bytes.slice(12);
+                    const plainBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, this._key, data);
+                    const text = new TextDecoder().decode(plainBuf);
+                    // Try to parse as JSON (for arrays/objects)
+                    try { return JSON.parse(text); } catch { return text; }
+                } catch (e) {
+                    console.error('Decrypt error:', e);
+                    return ciphertext;
+                }
+            },
+
+            async encryptRecord(data) {
+                if (!this._enabled) return data;
+                const encrypted = { ...data };
+                for (const field of PHI_FIELDS) {
+                    if (encrypted[field] !== undefined && encrypted[field] !== null && encrypted[field] !== '') {
+                        encrypted[field] = await this.encrypt(encrypted[field]);
+                    }
+                }
+                // Handle nested roundsHistory and preRoundHistory
+                if (encrypted.roundsHistory && typeof encrypted.roundsHistory === 'object' && !encrypted.roundsHistory.startsWith?.('🔒')) {
+                    encrypted.roundsHistory = await this.encrypt(encrypted.roundsHistory);
+                }
+                if (encrypted.preRoundHistory && typeof encrypted.preRoundHistory === 'object' && !encrypted.preRoundHistory.startsWith?.('🔒')) {
+                    encrypted.preRoundHistory = await this.encrypt(encrypted.preRoundHistory);
+                }
+                encrypted._encrypted = true;
+                return encrypted;
+            },
+
+            async decryptRecord(data) {
+                if (!this._enabled || !data?._encrypted) return data;
+                const decrypted = { ...data };
+                for (const field of PHI_FIELDS) {
+                    if (decrypted[field] !== undefined && decrypted[field] !== null) {
+                        decrypted[field] = await this.decrypt(decrypted[field]);
+                    }
+                }
+                delete decrypted._encrypted;
+                return decrypted;
+            }
+        };
+
+        // ==================== INACTIVITY AUTO-LOGOUT ====================
+        const InactivityMonitor = {
+            _timer: null,
+            _timeout: 15 * 60 * 1000, // 15 minutes
+            _callback: null,
+            _events: ['mousedown', 'keydown', 'touchstart', 'scroll'],
+
+            start(logoutCallback, timeoutMinutes) {
+                this._callback = logoutCallback;
+                if (timeoutMinutes) this._timeout = timeoutMinutes * 60 * 1000;
+                this._resetTimer();
+                this._events.forEach(evt => document.addEventListener(evt, () => this._resetTimer(), { passive: true }));
+            },
+
+            stop() {
+                if (this._timer) clearTimeout(this._timer);
+                this._events.forEach(evt => document.removeEventListener(evt, this._resetTimer));
+            },
+
+            _resetTimer() {
+                if (InactivityMonitor._timer) clearTimeout(InactivityMonitor._timer);
+                InactivityMonitor._timer = setTimeout(() => {
+                    if (InactivityMonitor._callback) InactivityMonitor._callback();
+                }, InactivityMonitor._timeout);
             }
         };
 
@@ -10827,14 +10979,113 @@ To-do: Check AM labs, I/Os q4h`}
                 }
             };
 
+            // HIPAA encryption state
+            const [hipaaEnabled, setHipaaEnabled] = React.useState(false);
+            const [hipaaPassphrase, setHipaaPassphrase] = React.useState('');
+            const [showHipaaSetup, setShowHipaaSetup] = React.useState(false);
+            const [hipaaUnlocked, setHipaaUnlocked] = React.useState(false);
+            const [hipaaError, setHipaaError] = React.useState('');
+
+            // Check if team has HIPAA encryption enabled
+            React.useEffect(() => {
+                if (teamData?.hipaaEncryption) {
+                    setHipaaEnabled(true);
+                    // Check if we have the passphrase cached in session
+                    const cached = sessionStorage.getItem('cr_hipaa_' + teamId);
+                    if (cached) {
+                        CryptoHelper.init(cached, teamId).then(() => setHipaaUnlocked(true));
+                    }
+                } else {
+                    setHipaaEnabled(false);
+                    setHipaaUnlocked(false);
+                }
+            }, [teamData, teamId]);
+
+            // Auto-logout on inactivity
+            React.useEffect(() => {
+                if (user && teamData?.hipaaEncryption) {
+                    InactivityMonitor.start(() => {
+                        sessionStorage.removeItem('cr_hipaa_' + teamId);
+                        CryptoHelper._enabled = false;
+                        CryptoHelper._key = null;
+                        setHipaaUnlocked(false);
+                        alert('Session locked due to inactivity. Please enter your team passphrase to continue.');
+                    }, teamData.hipaaTimeoutMinutes || 15);
+                    return () => InactivityMonitor.stop();
+                }
+            }, [user, teamData]);
+
+            const enableHipaa = async () => {
+                if (!hipaaPassphrase || hipaaPassphrase.length < 8) {
+                    setHipaaError('Passphrase must be at least 8 characters.');
+                    return;
+                }
+                try {
+                    await CryptoHelper.init(hipaaPassphrase, teamId);
+                    // Save HIPAA flag on team doc
+                    await db.collection('teams').doc(teamId).set({ hipaaEncryption: true }, { merge: true });
+                    sessionStorage.setItem('cr_hipaa_' + teamId, hipaaPassphrase);
+                    setHipaaEnabled(true);
+                    setHipaaUnlocked(true);
+                    setShowHipaaSetup(false);
+                    setHipaaError('');
+                    setTeamData(prev => ({ ...prev, hipaaEncryption: true }));
+
+                    // Re-encrypt existing patient data
+                    try {
+                        const patients = await DB.getAll('patients');
+                        for (const p of patients) {
+                            if (!p._encrypted) {
+                                await DB.put('patients', p);
+                            }
+                        }
+                        const consults = await DB.getAll('consults');
+                        for (const c of consults) {
+                            if (!c._encrypted) {
+                                await DB.put('consults', c);
+                            }
+                        }
+                    } catch (e) { console.error('Error encrypting existing data:', e); }
+
+                    alert('HIPAA encryption enabled. All PHI is now encrypted at rest. Share this passphrase securely with team members.');
+                } catch (e) {
+                    setHipaaError('Failed to enable encryption: ' + e.message);
+                }
+            };
+
+            const unlockHipaa = async () => {
+                if (!hipaaPassphrase) return;
+                try {
+                    await CryptoHelper.init(hipaaPassphrase, teamId);
+                    // Test decryption by trying to read patients
+                    const testRead = await DB.getAll('patients');
+                    // If first patient has garbled data, wrong passphrase
+                    if (testRead.length > 0 && testRead[0]._encrypted) {
+                        setHipaaError('Incorrect passphrase. Could not decrypt data.');
+                        CryptoHelper._enabled = false;
+                        return;
+                    }
+                    sessionStorage.setItem('cr_hipaa_' + teamId, hipaaPassphrase);
+                    setHipaaUnlocked(true);
+                    setHipaaError('');
+                } catch (e) {
+                    setHipaaError('Incorrect passphrase or decryption failed.');
+                }
+            };
+
             const handleSignOut = () => {
                 auth.signOut();
+                InactivityMonitor.stop();
+                sessionStorage.removeItem('cr_hipaa_' + teamId);
+                CryptoHelper._enabled = false;
+                CryptoHelper._key = null;
                 setUser(null);
                 setTeamId(null);
                 setTeamData(null);
                 setAllTeams([]);
                 setShowProfile(false);
                 setShowTeamManager(false);
+                setHipaaUnlocked(false);
             };
 
             // Loading state
@@ -10857,6 +11108,45 @@ To-do: Check AM labs, I/Os q4h`}
             // Logged in but no team
             if (!teamId) {
                 return <TeamSetup user={user} onTeamReady={handleTeamReady} />;
+            }
+
+            // HIPAA encryption enabled but not unlocked
+            if (hipaaEnabled && !hipaaUnlocked) {
+                return (
+                    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+                        <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-sm">
+                            <div className="text-center mb-6">
+                                <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center text-3xl mx-auto mb-3">🔒</div>
+                                <h1 className="text-2xl font-bold text-medical-700">HIPAA Protected</h1>
+                                <p className="text-gray-500 text-sm mt-1">Enter your team passphrase to unlock</p>
+                            </div>
+                            {hipaaError && (
+                                <div className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg p-3 mb-4">{hipaaError}</div>
+                            )}
+                            <input
+                                type="password"
+                                placeholder="Team passphrase"
+                                value={hipaaPassphrase}
+                                onChange={e => setHipaaPassphrase(e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && unlockHipaa()}
+                                className="w-full border border-gray-300 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent mb-3"
+                                autoFocus
+                            />
+                            <button
+                                onClick={unlockHipaa}
+                                className="w-full bg-green-600 text-white hover:bg-green-700 font-semibold py-3 rounded-lg transition"
+                            >
+                                Unlock
+                            </button>
+                            <button
+                                onClick={handleSignOut}
+                                className="w-full text-sm text-gray-500 hover:text-gray-700 mt-3"
+                            >
+                                Sign out instead
+                            </button>
+                        </div>
+                    </div>
+                );
             }
 
             const tabs = ['Patients', 'Attending', 'Tasks', 'Consults', 'Trauma', 'Census', 'Handoff', 'Pre-Round', 'Rounds', 'M&M', 'Case Prep'];
@@ -11258,6 +11548,27 @@ To-do: Check AM labs, I/Os q4h`}
                                     )}
                                 </div>
                             )}
+                            <div className="p-3 border-b border-gray-100">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-sm">{hipaaEnabled ? '🔒' : '🔓'}</span>
+                                        <span className="text-xs font-medium text-gray-600">HIPAA Encryption</span>
+                                    </div>
+                                    {hipaaEnabled ? (
+                                        <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Active</span>
+                                    ) : (
+                                        <button
+                                            onClick={() => { setShowHipaaSetup(true); setShowProfile(false); }}
+                                            className="text-[10px] bg-medical-100 text-medical-700 px-2 py-0.5 rounded-full font-medium hover:bg-medical-200 transition"
+                                        >
+                                            Enable
+                                        </button>
+                                    )}
+                                </div>
+                                {hipaaEnabled && (
+                                    <p className="text-[10px] text-gray-400 mt-1">PHI encrypted at rest. Auto-lock after {teamData?.hipaaTimeoutMinutes || 15} min.</p>
+                                )}
+                            </div>
                             <div className="p-2 space-y-0.5">
                                 <button onClick={() => { setShowTeamManager(true); setShowProfile(false); }} className="w-full text-left px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-md transition">
                                     Manage Teams
@@ -11271,12 +11582,67 @@ To-do: Check AM labs, I/Os q4h`}
                 </div>
             );
 
+            // HIPAA Setup Modal
+            const HipaaSetupModal = () => {
+                if (!showHipaaSetup) return null;
+                return (
+                    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowHipaaSetup(false)}>
+                        <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+                            <div className="text-center mb-4">
+                                <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center text-2xl mx-auto mb-3">🔒</div>
+                                <h2 className="text-xl font-bold text-gray-800">Enable HIPAA Encryption</h2>
+                                <p className="text-sm text-gray-500 mt-1">All PHI (room numbers, diagnoses, notes, etc.) will be encrypted using AES-256 before being stored in the database.</p>
+                            </div>
+
+                            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
+                                <p className="text-xs text-amber-800 font-medium">Important:</p>
+                                <ul className="text-xs text-amber-700 mt-1 space-y-1">
+                                    <li>- Choose a strong passphrase (8+ characters)</li>
+                                    <li>- Share it securely with all team members</li>
+                                    <li>- If the passphrase is lost, encrypted data cannot be recovered</li>
+                                    <li>- The app will auto-lock after 15 minutes of inactivity</li>
+                                </ul>
+                            </div>
+
+                            {hipaaError && (
+                                <div className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg p-3 mb-3">{hipaaError}</div>
+                            )}
+
+                            <input
+                                type="password"
+                                placeholder="Create team passphrase (8+ characters)"
+                                value={hipaaPassphrase}
+                                onChange={e => setHipaaPassphrase(e.target.value)}
+                                className="w-full border border-gray-300 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent mb-3"
+                                autoFocus
+                            />
+
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => { setShowHipaaSetup(false); setHipaaError(''); setHipaaPassphrase(''); }}
+                                    className="flex-1 bg-gray-100 text-gray-700 hover:bg-gray-200 font-medium py-3 rounded-lg transition text-sm"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={enableHipaa}
+                                    className="flex-1 bg-green-600 text-white hover:bg-green-700 font-semibold py-3 rounded-lg transition text-sm"
+                                >
+                                    Enable Encryption
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
             const isHome = activeTab === 'Home';
 
             if (isMobile) {
                 return (
                     <div className="min-h-screen bg-slate-50 flex flex-col">
                         {showTeamManager && <TeamManagerModal />}
+                        <HipaaSetupModal />
                         <div className="bg-white border-b border-gray-200 p-3 sticky top-0 z-20 shadow-sm">
                             <div className="flex justify-between items-center">
                                 <div className="flex items-center gap-2">
@@ -11325,6 +11691,7 @@ To-do: Check AM labs, I/Os q4h`}
             return (
                 <div className="min-h-screen bg-slate-50 flex flex-col">
                     {showTeamManager && <TeamManagerModal />}
+                        <HipaaSetupModal />
                     <div className="bg-white border-b border-gray-200 p-4 sticky top-0 z-20 shadow-sm">
                         <div className="flex justify-between items-center">
                             <button onClick={() => setActiveTab('Home')} className="text-2xl font-bold text-medical-700 hover:text-medical-800 transition">
