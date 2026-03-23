@@ -11729,8 +11729,9 @@ To-do: Check AM labs, I/Os q4h`}
                 loadData();
             };
 
-            const addCaseToConference = async (source) => {
+            const addCaseToConference = async (source, surgeryDate) => {
                 if (!selectedConf) return;
+                const caseDate = surgeryDate || getTodayISO();
                 let newCase = {};
                 if (source.type === 'patient') {
                     const p = source.patient;
@@ -11748,7 +11749,8 @@ To-do: Check AM labs, I/Os q4h`}
                         procedure: (p.procedures || []).join(', '),
                         indications: '',
                         keySteps: '',
-                        casePrepId: null
+                        casePrepId: null,
+                        surgeryDate: caseDate
                     };
                     // Try to find linked case prep
                     const linkedPrep = casePrepData.find(cp => cp.patientId === p.id || cp.caseName?.includes(p.diagnosis));
@@ -11770,7 +11772,8 @@ To-do: Check AM labs, I/Os q4h`}
                         procedure: cp.caseName || '',
                         indications: '',
                         keySteps: cp.keyOperativeSteps || '',
-                        casePrepId: cp.id
+                        casePrepId: cp.id,
+                        surgeryDate: cp.date || caseDate
                     };
                 } else {
                     newCase = {
@@ -11778,13 +11781,48 @@ To-do: Check AM labs, I/Os q4h`}
                         patientName: source.name || '',
                         diagnosis: '', pmh: '', psh: '', meds: '', allergies: '',
                         examFindings: '', labFindings: '', imagingFindings: '',
-                        procedure: '', indications: '', keySteps: '', casePrepId: null
+                        procedure: '', indications: '', keySteps: '', casePrepId: null,
+                        surgeryDate: caseDate
                     };
                 }
                 const updated = { ...selectedConf, cases: [...(selectedConf.cases || []), newCase] };
                 await DB.put('caseConference', updated);
                 setSelectedConf(updated);
                 setShowAddCase(false);
+
+                // Auto-create Case Prep entry if one doesn't already exist for this case
+                if (!newCase.casePrepId) {
+                    try {
+                        const caseName = newCase.procedure || newCase.diagnosis || newCase.patientName || 'Conference Case';
+                        const existingPreps = await DB.getAll('casePrep');
+                        const alreadyExists = existingPreps.find(cp =>
+                            cp.date === newCase.surgeryDate && cp.caseName === caseName
+                        );
+                        if (!alreadyExists) {
+                            const prepId = await DB.add('casePrep', {
+                                date: newCase.surgeryDate,
+                                caseName: caseName,
+                                order: 1,
+                                preOpReviewed: false,
+                                imagingReviewed: !!newCase.imagingFindings,
+                                imagingComment: newCase.imagingFindings || '',
+                                surgicalHistoryReviewed: !!newCase.psh,
+                                surgicalHistoryComment: newCase.psh || '',
+                                keyOperativeSteps: newCase.keySteps || '',
+                                addedToPatientList: !!newCase.patientId,
+                                patientId: newCase.patientId || null,
+                                fromConference: selectedConf.id,
+                                createdAt: new Date().toISOString()
+                            });
+                            // Link the case back to the new prep entry
+                            const caseIdx = updated.cases.length - 1;
+                            updated.cases[caseIdx].casePrepId = prepId;
+                            await DB.put('caseConference', updated);
+                            setSelectedConf({ ...updated });
+                        }
+                    } catch(e) { console.error('Auto-create case prep error:', e); }
+                }
+
                 loadData();
             };
 
@@ -11793,6 +11831,20 @@ To-do: Check AM labs, I/Os q4h`}
                 updated.cases[caseIdx][field] = value;
                 await DB.put('caseConference', updated);
                 setSelectedConf(updated);
+
+                // Sync relevant fields back to linked Case Prep
+                const caseData = updated.cases[caseIdx];
+                if (caseData.casePrepId) {
+                    const syncFields = { keySteps: 'keyOperativeSteps', imagingFindings: 'imagingComment', psh: 'surgicalHistoryComment' };
+                    if (syncFields[field]) {
+                        try {
+                            const prep = (await DB.getAll('casePrep')).find(cp => cp.id === caseData.casePrepId);
+                            if (prep) {
+                                await DB.put('casePrep', { ...prep, [syncFields[field]]: value });
+                            }
+                        } catch(e) { console.error('Sync to case prep error:', e); }
+                    }
+                }
             };
 
             const removeCase = async (caseIdx) => {
@@ -11976,7 +12028,23 @@ To-do: Check AM labs, I/Os q4h`}
             // ===== RENDER =====
             const AddCaseModal = () => {
                 const [newName, setNewName] = React.useState('');
+                const [surgDate, setSurgDate] = React.useState('');
                 if (!showAddCase) return null;
+
+                const handleAddFromPatient = (p) => {
+                    if (!surgDate) { alert('Please select a surgery date first.'); return; }
+                    addCaseToConference({ type: 'patient', patient: p }, surgDate);
+                };
+                const handleAddFromPrep = (cp) => {
+                    addCaseToConference({ type: 'casePrep', casePrep: cp }, cp.date || surgDate);
+                };
+                const handleAddManual = () => {
+                    if (!newName.trim()) return;
+                    if (!surgDate) { alert('Please select a surgery date first.'); return; }
+                    addCaseToConference({ type: 'manual', name: newName.trim() }, surgDate);
+                    setNewName('');
+                };
+
                 return (
                     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowAddCase(false)}>
                         <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
@@ -11984,14 +12052,22 @@ To-do: Check AM labs, I/Os q4h`}
                                 <h3 className="font-bold text-gray-800">Add Case to Conference</h3>
                             </div>
                             <div className="p-4 space-y-3">
+                                {/* Surgery Date - required for patient/manual sources */}
+                                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                                    <label className="text-xs font-semibold text-amber-700 uppercase tracking-wide">Surgery Date *</label>
+                                    <input type="date" value={surgDate} onChange={e => setSurgDate(e.target.value)}
+                                        className="w-full border border-amber-200 rounded-lg px-3 py-2 text-sm mt-1 bg-white" />
+                                    <p className="text-[10px] text-amber-600 mt-1">This case will be added to the Case Prep calendar on this date.</p>
+                                </div>
+
                                 {patients.length > 0 && (
                                     <div>
                                         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">From Patient List</p>
                                         <div className="space-y-1 max-h-40 overflow-y-auto">
                                             {patients.map(p => (
-                                                <button key={p.id} onClick={() => addCaseToConference({ type: 'patient', patient: p })}
+                                                <button key={p.id} onClick={() => handleAddFromPatient(p)}
                                                     className="w-full text-left px-3 py-2 rounded-lg hover:bg-blue-50 text-sm transition flex justify-between items-center">
-                                                    <span className="text-gray-800">Rm {p.room || '?'} - {p.diagnosis || 'No dx'}</span>
+                                                    <span className="text-gray-800">Rm {String(p.room || '?')} - {String(p.diagnosis || 'No dx')}</span>
                                                     <span className="text-xs text-gray-400">{(p.procedures || []).join(', ') || 'No procedure'}</span>
                                                 </button>
                                             ))}
@@ -12002,8 +12078,8 @@ To-do: Check AM labs, I/Os q4h`}
                                     <div>
                                         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">From Case Prep</p>
                                         <div className="space-y-1 max-h-40 overflow-y-auto">
-                                            {casePrepData.filter(cp => cp.date >= getTodayISO()).sort((a,b) => a.date.localeCompare(b.date)).map(cp => (
-                                                <button key={cp.id} onClick={() => addCaseToConference({ type: 'casePrep', casePrep: cp })}
+                                            {casePrepData.filter(cp => cp.date >= getTodayISO()).sort((a,b) => (a.date||'').localeCompare(b.date||'')).map(cp => (
+                                                <button key={cp.id} onClick={() => handleAddFromPrep(cp)}
                                                     className="w-full text-left px-3 py-2 rounded-lg hover:bg-emerald-50 text-sm transition flex justify-between items-center">
                                                     <span className="text-gray-800">{cp.caseName}</span>
                                                     <span className="text-xs text-gray-400">{cp.date}</span>
@@ -12016,8 +12092,9 @@ To-do: Check AM labs, I/Os q4h`}
                                     <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">New Case (Manual)</p>
                                     <div className="flex gap-2">
                                         <input type="text" placeholder="Patient / case description" value={newName} onChange={e => setNewName(e.target.value)}
-                                            className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-                                        <button onClick={() => { if (newName.trim()) { addCaseToConference({ type: 'manual', name: newName.trim() }); setNewName(''); } }}
+                                            className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                                            onKeyDown={e => e.key === 'Enter' && handleAddManual()} />
+                                        <button onClick={handleAddManual}
                                             className="px-4 py-2 bg-medical-600 text-white rounded-lg text-sm font-medium hover:bg-medical-700">Add</button>
                                     </div>
                                 </div>
@@ -12123,6 +12200,7 @@ To-do: Check AM labs, I/Os q4h`}
                                             <div>
                                                 <span className="text-xs font-bold text-medical-600">CASE {idx + 1}</span>
                                                 <h4 className="font-bold text-gray-800">{c.patientName || 'Unnamed'}</h4>
+                                                {c.surgeryDate && <span className="text-[10px] text-gray-500">Surgery: {c.surgeryDate}</span>}
                                             </div>
                                             <button onClick={() => removeCase(idx)} className="text-gray-400 hover:text-red-500 text-lg">&times;</button>
                                         </div>
