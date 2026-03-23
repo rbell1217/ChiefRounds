@@ -2945,6 +2945,7 @@
             const [concernDraft, setConcernDraft] = React.useState('');
             const [editingRoundsField, setEditingRoundsField] = React.useState(null);
             const [roundsFieldDraft, setRoundsFieldDraft] = React.useState('');
+            const [tasks, setTasks] = React.useState([]);
             const quickDictation = useDictation();
 
             const saveRoundsField = async (patientId, fieldName) => {
@@ -3040,17 +3041,21 @@
 
                 const outputsData = await DB.getAll('outputs');
                 setOutputs(outputsData);
+
+                const tasksData = await DB.getAll('tasks');
+                setTasks(tasksData);
             };
 
             const handleSavePatient = async (patientData) => {
                 try {
                     if (editingPatient?.id) {
                         await DB.put('patients', { ...patientData, id: editingPatient.id });
-                        setEditingPatient(null);
                     } else {
                         await DB.add('patients', patientData);
                     }
+                    // Close dialog first, then clear state
                     setShowPatientForm(false);
+                    setEditingPatient(null);
                     loadPatients();
                 } catch(err) {
                     console.error('Error saving patient:', err);
@@ -3469,11 +3474,24 @@
                                         </div>
                                     )}
 
-                                    {/* Plan - hide if already in today's rounds */}
+                                    {/* Plan with task completion status */}
                                     {patient.treatmentPlan && !(patient.roundsHistory?.[getTodayISO()]?.parsed?.plan || patient.roundsHistory?.[getTodayISO()]?.plan) && (
                                         <div className="mb-2">
                                             <p className="text-xs font-semibold text-gray-500 uppercase">Plan:</p>
-                                            <p className="text-sm text-gray-700">{patient.treatmentPlan}</p>
+                                            <div className="text-sm">
+                                                {patient.treatmentPlan.split(/\.\s*/).filter(s => s.trim()).map((item, i) => {
+                                                    const trimmed = item.trim();
+                                                    if (!trimmed) return null;
+                                                    const patientTasks = tasks.filter(t => t.patientId === patient.id);
+                                                    const matchingTask = patientTasks.find(t => t.description.toLowerCase() === trimmed.toLowerCase());
+                                                    const isCompleted = matchingTask?.completed;
+                                                    return (
+                                                        <span key={i} className={isCompleted ? 'line-through text-gray-400' : 'text-gray-700'}>
+                                                            {trimmed}{i < patient.treatmentPlan.split(/\.\s*/).filter(s => s.trim()).length - 1 ? '. ' : '.'}
+                                                        </span>
+                                                    );
+                                                })}
+                                            </div>
                                         </div>
                                     )}
 
@@ -4516,6 +4534,13 @@
             const [expandedTaskId, setExpandedTaskId] = React.useState(null);
             const [commentText, setCommentText] = React.useState('');
             const [showHistoryFor, setShowHistoryFor] = React.useState({});
+            const [showRecurringForm, setShowRecurringForm] = React.useState(null); // patientId
+            const [recurringTasks, setRecurringTasks] = React.useState([]);
+            const [recurringForm, setRecurringForm] = React.useState({
+                description: '', category: 'Other', priority: 'Medium',
+                recurrence: 'daily', customDays: [], startDate: '', endDate: ''
+            });
+            const [showRecurringList, setShowRecurringList] = React.useState(null); // patientId
             const dictation = useDictation();
             const myName = currentUser?.displayName || currentUser?.email || '';
             const today = getTodayISO();
@@ -4575,9 +4600,79 @@
 
             const loadData = async () => {
                 const patientsData = await DB.getAll('patients');
-                const tasksData = await DB.getAll('tasks');
-                setPatients(patientsData.filter(p => p.status !== 'discharged').sort((a, b) => parseInt(a.room) - parseInt(b.room)));
+                let tasksData = await DB.getAll('tasks');
+                const activePatients = patientsData.filter(p => p.status !== 'discharged');
+                setPatients(activePatients.sort((a, b) => parseInt(a.room) - parseInt(b.room)));
+
+                // Auto-populate recurring tasks for today
+                const recurringTasks = await DB.getAll('recurringTasks');
+                const todayISO = getTodayISO();
+                const todayDow = new Date().getDay(); // 0=Sun, 6=Sat
+
+                for (const rt of recurringTasks) {
+                    // Check if this recurring task should fire today
+                    if (rt.endDate && rt.endDate < todayISO) continue;
+                    if (rt.startDate && rt.startDate > todayISO) continue;
+                    // Check if patient is still active
+                    if (!activePatients.find(p => p.id === rt.patientId)) continue;
+
+                    let shouldFire = false;
+                    if (rt.recurrence === 'daily') {
+                        shouldFire = true;
+                    } else if (rt.recurrence === 'everyOtherDay') {
+                        const start = new Date(rt.startDate || rt.createdAt);
+                        const diffDays = Math.floor((new Date(todayISO) - start) / 86400000);
+                        shouldFire = diffDays % 2 === 0;
+                    } else if (rt.recurrence === 'weekly') {
+                        const startDow = new Date(rt.startDate || rt.createdAt).getDay();
+                        shouldFire = todayDow === startDow;
+                    } else if (rt.recurrence === 'custom' && rt.customDays) {
+                        shouldFire = rt.customDays.includes(todayDow);
+                    } else if (rt.recurrence === 'weekdays') {
+                        shouldFire = todayDow >= 1 && todayDow <= 5;
+                    }
+
+                    if (!shouldFire) continue;
+
+                    // Check if already created for today
+                    const alreadyExists = tasksData.some(t =>
+                        t.patientId === rt.patientId &&
+                        t.description === rt.description &&
+                        t.createdAt && t.createdAt.startsWith(todayISO)
+                    );
+                    if (alreadyExists) continue;
+
+                    // Create the task
+                    await DB.add('tasks', {
+                        patientId: rt.patientId,
+                        category: rt.category || 'Other',
+                        description: rt.description,
+                        priority: rt.priority || 'Medium',
+                        assignee: '',
+                        completed: false,
+                        createdAt: new Date().toISOString(),
+                        assignedBy: 'Recurring',
+                        recurringTaskId: rt.id,
+                        fromRecurring: true
+                    });
+
+                    // Also update patient plan
+                    const patient = activePatients.find(p => p.id === rt.patientId);
+                    if (patient) {
+                        const currentPlan = patient.treatmentPlan || '';
+                        if (!currentPlan.toLowerCase().includes(rt.description.toLowerCase())) {
+                            const newPlan = currentPlan ? currentPlan.replace(/\.?\s*$/, '') + '. ' + rt.description + '.' : rt.description + '.';
+                            await DB.put('patients', { ...patient, treatmentPlan: newPlan });
+                        }
+                    }
+                }
+
+                // Re-fetch tasks after potential additions
+                tasksData = await DB.getAll('tasks');
                 setTasks(tasksData);
+
+                const rtData = await DB.getAll('recurringTasks');
+                setRecurringTasks(rtData || []);
             };
 
             // Rebuild patient plan from their active (incomplete) tasks
@@ -4627,6 +4722,37 @@
                     setReassigningTaskId(null);
                     loadData();
                 }
+            };
+
+            const saveRecurringTask = async (patientId) => {
+                if (!recurringForm.description.trim()) return;
+                await DB.add('recurringTasks', {
+                    patientId,
+                    description: recurringForm.description.trim(),
+                    category: recurringForm.category,
+                    priority: recurringForm.priority,
+                    recurrence: recurringForm.recurrence,
+                    customDays: recurringForm.recurrence === 'custom' ? recurringForm.customDays : [],
+                    startDate: recurringForm.startDate || getTodayISO(),
+                    endDate: recurringForm.endDate || null,
+                    createdAt: new Date().toISOString(),
+                    createdBy: currentUser?.displayName || currentUser?.email || ''
+                });
+                setRecurringForm({ description: '', category: 'Other', priority: 'Medium', recurrence: 'daily', customDays: [], startDate: '', endDate: '' });
+                setShowRecurringForm(null);
+                // Reload to trigger auto-populate
+                loadData();
+            };
+
+            const deleteRecurringTask = async (taskId) => {
+                if (!confirm('Delete this recurring task?')) return;
+                await DB.delete('recurringTasks', taskId);
+                loadData();
+            };
+
+            const loadRecurringTasks = async () => {
+                const rt = await DB.getAll('recurringTasks');
+                setRecurringTasks(rt || []);
             };
 
             const deleteTask = async (taskId) => {
@@ -5140,6 +5266,15 @@
                                                 )}
                                                 <button
                                                     onClick={() => {
+                                                        setShowRecurringList(showRecurringList === patient.id ? null : patient.id);
+                                                    }}
+                                                    className="text-xs bg-purple-600 hover:bg-purple-700 text-white px-2 py-1 rounded font-medium"
+                                                    title="View recurring tasks"
+                                                >
+                                                    Schedule
+                                                </button>
+                                                <button
+                                                    onClick={() => {
                                                         setSelectedPatientForTask(patient.id);
                                                         setShowTaskForm(true);
                                                     }}
@@ -5160,6 +5295,133 @@
                                                 <div className="progress-bar">
                                                     <div className="progress-fill" style={{ width: `${completion}%` }}></div>
                                                 </div>
+                                            </div>
+                                        )}
+
+                                        {/* Recurring Tasks Section */}
+                                        {showRecurringList === patient.id && (
+                                            <div className="mb-4 bg-purple-50 border border-purple-200 rounded-lg p-3">
+                                                <div className="flex justify-between items-center mb-2">
+                                                    <h4 className="text-sm font-semibold text-purple-900">Recurring Tasks</h4>
+                                                    <button
+                                                        onClick={() => setShowRecurringForm(showRecurringForm === patient.id ? null : patient.id)}
+                                                        className="text-xs bg-purple-600 hover:bg-purple-700 text-white px-2 py-1 rounded"
+                                                    >
+                                                        {showRecurringForm === patient.id ? 'Cancel' : '+ Add'}
+                                                    </button>
+                                                </div>
+
+                                                {/* Recurring Task Form */}
+                                                {showRecurringForm === patient.id && (
+                                                    <div className="bg-white rounded p-2 mb-3 space-y-2 border border-purple-100">
+                                                        <input
+                                                            type="text"
+                                                            placeholder="Task description"
+                                                            value={recurringForm.description}
+                                                            onChange={(e) => setRecurringForm({...recurringForm, description: e.target.value})}
+                                                            className="w-full text-xs px-2 py-1 border border-gray-300 rounded"
+                                                        />
+                                                        <select
+                                                            value={recurringForm.category}
+                                                            onChange={(e) => setRecurringForm({...recurringForm, category: e.target.value})}
+                                                            className="w-full text-xs px-2 py-1 border border-gray-300 rounded"
+                                                        >
+                                                            <option>Other</option>
+                                                            <option>Vitals</option>
+                                                            <option>Labs</option>
+                                                            <option>Wound</option>
+                                                            <option>Medications</option>
+                                                        </select>
+                                                        <select
+                                                            value={recurringForm.priority}
+                                                            onChange={(e) => setRecurringForm({...recurringForm, priority: e.target.value})}
+                                                            className="w-full text-xs px-2 py-1 border border-gray-300 rounded"
+                                                        >
+                                                            <option>Low</option>
+                                                            <option>Medium</option>
+                                                            <option>High</option>
+                                                        </select>
+                                                        <select
+                                                            value={recurringForm.recurrence}
+                                                            onChange={(e) => setRecurringForm({...recurringForm, recurrence: e.target.value, customDays: []})}
+                                                            className="w-full text-xs px-2 py-1 border border-gray-300 rounded"
+                                                        >
+                                                            <option value="daily">Daily</option>
+                                                            <option value="weekdays">Weekdays</option>
+                                                            <option value="weekly">Weekly</option>
+                                                            <option value="everyOtherDay">Every Other Day</option>
+                                                            <option value="custom">Custom Days</option>
+                                                        </select>
+                                                        {recurringForm.recurrence === 'custom' && (
+                                                            <div className="text-xs space-y-1">
+                                                                <p className="font-semibold">Days:</p>
+                                                                <div className="grid grid-cols-4 gap-1">
+                                                                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, i) => (
+                                                                        <label key={i} className="flex items-center">
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                checked={recurringForm.customDays.includes(i)}
+                                                                                onChange={(e) => {
+                                                                                    const newDays = e.target.checked
+                                                                                        ? [...recurringForm.customDays, i]
+                                                                                        : recurringForm.customDays.filter(d => d !== i);
+                                                                                    setRecurringForm({...recurringForm, customDays: newDays});
+                                                                                }}
+                                                                                className="mr-1"
+                                                                            />
+                                                                            {day}
+                                                                        </label>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                        <input
+                                                            type="date"
+                                                            placeholder="Start date"
+                                                            value={recurringForm.startDate}
+                                                            onChange={(e) => setRecurringForm({...recurringForm, startDate: e.target.value})}
+                                                            className="w-full text-xs px-2 py-1 border border-gray-300 rounded"
+                                                        />
+                                                        <input
+                                                            type="date"
+                                                            placeholder="End date (optional)"
+                                                            value={recurringForm.endDate}
+                                                            onChange={(e) => setRecurringForm({...recurringForm, endDate: e.target.value})}
+                                                            className="w-full text-xs px-2 py-1 border border-gray-300 rounded"
+                                                        />
+                                                        <button
+                                                            onClick={() => saveRecurringTask(patient.id)}
+                                                            className="w-full text-xs bg-purple-600 hover:bg-purple-700 text-white px-2 py-1 rounded font-medium"
+                                                        >
+                                                            Save Recurring Task
+                                                        </button>
+                                                    </div>
+                                                )}
+
+                                                {/* Recurring Tasks List */}
+                                                {recurringTasks.filter(rt => rt.patientId === patient.id).length === 0 ? (
+                                                    <p className="text-xs text-gray-600 italic">No recurring tasks scheduled</p>
+                                                ) : (
+                                                    <div className="space-y-1">
+                                                        {recurringTasks.filter(rt => rt.patientId === patient.id).map(rt => (
+                                                            <div key={rt.id} className="bg-white rounded p-2 flex justify-between items-start text-xs border-l-2 border-purple-300">
+                                                                <div className="flex-1">
+                                                                    <p className="font-medium text-purple-900">{rt.description}</p>
+                                                                    <p className="text-gray-600">{rt.recurrence} • {rt.category}</p>
+                                                                    {rt.recurrence === 'custom' && rt.customDays && (
+                                                                        <p className="text-gray-500">{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].filter((_, i) => rt.customDays.includes(i)).join(', ')}</p>
+                                                                    )}
+                                                                </div>
+                                                                <button
+                                                                    onClick={() => deleteRecurringTask(rt.id)}
+                                                                    className="text-red-600 hover:text-red-800 font-medium ml-2"
+                                                                >
+                                                                    ✕
+                                                                </button>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
                                             </div>
                                         )}
 
