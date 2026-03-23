@@ -7163,97 +7163,422 @@ To-do: Check AM labs, I/Os q4h`}
             const parseToHP = (rawText) => {
                 const t = rawText.trim();
                 const lower = t.toLowerCase();
-                const hp = { cc: '', hpi: '', pmh: [], psh: [], meds: [], allergies: [], ros: '', pe: '', labs: '', assessment: '', plan: '', age: '', gender: '', room: '', diagnosis: '' };
+                const hp = { cc: '', hpi: '', pmh: [], psh: [], meds: [], allergies: [], ros: '', pe: '', vitals: '', labs: '', socialHx: '', familyHx: '', assessment: '', plan: '', age: '', gender: '', room: '', diagnosis: '' };
 
-                // Chief Complaint - first sentence or reason for consult
-                const ccMatch = t.match(/(?:chief\s*complaint|cc|reason\s*(?:for)?\s*(?:consult|admission)|presenting\s*(?:with|for))[:\s]+(.+?)(?:\.|$)/i);
-                if (ccMatch) hp.cc = ccMatch[1].trim();
-                else {
-                    // Use first sentence as CC
-                    const firstSent = t.match(/^(.+?)[.!]/);
-                    if (firstSent) hp.cc = firstSent[1].trim();
-                }
-
-                // Room
-                const roomMatch = t.match(/(?:room|rm)\s*(\d+)/i);
+                // ---- DEMOGRAPHICS ----
+                const roomMatch = t.match(/(?:room|rm)\s*(\d+[A-Za-z]?)/i);
                 if (roomMatch) hp.room = roomMatch[1];
 
-                // Age/Gender
-                const ageMatch = t.match(/(\d{1,3})\s*(?:year[s\-\s]*old|y\.?o\.?|yo)\s*(male|female|man|woman|m|f)\b/i);
-                if (ageMatch) { hp.age = ageMatch[1]; hp.gender = ageMatch[2].charAt(0).toUpperCase(); }
-
-                // HPI - everything from start or after CC to next section
-                const hpiMatch = t.match(/(?:hpi|history\s*of\s*present\s*illness)[:\s]+(.+?)(?=\b(?:pmh|past\s*medical|psh|past\s*surgical|medications|meds|allergies|ros|review|physical\s*exam|pe|labs|assessment|plan)\b)/is);
-                if (hpiMatch) hp.hpi = hpiMatch[1].trim();
-                else if (!hp.cc) {
-                    // If no labeled sections, treat the bulk as HPI
-                    hp.hpi = t.substring(0, 500);
+                const ageMatch = t.match(/(\d{1,3})\s*[-\s]?(?:year[s\-\s]*old|y\.?o\.?|yo)\s*(male|female|man|woman|gentleman|lady|m|f)\b/i);
+                if (ageMatch) { hp.age = ageMatch[1]; const g = ageMatch[2].toLowerCase(); hp.gender = (g.startsWith('f') || g === 'lady' || g === 'woman') ? 'F' : 'M'; }
+                if (!ageMatch) {
+                    const ageOnly = t.match(/(\d{1,3})\s*[-\s]?(?:year[s\-\s]*old|y\.?o\.?|yo)\b/i);
+                    if (ageOnly) hp.age = ageOnly[1];
+                    const genderOnly = t.match(/\b(male|female|man|woman|gentleman|lady)\b/i);
+                    if (genderOnly) { const g = genderOnly[1].toLowerCase(); hp.gender = (g.startsWith('f') || g === 'lady' || g === 'woman') ? 'F' : 'M'; }
                 }
 
-                // PMH
-                const pmhMatch = t.match(/(?:pmh|past\s*medical\s*history|medical\s*history)[:\s]+(.+?)(?=\b(?:psh|past\s*surgical|medications|meds|allergies|ros|review|physical|pe|labs|assessment|plan|$))/is);
-                if (pmhMatch) hp.pmh = pmhMatch[1].split(/[,;]/).map(s => s.trim()).filter(s => s.length > 1);
-                // Also detect inline
+                // ---- SENTENCE-LEVEL SEGMENTATION ----
+                // Split into sentences for context-aware parsing
+                const sentences = t.split(/(?<=[.!?])\s+|(?<=\b(?:So|Anyway|Also|Additionally|Furthermore|Next|Now|Then|Currently|However|But)\b)\s+/i).filter(s => s.trim());
+
+                // ---- SECTION DETECTION via contextual cues ----
+                // Tag each sentence with likely H&P section
+                const sectionTags = sentences.map((sent, idx) => {
+                    const sl = sent.toLowerCase().trim();
+                    // Explicit labels first
+                    if (/^(?:chief\s*complaint|cc|reason\s*(?:for)?\s*(?:consult|admission)|presenting\s*(?:with|for|complaint))\b/i.test(sl)) return { section: 'cc', text: sent.replace(/^(?:chief\s*complaint|cc|reason\s*(?:for)?\s*(?:consult|admission)|presenting\s*(?:with|for|complaint))[:\s]*/i, '').trim() };
+                    if (/^(?:hpi|history\s*of\s*present\s*illness)[:\s]/i.test(sl)) return { section: 'hpi', text: sent.replace(/^(?:hpi|history\s*of\s*present\s*illness)[:\s]*/i, '').trim() };
+                    if (/^(?:pmh|past\s*medical\s*history|medical\s*history)[:\s]/i.test(sl)) return { section: 'pmh', text: sent.replace(/^(?:pmh|past\s*medical\s*history|medical\s*history)[:\s]*/i, '').trim() };
+                    if (/^(?:psh|past\s*surgical\s*history|surgical\s*history|prior\s*surger)/i.test(sl)) return { section: 'psh', text: sent.replace(/^(?:psh|past\s*surgical\s*history|surgical\s*history|prior\s*surger\w*)[:\s]*/i, '').trim() };
+                    if (/^(?:medications?|meds|home\s*(?:meds|medications)|currently\s*(?:on|taking))[:\s]/i.test(sl)) return { section: 'meds', text: sent.replace(/^(?:medications?|meds|home\s*(?:meds|medications)|currently\s*(?:on|taking))[:\s]*/i, '').trim() };
+                    if (/^(?:allergies|allergy)[:\s]/i.test(sl)) return { section: 'allergies', text: sent.replace(/^(?:allergies|allergy)[:\s]*/i, '').trim() };
+                    if (/^(?:ros|review\s*of\s*systems)[:\s]/i.test(sl)) return { section: 'ros', text: sent.replace(/^(?:ros|review\s*of\s*systems)[:\s]*/i, '').trim() };
+                    if (/^(?:physical\s*exam|pe|on\s*(?:physical\s*)?exam|exam(?:ination)?)[:\s]/i.test(sl)) return { section: 'pe', text: sent.replace(/^(?:physical\s*exam|pe|on\s*(?:physical\s*)?exam|exam(?:ination)?)[:\s]*/i, '').trim() };
+                    if (/^(?:vitals?|vital\s*signs?)[:\s]/i.test(sl)) return { section: 'vitals', text: sent.replace(/^(?:vitals?|vital\s*signs?)[:\s]*/i, '').trim() };
+                    if (/^(?:labs?|laboratory|imaging|results|ct\s*(?:scan|showed)|x-?ray|mri|ultrasound)[:\s]/i.test(sl)) return { section: 'labs', text: sent.replace(/^(?:labs?|laboratory|imaging|results)[:\s]*/i, '').trim() };
+                    if (/^(?:social\s*history|social\s*hx|sh)[:\s]/i.test(sl)) return { section: 'socialHx', text: sent.replace(/^(?:social\s*history|social\s*hx|sh)[:\s]*/i, '').trim() };
+                    if (/^(?:family\s*history|family\s*hx|fh|fhx)[:\s]/i.test(sl)) return { section: 'familyHx', text: sent.replace(/^(?:family\s*history|family\s*hx|fh|fhx)[:\s]*/i, '').trim() };
+                    if (/^(?:assessment\s*(?:and|&)?\s*plan|a\/?p|plan|impression|recommend)/i.test(sl)) return { section: 'plan', text: sent.replace(/^(?:assessment\s*(?:and|&)?\s*plan|a\/?p|plan|impression|recommend\w*)[:\s]*/i, '').trim() };
+
+                    // Contextual cues (no explicit label)
+                    // Social history cues
+                    if (/\b(?:smokes?|smoking|tobacco|cigarettes?|pack[s\s-]*(?:per|a)\s*day|ppd|drinks?\s*(?:alcohol|beer|wine|liquor)|etoh|ivdu|iv\s*drug|marijuana|cocaine|heroin|denies\s*(?:tobacco|alcohol|drugs|smoking|etoh))\b/i.test(sl)) return { section: 'socialHx', text: sent.trim() };
+                    // Family history cues
+                    if (/\b(?:family\s*history|(?:no\s*(?:significant\s*)?)?(?:mother|father|brother|sister|parent|sibling|family\s*(?:member)?)s?\s*(?:with|has|had|diagnosed|history|cancer|disease|died))\b/i.test(sl) || /\bno\s*significant\s*family\s*history\b/i.test(sl)) return { section: 'familyHx', text: sent.trim() };
+                    // Medications cues
+                    if (/\b(?:currently\s*(?:on|taking)|(?:home|daily)\s*(?:meds|medications)|takes?|prescribed)\b/i.test(sl) && /\b(?:aspirin|metformin|lisinopril|amlodipine|atorvastatin|omeprazole|pantoprazole|metoprolol|losartan|heparin|insulin|warfarin|eliquis|xarelto|plavix|corticosteroids?|prednisone|steroids?|antibiotics?|ibuprofen|acetaminophen|tylenol|gabapentin|tramadol|oxycodone|hydrocodone|norvasc|lasix|furosemide|levothyroxine|synthroid)\b/i.test(sl)) return { section: 'meds', text: sent.trim() };
+                    // Vitals cues
+                    if (/\b(?:tachycardic|bradycardic|hypotensive|hypertensive|febrile|afebrile|heart\s*rate\s*(?:of|is|was)?\s*\d|hr\s*(?:of|is|was)?\s*\d|blood\s*pressure\s*(?:of|is|was)?\s*\d|bp\s*(?:of|is|was)?\s*\d|temp(?:erature)?\s*(?:of|is|was)?\s*\d|sats?\s*(?:of|is|was)?\s*\d|o2\s*sat|respiratory\s*rate|rr\s*(?:of|is|was)?\s*\d|pulse\s*(?:of|is|was)?\s*\d)\b/i.test(sl)) return { section: 'vitals', text: sent.trim() };
+                    // Physical exam cues
+                    if (/\b(?:on\s*(?:physical\s*)?exam|examination|(?:abdomen|belly|lungs?|chest|heart|extremities?|neuro)\s*(?:is|are|was|were|shows?|reveal|demonstrate)|tender\s*(?:on|to|with)|rebound\s*(?:tenderness)?|guarding|distended|peritoneal\s*signs?|murphy'?s|mcburney|bowel\s*sounds|inspection|palpat|auscultati|percuss|wound\s*(?:is|looks|appears)|incision)\b/i.test(sl)) return { section: 'pe', text: sent.trim() };
+                    // Labs/imaging cues
+                    if (/\b(?:white\s*(?:blood\s*)?(?:count|cell)|wbc|hemoglobin|hgb|hematocrit|hct|platelets?|plt|creatinine|bun|sodium|potassium|chloride|bicarb|co2|glucose|lactate|troponin|lipase|amylase|ast|alt|bilirubin|inr|pt\s|ptt|cbc|bmp|cmp|lfts?|ua\b|urinalysis|ct\s*(?:scan|showed|shows|revealed|demonstrates)|x-?ray|mri|ultrasound|imaging\s*(?:showed|shows|revealed))\b/i.test(sl)) return { section: 'labs', text: sent.trim() };
+                    // Assessment cues
+                    if (/\b(?:(?:likely|probable|possible|suspect(?:ed)?|concern\s*for|consistent\s*with|(?:most\s*likely|working)\s*diagnosis|diagnosed\s*with|assessment\s*is|impression\s*is|appears?\s*to\s*be|thinking)\s+\w|(?:we\s*(?:think|believe|suspect)|i\s*(?:think|believe|suspect))\s|recommend|plan\s*(?:is|to|for)|(?:will|going\s*to)\s*(?:take|get|order|start|consult|proceed|schedule|admit|discharge|observe))\b/i.test(sl)) return { section: 'plan', text: sent.trim() };
+                    // Allergies cues
+                    if (/\b(?:nkda|no\s*known\s*(?:drug\s*)?allergies|allergic\s*to|allergy\s*to)\b/i.test(sl)) return { section: 'allergies', text: sent.trim() };
+
+                    return { section: null, text: sent.trim() };
+                });
+
+                // ---- ASSIGN UNTAGGED SENTENCES ----
+                // Sentences without a tag inherit from surrounding context or go to HPI
+                let lastSection = null;
+                for (let i = 0; i < sectionTags.length; i++) {
+                    if (sectionTags[i].section) {
+                        lastSection = sectionTags[i].section;
+                    } else if (lastSection && lastSection !== 'cc') {
+                        // Continue previous section for untagged sentences (except CC which should be brief)
+                        sectionTags[i].section = lastSection;
+                    }
+                }
+
+                // ---- BUILD HP SECTIONS ----
+                const sectionTexts = { cc: [], hpi: [], pmh: [], psh: [], meds: [], allergies: [], ros: [], pe: [], vitals: [], labs: [], socialHx: [], familyHx: [], plan: [] };
+                let ccFound = false;
+                let firstNarrativeIdx = -1;
+
+                for (let i = 0; i < sectionTags.length; i++) {
+                    const tag = sectionTags[i];
+                    if (tag.section && tag.section !== 'cc') {
+                        if (!sectionTexts[tag.section]) sectionTexts[tag.section] = [];
+                        sectionTexts[tag.section].push(tag.text);
+                    } else if (tag.section === 'cc') {
+                        ccFound = true;
+                        sectionTexts.cc.push(tag.text);
+                    } else {
+                        // Untagged, will be assigned to HPI
+                        if (firstNarrativeIdx === -1) firstNarrativeIdx = i;
+                        sectionTexts.hpi.push(tag.text);
+                    }
+                }
+
+                // ---- CHIEF COMPLAINT (concise) ----
+                if (sectionTexts.cc.length > 0) {
+                    hp.cc = sectionTexts.cc[0];
+                } else {
+                    // Extract concise CC: age/gender + presenting complaint
+                    const ccPattern = t.match(/(\d{1,3}\s*[-\s]?(?:year[s\-\s]*old|y\.?o\.?|yo)\s*(?:male|female|man|woman|gentleman|lady|m|f))\b[,\s]*(?:with|presenting\s*with|who\s*(?:is|has|presents)|(?:coming|came)\s*in\s*(?:for|with)|complaining\s*of|c\/o)[,\s]*(.+?)(?:\.|(?=\s*(?:He|She|The\s*patient|Patient|Pt)\s))/i);
+                    if (ccPattern) {
+                        hp.cc = ccPattern[1].trim() + ' with ' + ccPattern[2].trim();
+                    } else {
+                        // Try extracting just the complaint
+                        const complaintMatch = t.match(/(?:coming\s*in\s*(?:for|with)|presenting\s*(?:with|for)|complaining\s*of|c\/o|(?:has|have)\s*(?:a\s*)?(?:patient\s*(?:that\s*is|who\s*is|with))?\s*(?:coming\s*in\s*(?:for|with)))\s*(.+?)(?:\.|(?=\s*(?:He|She|The\s*patient|Patient|Pt)\s))/i);
+                        if (complaintMatch) {
+                            const prefix = hp.age ? `${hp.age}${hp.gender ? hp.gender : ''} ` : '';
+                            hp.cc = (prefix ? prefix + 'with ' : '') + complaintMatch[1].trim();
+                        } else {
+                            // Fallback: first sentence, trimmed
+                            const firstSent = t.match(/^(.+?)(?:\.|$)/);
+                            if (firstSent) {
+                                let ccText = firstSent[1].trim();
+                                // Trim filler from start
+                                ccText = ccText.replace(/^(?:have\s*a\s*patient\s*(?:that\s*is|who\s*is)?|we\s*have\s*a|so\s*(?:we\s*have\s*)?(?:a\s*)?|okay\s*so\s*)\s*/i, '').trim();
+                                hp.cc = ccText;
+                            }
+                        }
+                    }
+                }
+                // Capitalize CC
+                if (hp.cc) hp.cc = hp.cc.charAt(0).toUpperCase() + hp.cc.slice(1);
+
+                // ---- HPI (the narrative) ----
+                // If we got HPI from untagged sentences, use those
+                if (sectionTexts.hpi.length > 0) {
+                    hp.hpi = sectionTexts.hpi.join(' ').trim();
+                }
+                // If no HPI yet, extract narrative between CC and first labeled section
+                if (!hp.hpi) {
+                    // Find where the first labeled section begins in the original text
+                    const sectionStarters = [
+                        /\b(?:pmh|past\s*medical\s*history|medical\s*history)\b/i,
+                        /\b(?:psh|past\s*surgical\s*history|surgical\s*history|prior\s*surger)\b/i,
+                        /\b(?:medications?|meds|home\s*(?:meds|medications)|currently\s*(?:on|taking)\s*(?:aspirin|metformin|lisinopril|amlodipine|atorvastatin|omeprazole|pantoprazole|metoprolol|losartan|heparin|insulin|warfarin|prednisone|steroids?))\b/i,
+                        /\b(?:allergies|allergy|nkda)\b/i,
+                        /\bno\s*significant\s*family\s*history\b/i,
+                        /\b(?:family\s*history)\b/i,
+                        /\b(?:smokes?|tobacco|cigarettes?|denies\s*(?:tobacco|alcohol|smoking))\b/i,
+                        /\b(?:on\s*(?:physical\s*)?exam|examination)\b/i,
+                        /\b(?:vitals?|vital\s*signs?)\b/i,
+                        /\b(?:assessment|impression|plan\s*(?:is|to|for)|recommend)\b/i
+                    ];
+                    let firstSectionPos = t.length;
+                    for (const pat of sectionStarters) {
+                        const m = t.search(pat);
+                        if (m > 0 && m < firstSectionPos) firstSectionPos = m;
+                    }
+                    // HPI starts after first sentence (CC) and goes to first section
+                    const firstSentEnd = t.indexOf('.') + 1;
+                    if (firstSentEnd > 0 && firstSectionPos > firstSentEnd + 20) {
+                        hp.hpi = t.substring(firstSentEnd, firstSectionPos).trim();
+                        // Clean up HPI start
+                        hp.hpi = hp.hpi.replace(/^\s*[.,;]\s*/, '').trim();
+                    }
+                }
+                // Clean HPI - remove filler at start
+                if (hp.hpi) {
+                    hp.hpi = hp.hpi.replace(/^(?:so\s+|okay\s+|um\s+|uh\s+|basically\s+)/i, '').trim();
+                    if (hp.hpi) hp.hpi = hp.hpi.charAt(0).toUpperCase() + hp.hpi.slice(1);
+                }
+
+                // ---- PMH (from tagged + inline detection) ----
+                if (sectionTexts.pmh.length > 0) {
+                    const pmhText = sectionTexts.pmh.join(' ');
+                    hp.pmh = pmhText.split(/[,;.]/).map(s => s.trim()).filter(s => s.length > 2 && !/^(?:and|or|also|with|has|had|history\s*of)$/i.test(s));
+                }
+                // Inline PMH detection from full text
                 const inlinePmh = [];
-                if (/\b(?:htn|hypertension)\b/i.test(lower)) inlinePmh.push('HTN');
-                if (/\b(?:dm|dm2|diabetes|diabetic)\b/i.test(lower)) inlinePmh.push('DM2');
-                if (/\b(?:copd)\b/i.test(lower)) inlinePmh.push('COPD');
-                if (/\b(?:chf|heart\s*failure)\b/i.test(lower)) inlinePmh.push('CHF');
-                if (/\b(?:cad|coronary)\b/i.test(lower)) inlinePmh.push('CAD');
-                if (/\b(?:ckd|chronic\s*kidney)\b/i.test(lower)) inlinePmh.push('CKD');
-                if (/\b(?:afib|atrial\s*fib)\b/i.test(lower)) inlinePmh.push('Afib');
-                if (/\b(?:hld|hyperlipidemia)\b/i.test(lower)) inlinePmh.push('HLD');
-                if (/\b(?:obesity|obese|bmi\s*>\s*3)/i.test(lower)) inlinePmh.push('Obesity');
-                if (/\b(?:asthma)\b/i.test(lower)) inlinePmh.push('Asthma');
-                if (/\b(?:cirrhosis|liver\s*disease)\b/i.test(lower)) inlinePmh.push('Cirrhosis');
-                if (/\b(?:gerd|reflux)\b/i.test(lower)) inlinePmh.push('GERD');
-                inlinePmh.forEach(p => { if (!hp.pmh.some(e => e.toLowerCase().includes(p.toLowerCase()))) hp.pmh.push(p); });
+                const pmhPatterns = [
+                    [/\b(?:htn|hypertension)\b/i, 'HTN'],
+                    [/\b(?:dm\s*(?:type\s*)?2|dm2|type\s*2\s*diabetes|diabetes\s*(?:mellitus)?)\b/i, 'DM2'],
+                    [/\b(?:dm\s*(?:type\s*)?1|type\s*1\s*diabetes)\b/i, 'DM1'],
+                    [/\bcopd\b/i, 'COPD'],
+                    [/\b(?:chf|(?:congestive\s*)?heart\s*failure)\b/i, 'CHF'],
+                    [/\b(?:cad|coronary\s*artery\s*disease)\b/i, 'CAD'],
+                    [/\b(?:ckd|chronic\s*kidney\s*disease)\b/i, 'CKD'],
+                    [/\b(?:afib|atrial\s*fib(?:rillation)?)\b/i, 'Afib'],
+                    [/\b(?:hld|hyperlipidemia|high\s*cholesterol)\b/i, 'HLD'],
+                    [/\b(?:obesity|obese|morbidly\s*obese)\b/i, 'Obesity'],
+                    [/\basthma\b/i, 'Asthma'],
+                    [/\b(?:cirrhosis|liver\s*disease|hepatitis)\b/i, 'Cirrhosis'],
+                    [/\b(?:gerd|reflux|acid\s*reflux)\b/i, 'GERD'],
+                    [/\b(?:pvd|peripheral\s*(?:vascular|arterial)\s*disease|pad)\b/i, 'PVD'],
+                    [/\b(?:dvt|deep\s*vein\s*thrombosis)\b/i, 'Hx DVT'],
+                    [/\b(?:pe\b.*\bembolism|pulmonary\s*embolism)\b/i, 'Hx PE'],
+                    [/\b(?:hypothyroid|hypothyroidism)\b/i, 'Hypothyroidism'],
+                    [/\b(?:hyperthyroid|hyperthyroidism|graves)\b/i, 'Hyperthyroidism'],
+                    [/\b(?:seizure\s*disorder|epilepsy)\b/i, 'Seizure disorder'],
+                    [/\b(?:stroke|cva)\b/i, 'Hx CVA'],
+                    [/\b(?:anxiety)\b/i, 'Anxiety'],
+                    [/\b(?:depression)\b/i, 'Depression'],
+                    [/\b(?:osa|sleep\s*apnea)\b/i, 'OSA'],
+                    [/\b(?:esrd|end\s*stage\s*renal)\b/i, 'ESRD'],
+                    [/\b(?:cancer|carcinoma|malignancy|lymphoma|leukemia|melanoma)\b/i, 'Cancer']
+                ];
+                for (const [pat, label] of pmhPatterns) {
+                    if (pat.test(lower) && !hp.pmh.some(e => e.toLowerCase().includes(label.toLowerCase()))) {
+                        inlinePmh.push(label);
+                    }
+                }
+                hp.pmh = [...hp.pmh, ...inlinePmh];
 
-                // PSH
-                const pshMatch = t.match(/(?:psh|past\s*surgical\s*history|surgical\s*history|prior\s*surgeries)[:\s]+(.+?)(?=\b(?:medications|meds|allergies|ros|review|physical|pe|labs|assessment|plan|$))/is);
-                if (pshMatch) hp.psh = pshMatch[1].split(/[,;]/).map(s => s.trim()).filter(s => s.length > 1);
+                // ---- PSH ----
+                if (sectionTexts.psh.length > 0) {
+                    const pshText = sectionTexts.psh.join(' ');
+                    hp.psh = pshText.split(/[,;.]/).map(s => s.trim()).filter(s => s.length > 2 && !/^(?:and|or|also|with|had|has|denies)$/i.test(s));
+                }
+                // Inline surgical history
+                const surgPatterns = [
+                    [/\b(?:appendectomy)\b/i, 'Appendectomy'],
+                    [/\b(?:cholecystectomy)\b/i, 'Cholecystectomy'],
+                    [/\b(?:c-?section|cesarean)\b/i, 'C-section'],
+                    [/\b(?:hysterectomy)\b/i, 'Hysterectomy'],
+                    [/\b(?:colectomy|hemicolectomy)\b/i, 'Colectomy'],
+                    [/\b(?:hernia\s*repair|herniorrhaphy)\b/i, 'Hernia repair'],
+                    [/\b(?:cabg|bypass\s*(?:surgery|graft))\b/i, 'CABG'],
+                    [/\b(?:knee\s*replacement|tkr|tka)\b/i, 'TKA'],
+                    [/\b(?:hip\s*replacement|thr|tha)\b/i, 'THA'],
+                    [/\b(?:laminectomy|spinal\s*fusion)\b/i, 'Spine surgery']
+                ];
+                for (const [pat, label] of surgPatterns) {
+                    if (pat.test(lower) && !hp.psh.some(e => e.toLowerCase().includes(label.toLowerCase()))) {
+                        hp.psh.push(label);
+                    }
+                }
 
-                // Medications
-                const medsMatch = t.match(/(?:medications|meds|home\s*(?:meds|medications))[:\s]+(.+?)(?=\b(?:allergies|ros|review|physical|pe|labs|assessment|plan|$))/is);
-                if (medsMatch) hp.meds = medsMatch[1].split(/[,;]/).map(s => s.trim()).filter(s => s.length > 1);
+                // ---- MEDICATIONS ----
+                if (sectionTexts.meds.length > 0) {
+                    const medText = sectionTexts.meds.join(' ');
+                    hp.meds = medText.split(/[,;.]/).map(s => s.trim()).filter(s => s.length > 2 && !/^(?:and|or|also|is|on|taking)$/i.test(s));
+                }
+                // Inline medication detection
+                const commonMeds = ['aspirin', 'metformin', 'lisinopril', 'amlodipine', 'atorvastatin', 'omeprazole', 'pantoprazole', 'metoprolol', 'losartan', 'heparin', 'enoxaparin', 'lovenox', 'insulin', 'warfarin', 'coumadin', 'eliquis', 'apixaban', 'xarelto', 'rivaroxaban', 'plavix', 'clopidogrel', 'corticosteroids', 'prednisone', 'dexamethasone', 'hydrocortisone', 'levothyroxine', 'synthroid', 'gabapentin', 'tramadol', 'oxycodone', 'hydrocodone', 'morphine', 'dilaudid', 'hydromorphone', 'acetaminophen', 'tylenol', 'ibuprofen', 'advil', 'motrin', 'furosemide', 'lasix', 'spironolactone', 'carvedilol', 'digoxin', 'amiodarone', 'diltiazem', 'verapamil', 'hydrochlorothiazide', 'hctz', 'cephalexin', 'ciprofloxacin', 'levofloxacin', 'azithromycin', 'amoxicillin', 'augmentin', 'vancomycin', 'zosyn', 'piperacillin', 'meropenem', 'ceftriaxone', 'cefazolin', 'clindamycin', 'flagyl', 'metronidazole', 'fluconazole', 'famotidine', 'ondansetron', 'zofran', 'seroquel', 'quetiapine', 'haloperidol', 'haldol', 'lorazepam', 'ativan', 'midazolam', 'versed', 'propofol'];
+                for (const med of commonMeds) {
+                    const medRegex = new RegExp('\\b' + med + '\\b', 'i');
+                    if (medRegex.test(lower)) {
+                        const capMed = med.charAt(0).toUpperCase() + med.slice(1);
+                        if (!hp.meds.some(m => m.toLowerCase().includes(med.toLowerCase()))) {
+                            hp.meds.push(capMed);
+                        }
+                    }
+                }
 
-                // Allergies
-                const allergiesMatch = t.match(/(?:allergies|allergy|nkda)[:\s]+(.+?)(?=\b(?:ros|review|physical|pe|labs|assessment|plan|chief|hpi|$))/is);
-                if (allergiesMatch) {
-                    const allText = allergiesMatch[1].trim();
+                // ---- ALLERGIES ----
+                if (sectionTexts.allergies.length > 0) {
+                    const allText = sectionTexts.allergies.join(' ');
                     if (/nkda|no\s*known/i.test(allText)) hp.allergies = ['NKDA'];
-                    else hp.allergies = allText.split(/[,;]/).map(s => s.trim()).filter(s => s.length > 1);
+                    else hp.allergies = allText.split(/[,;.]/).map(s => s.trim()).filter(s => s.length > 1 && !/^(?:and|or|to)$/i.test(s));
                 }
                 if (/\bnkda\b/i.test(lower) && hp.allergies.length === 0) hp.allergies = ['NKDA'];
+                if (/\bno\s*(?:known\s*)?(?:drug\s*)?allergies\b/i.test(lower) && hp.allergies.length === 0) hp.allergies = ['NKDA'];
+                // Detect specific allergies
+                const allergyMatch = t.match(/allergic\s*to\s+(.+?)(?:\.|$)/i);
+                if (allergyMatch && hp.allergies.length === 0) {
+                    hp.allergies = allergyMatch[1].split(/[,;]|\s+and\s+/).map(s => s.trim()).filter(s => s.length > 1);
+                }
 
-                // ROS
-                const rosMatch = t.match(/(?:ros|review\s*of\s*systems)[:\s]+(.+?)(?=\b(?:physical|pe|labs|assessment|plan|$))/is);
-                if (rosMatch) hp.ros = rosMatch[1].trim();
+                // ---- SOCIAL HISTORY ----
+                if (sectionTexts.socialHx.length > 0) {
+                    hp.socialHx = sectionTexts.socialHx.join('. ').trim();
+                }
+                // If still empty, try extracting from full text
+                if (!hp.socialHx) {
+                    const shParts = [];
+                    const smokeMatch = t.match(/(?:smokes?\s+(.+?)(?:\.|,|$)|(\d+)\s*(?:pack[s\s-]*(?:per|a)\s*day|ppd)|pack[s\s-]*(?:per|a)\s*day)/i);
+                    if (smokeMatch) shParts.push(smokeMatch[0].replace(/[.,]+$/, '').trim());
+                    else if (/\bdenies\s*(?:tobacco|smoking)\b/i.test(lower)) shParts.push('Denies tobacco use');
+                    const etohMatch = t.match(/(?:drinks?\s+(?:alcohol|beer|wine|liquor).*?(?:\.|,|$)|social\s*(?:drinker|etoh)|denies\s*(?:alcohol|etoh))/i);
+                    if (etohMatch) shParts.push(etohMatch[0].replace(/[.,]+$/, '').trim());
+                    const drugMatch = t.match(/(?:denies\s*(?:(?:illicit\s*)?drugs?|ivdu|iv\s*drug)|(?:uses?|history\s*of)\s*(?:marijuana|cocaine|heroin|meth|iv\s*drugs?))/i);
+                    if (drugMatch) shParts.push(drugMatch[0].replace(/[.,]+$/, '').trim());
+                    if (shParts.length > 0) hp.socialHx = shParts.join('. ');
+                }
 
-                // Physical Exam
-                const peMatch = t.match(/(?:physical\s*exam|pe|exam(?:ination)?)[:\s]+(.+?)(?=\b(?:labs|assessment|plan|impression|$))/is);
-                if (peMatch) hp.pe = peMatch[1].trim();
-                // Inline exam findings
-                const examParts = [];
-                if (/(?:alert|oriented|a&o)/i.test(lower)) examParts.push('A&Ox3');
-                if (/(?:clear\s*to\s*auscultation|cta)/i.test(lower)) examParts.push('Lungs CTA bilat');
-                if (/(?:rrr|regular\s*rate)/i.test(lower)) examParts.push('Heart RRR');
-                if (/(?:soft|nt|nd|non.?tender|non.?distended)/i.test(lower) && /(?:abd|belly)/i.test(lower)) examParts.push('Abd soft, NT/ND');
-                if (/(?:wound|incision)\s*(?:clean|cdi|c\/d\/i|intact)/i.test(lower)) examParts.push('Wound CDI');
-                if (!hp.pe && examParts.length > 0) hp.pe = examParts.join('. ');
+                // ---- FAMILY HISTORY ----
+                if (sectionTexts.familyHx.length > 0) {
+                    hp.familyHx = sectionTexts.familyHx.join('. ').trim();
+                }
+                if (!hp.familyHx) {
+                    if (/\bno\s*significant\s*family\s*history\b/i.test(lower)) hp.familyHx = 'No significant family history';
+                    else if (/\bnon-?contributory\s*family/i.test(lower) || /\bfamily\s*history\s*(?:is\s*)?non-?contributory/i.test(lower)) hp.familyHx = 'Noncontributory';
+                    else {
+                        const fhMatch = t.match(/(?:family\s*history\s*(?:of|includes?|significant\s*for)?)\s+(.+?)(?:\.|$)/i);
+                        if (fhMatch) hp.familyHx = fhMatch[1].trim();
+                    }
+                }
 
-                // Labs
-                const labsMatch = t.match(/(?:labs?|laboratory|results)[:\s]+(.+?)(?=\b(?:assessment|plan|impression|$))/is);
-                if (labsMatch) hp.labs = labsMatch[1].trim();
+                // ---- ROS ----
+                if (sectionTexts.ros.length > 0) hp.ros = sectionTexts.ros.join('. ').trim();
 
-                // Assessment/Plan
-                const apMatch = t.match(/(?:assessment\s*(?:and|&)?\s*plan|a\/?p|plan|impression)[:\s]+(.+?)$/is);
-                if (apMatch) hp.plan = apMatch[1].trim();
+                // ---- VITALS ----
+                if (sectionTexts.vitals.length > 0) {
+                    hp.vitals = sectionTexts.vitals.join('. ').trim();
+                }
+                if (!hp.vitals) {
+                    const vitalParts = [];
+                    const hrMatch = t.match(/(?:heart\s*rate|hr|pulse)\s*(?:of|is|was|:)?\s*(\d{2,3})/i);
+                    if (hrMatch) vitalParts.push('HR ' + hrMatch[1]);
+                    const bpMatch = t.match(/(?:blood\s*pressure|bp)\s*(?:of|is|was|:)?\s*(\d{2,3})\s*(?:\/|over)\s*(\d{2,3})/i);
+                    if (bpMatch) vitalParts.push('BP ' + bpMatch[1] + '/' + bpMatch[2]);
+                    const tempMatch = t.match(/(?:temp(?:erature)?|t(?:max)?)\s*(?:of|is|was|:)?\s*(\d{2,3}\.?\d?)/i);
+                    if (tempMatch) vitalParts.push('Temp ' + tempMatch[1]);
+                    const rrMatch = t.match(/(?:respiratory\s*rate|rr)\s*(?:of|is|was|:)?\s*(\d{1,2})/i);
+                    if (rrMatch) vitalParts.push('RR ' + rrMatch[1]);
+                    const satMatch = t.match(/(?:o2\s*sat|sats?|sp\s*o2|oxygen\s*sat(?:uration)?)\s*(?:of|is|was|:)?\s*(\d{2,3})(?:\s*%|\s*(?:on|percent))?/i);
+                    if (satMatch) vitalParts.push('SpO2 ' + satMatch[1] + '%');
+                    // Qualitative vitals
+                    if (/\btachycardic\b/i.test(lower) && !vitalParts.some(v => v.startsWith('HR'))) vitalParts.push('Tachycardic');
+                    if (/\bbradycardic\b/i.test(lower) && !vitalParts.some(v => v.startsWith('HR'))) vitalParts.push('Bradycardic');
+                    if (/\bhypotensive\b/i.test(lower) && !vitalParts.some(v => v.startsWith('BP'))) vitalParts.push('Hypotensive');
+                    if (/\bhypertensive\b/i.test(lower) && !vitalParts.some(v => v.startsWith('BP'))) vitalParts.push('Hypertensive');
+                    if (/\bfebrile\b/i.test(lower) && !vitalParts.some(v => v.startsWith('Temp'))) vitalParts.push('Febrile');
+                    if (/\bafebrile\b/i.test(lower) && !vitalParts.some(v => v.startsWith('Temp'))) vitalParts.push('Afebrile');
+                    if (vitalParts.length > 0) hp.vitals = vitalParts.join(', ');
+                }
 
-                // Diagnosis
+                // ---- PHYSICAL EXAM ----
+                if (sectionTexts.pe.length > 0) {
+                    hp.pe = sectionTexts.pe.join('. ').trim();
+                }
+                if (!hp.pe) {
+                    const examParts = [];
+                    if (/(?:alert|oriented|a&o|a\s*and\s*o)/i.test(lower)) examParts.push('A&Ox3');
+                    if (/(?:clear\s*to\s*auscultation|cta\s*(?:bilat|b\/l)?)/i.test(lower)) examParts.push('Lungs CTA bilat');
+                    if (/(?:rrr|regular\s*rate\s*(?:and|&)\s*rhythm)/i.test(lower)) examParts.push('Heart RRR');
+                    if (/(?:(?:abd(?:omen)?|belly)\s*(?:is\s*)?(?:soft|flat))/i.test(lower)) {
+                        let abd = 'Abd soft';
+                        if (/non[- ]?tender|nt\b/i.test(lower)) abd += ', NT';
+                        if (/non[- ]?distended|nd\b/i.test(lower)) abd += ', ND';
+                        examParts.push(abd);
+                    }
+                    if (/\btender\s*(?:on|to|with)\s*palpation\b/i.test(lower) || /\btenderness\s*(?:in|at|over)\b/i.test(lower)) {
+                        const tenderMatch = t.match(/(?:tender(?:ness)?\s*(?:on|to|with|in|at|over)\s*(?:palpation\s*(?:in|at|of|over)\s*)?(?:the\s*)?)(.+?)(?:\.|,|(?=\s+(?:with|no|and|but|$)))/i);
+                        if (tenderMatch) examParts.push('Tender ' + tenderMatch[1].trim());
+                        else examParts.push('Tenderness on palpation');
+                    }
+                    if (/\brebound\s*(?:tenderness)?\b/i.test(lower)) examParts.push('Rebound tenderness');
+                    if (/\bguarding\b/i.test(lower)) examParts.push('Guarding');
+                    if (/\bperitoneal\s*signs?\b/i.test(lower)) examParts.push('Peritoneal signs');
+                    if (/\bdistended\b/i.test(lower) && !/non[- ]?distended/i.test(lower)) examParts.push('Distended');
+                    if (/\b(?:wound|incision)\s*(?:is\s*)?(?:clean|cdi|c\/d\/i|intact|well[- ]?healing)/i.test(lower)) examParts.push('Wound CDI');
+                    if (/\bmurphy'?s\s*(?:sign\s*)?(?:positive|pos|\+)/i.test(lower)) examParts.push("Murphy's sign (+)");
+                    if (/\bmcburney'?s?\s*(?:point\s*)?(?:tender|positive|pos|\+)/i.test(lower)) examParts.push("McBurney's point tender");
+                    if (examParts.length > 0) hp.pe = examParts.join('. ');
+                }
+
+                // ---- LABS/IMAGING ----
+                if (sectionTexts.labs.length > 0) {
+                    hp.labs = sectionTexts.labs.join('. ').trim();
+                }
+                if (!hp.labs) {
+                    const labParts = [];
+                    const wbcMatch = t.match(/(?:wbc|white\s*(?:blood\s*)?(?:count|cell)s?)\s*(?:of|is|was|:)?\s*([\d.]+)/i);
+                    if (wbcMatch) labParts.push('WBC ' + wbcMatch[1]);
+                    const hgbMatch = t.match(/(?:hgb|hemoglobin|hb)\s*(?:of|is|was|:)?\s*([\d.]+)/i);
+                    if (hgbMatch) labParts.push('Hgb ' + hgbMatch[1]);
+                    const pltMatch = t.match(/(?:platelets?|plt)\s*(?:of|is|was|:)?\s*([\d,]+)/i);
+                    if (pltMatch) labParts.push('Plt ' + pltMatch[1]);
+                    const crMatch = t.match(/(?:creatinine|cr)\s*(?:of|is|was|:)?\s*([\d.]+)/i);
+                    if (crMatch) labParts.push('Cr ' + crMatch[1]);
+                    const lactateMatch = t.match(/(?:lactate|lactic\s*acid)\s*(?:of|is|was|:)?\s*([\d.]+)/i);
+                    if (lactateMatch) labParts.push('Lactate ' + lactateMatch[1]);
+                    const lipaseMatch = t.match(/(?:lipase)\s*(?:of|is|was|:)?\s*([\d,]+)/i);
+                    if (lipaseMatch) labParts.push('Lipase ' + lipaseMatch[1]);
+                    // Imaging
+                    const ctMatch = t.match(/(?:ct\s*(?:scan|of\s*(?:the\s*)?(?:abdomen|chest|head|pelvis))?|x-?ray|mri|ultrasound)\s*(?:showed?|shows?|revealed?|demonstrates?|consistent\s*with|findings?\s*(?:of|include))\s*(.+?)(?:\.|$)/i);
+                    if (ctMatch) labParts.push(ctMatch[0].replace(/[.,]+$/, '').trim());
+                    if (labParts.length > 0) hp.labs = labParts.join(', ');
+                }
+
+                // ---- ASSESSMENT & PLAN ----
+                if (sectionTexts.plan.length > 0) {
+                    hp.plan = sectionTexts.plan.join('. ').trim();
+                }
+                if (!hp.plan) {
+                    // Try to detect assessment from diagnosis patterns
+                    const dxPatterns = [
+                        /(?:likely|probable|possible|suspect(?:ed)?|concern\s*for|consistent\s*with|(?:most\s*likely|working)\s*diagnosis\s*(?:is|of)?)\s+(.+?)(?:\.|,|$)/i,
+                        /(?:assessment\s*(?:is)?|impression\s*(?:is)?|diagnosed?\s*(?:with|as)?)\s+(.+?)(?:\.|,|$)/i,
+                        /(?:we\s*(?:think|believe|suspect)|i\s*(?:think|believe|suspect))\s*(?:this\s*is|it'?s?)\s+(.+?)(?:\.|,|$)/i,
+                        /(?:going\s*to|plan\s*(?:is\s*)?(?:to|for)?|will)\s+(.+?)(?:\.|$)/i
+                    ];
+                    for (const pat of dxPatterns) {
+                        const m = t.match(pat);
+                        if (m) { hp.plan = m[0].replace(/[.,]+$/, '').trim(); break; }
+                    }
+                }
+
+                // ---- DIAGNOSIS ----
                 const dxMatch = t.match(/(?:diagnosis|dx|s\/p|status\s*post)[:\s]+(.+?)(?:\.|,|$)/i);
                 if (dxMatch) hp.diagnosis = dxMatch[1].trim();
-                else if (hp.cc) hp.diagnosis = hp.cc;
+                else {
+                    // Extract diagnosis from assessment
+                    const dxFromPlan = (hp.plan || '').match(/(?:likely|probable|suspect(?:ed)?|concern\s*for|consistent\s*with|diagnosis\s*(?:is|of)?)\s+(.+?)(?:\.|,|$)/i);
+                    if (dxFromPlan) hp.diagnosis = dxFromPlan[1].trim();
+                    else if (hp.cc) {
+                        // Extract the main complaint from CC as diagnosis
+                        const ccDx = hp.cc.replace(/^\d+\s*[MmFf]?\s*(?:year[s-]*old\s*)?(?:male|female|man|woman|gentleman|lady|[MF])?\s*(?:with|presenting\s*with|who\s*(?:has|is))?\s*/i, '').trim();
+                        hp.diagnosis = ccDx || hp.cc;
+                    }
+                }
+
+                // ---- CLEAN UP: remove PMH/meds/SH/FH items from PSH if misclassified ----
+                if (hp.psh.length > 0) {
+                    const medNames = commonMeds.map(m => m.toLowerCase());
+                    hp.psh = hp.psh.filter(item => {
+                        const il = item.toLowerCase();
+                        // Filter out medications
+                        if (medNames.some(m => il.includes(m))) { if (!hp.meds.some(med => med.toLowerCase().includes(il))) hp.meds.push(item); return false; }
+                        // Filter out social history items
+                        if (/\b(?:smokes?|tobacco|cigarettes?|pack|drinks?|alcohol|etoh|drugs?|marijuana|denies)\b/i.test(il)) { if (!hp.socialHx) hp.socialHx = item; return false; }
+                        // Filter out family history items
+                        if (/\b(?:family\s*history|mother|father|sibling|no\s*significant\s*family)\b/i.test(il)) { if (!hp.familyHx) hp.familyHx = item; return false; }
+                        // Filter out PMH items
+                        for (const [pat, label] of pmhPatterns) { if (pat.test(il)) { if (!hp.pmh.includes(label)) hp.pmh.push(label); return false; } }
+                        return true;
+                    });
+                }
 
                 return hp;
             };
@@ -7267,7 +7592,10 @@ To-do: Check AM labs, I/Os q4h`}
                 if (hp.psh.length > 0) note += 'PAST SURGICAL HISTORY:\n' + hp.psh.map(p => '- ' + p).join('\n') + '\n\n';
                 if (hp.meds.length > 0) note += 'MEDICATIONS:\n' + hp.meds.map(m => '- ' + m).join('\n') + '\n\n';
                 if (hp.allergies.length > 0) note += 'ALLERGIES:\n' + hp.allergies.join(', ') + '\n\n';
+                if (hp.socialHx) note += 'SOCIAL HISTORY:\n' + hp.socialHx + '\n\n';
+                if (hp.familyHx) note += 'FAMILY HISTORY:\n' + hp.familyHx + '\n\n';
                 if (hp.ros) note += 'REVIEW OF SYSTEMS:\n' + hp.ros + '\n\n';
+                if (hp.vitals) note += 'VITALS:\n' + hp.vitals + '\n\n';
                 if (hp.pe) note += 'PHYSICAL EXAMINATION:\n' + hp.pe + '\n\n';
                 if (hp.labs) note += 'LABS/RESULTS:\n' + hp.labs + '\n\n';
                 if (hp.plan) note += 'ASSESSMENT & PLAN:\n' + hp.plan + '\n\n';
