@@ -10895,6 +10895,603 @@ To-do: Check AM labs, I/Os q4h`}
             );
         }
 
+        // ==================== CASE CONFERENCE ====================
+        function CaseConference() {
+            const [conferences, setConferences] = React.useState([]);
+            const [patients, setPatients] = React.useState([]);
+            const [casePrepData, setCasePrepData] = React.useState([]);
+            const [selectedConf, setSelectedConf] = React.useState(null);
+            const [showAddConf, setShowAddConf] = React.useState(false);
+            const [confTitle, setConfTitle] = React.useState('');
+            const [confDate, setConfDate] = React.useState(getTodayISO());
+            const [confPresenter, setConfPresenter] = React.useState('');
+            const [showAddCase, setShowAddCase] = React.useState(false);
+            const [generatingPptx, setGeneratingPptx] = React.useState(false);
+
+            // Dictation for indications
+            const indicationRecRef = React.useRef(null);
+            const indicationFinalRef = React.useRef('');
+            const [indicationListening, setIndicationListening] = React.useState(false);
+            const [indicationText, setIndicationText] = React.useState('');
+            const [indicationInterim, setIndicationInterim] = React.useState('');
+            const [dictatingCaseIdx, setDictatingCaseIdx] = React.useState(null);
+
+            React.useEffect(() => {
+                loadData();
+                setupIndicationDictation();
+            }, []);
+
+            const loadData = async () => {
+                const confs = await DB.getAll('caseConference');
+                setConferences((confs || []).sort((a, b) => (b.date || '').localeCompare(a.date || '')));
+                const pts = await DB.getAll('patients');
+                setPatients((pts || []).filter(p => p.status !== 'discharged'));
+                const cp = await DB.getAll('casePrep');
+                setCasePrepData(cp || []);
+            };
+
+            const setupIndicationDictation = () => {
+                const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+                if (!SR) return;
+                indicationRecRef.current = new SR();
+                indicationRecRef.current.continuous = true;
+                indicationRecRef.current.interimResults = true;
+                indicationRecRef.current.onstart = () => setIndicationListening(true);
+                indicationRecRef.current.onresult = (event) => {
+                    let interim = '';
+                    let finalText = indicationFinalRef.current;
+                    for (let i = event.resultIndex; i < event.results.length; i++) {
+                        const t = event.results[i][0].transcript;
+                        if (event.results[i].isFinal) {
+                            finalText += (finalText ? ' ' : '') + cleanMedicalSpeech(t.trim());
+                        } else {
+                            interim += t;
+                        }
+                    }
+                    indicationFinalRef.current = finalText;
+                    setIndicationText(finalText);
+                    setIndicationInterim(interim);
+                };
+                indicationRecRef.current.onerror = (e) => { if (e.error !== 'no-speech') setIndicationListening(false); };
+                indicationRecRef.current.onend = () => { setIndicationListening(false); setIndicationInterim(''); };
+            };
+
+            const startIndicationDictation = (caseIdx, currentText) => {
+                if (!indicationRecRef.current) return;
+                indicationFinalRef.current = currentText || '';
+                setIndicationText(currentText || '');
+                setIndicationInterim('');
+                setDictatingCaseIdx(caseIdx);
+                try { indicationRecRef.current.start(); } catch(e) {}
+            };
+
+            const stopIndicationDictation = async () => {
+                if (indicationRecRef.current) try { indicationRecRef.current.stop(); } catch(e) {}
+                if (selectedConf && dictatingCaseIdx !== null) {
+                    const updated = { ...selectedConf };
+                    updated.cases[dictatingCaseIdx].indications = indicationFinalRef.current;
+                    await DB.put('caseConference', updated);
+                    setSelectedConf(updated);
+                    loadData();
+                }
+                setDictatingCaseIdx(null);
+            };
+
+            const createConference = async () => {
+                if (!confTitle.trim()) return;
+                const newConf = {
+                    title: confTitle.trim(),
+                    date: confDate,
+                    presenter: confPresenter.trim(),
+                    cases: [],
+                    createdAt: new Date().toISOString()
+                };
+                const id = await DB.add('caseConference', newConf);
+                setShowAddConf(false);
+                setConfTitle('');
+                setConfPresenter('');
+                await loadData();
+                const all = await DB.getAll('caseConference');
+                const created = all.find(c => c.id === id);
+                if (created) setSelectedConf(created);
+            };
+
+            const deleteConference = async (id) => {
+                if (!confirm('Delete this conference?')) return;
+                await DB.delete('caseConference', id);
+                if (selectedConf?.id === id) setSelectedConf(null);
+                loadData();
+            };
+
+            const addCaseToConference = async (source) => {
+                if (!selectedConf) return;
+                let newCase = {};
+                if (source.type === 'patient') {
+                    const p = source.patient;
+                    newCase = {
+                        patientId: p.id,
+                        patientName: 'Rm ' + (p.room || '?'),
+                        diagnosis: p.diagnosis || '',
+                        pmh: (p.pmh || []).join(', '),
+                        psh: (p.psh || []).join(', '),
+                        meds: (p.homeMeds || []).join(', '),
+                        allergies: (p.allergies || []).join(', '),
+                        examFindings: p.examFindings || '',
+                        labFindings: '',
+                        imagingFindings: '',
+                        procedure: (p.procedures || []).join(', '),
+                        indications: '',
+                        keySteps: '',
+                        casePrepId: null
+                    };
+                    // Try to find linked case prep
+                    const linkedPrep = casePrepData.find(cp => cp.patientId === p.id || cp.caseName?.includes(p.diagnosis));
+                    if (linkedPrep) {
+                        newCase.casePrepId = linkedPrep.id;
+                        newCase.keySteps = linkedPrep.keyOperativeSteps || '';
+                        newCase.imagingFindings = linkedPrep.imagingComment || '';
+                    }
+                } else if (source.type === 'casePrep') {
+                    const cp = source.casePrep;
+                    newCase = {
+                        patientId: null,
+                        patientName: cp.caseName || '',
+                        diagnosis: cp.caseName || '',
+                        pmh: '', psh: '', meds: '', allergies: '',
+                        examFindings: '',
+                        labFindings: '',
+                        imagingFindings: cp.imagingComment || '',
+                        procedure: cp.caseName || '',
+                        indications: '',
+                        keySteps: cp.keyOperativeSteps || '',
+                        casePrepId: cp.id
+                    };
+                } else {
+                    newCase = {
+                        patientId: null,
+                        patientName: source.name || '',
+                        diagnosis: '', pmh: '', psh: '', meds: '', allergies: '',
+                        examFindings: '', labFindings: '', imagingFindings: '',
+                        procedure: '', indications: '', keySteps: '', casePrepId: null
+                    };
+                }
+                const updated = { ...selectedConf, cases: [...(selectedConf.cases || []), newCase] };
+                await DB.put('caseConference', updated);
+                setSelectedConf(updated);
+                setShowAddCase(false);
+                loadData();
+            };
+
+            const updateCaseField = async (caseIdx, field, value) => {
+                const updated = { ...selectedConf };
+                updated.cases[caseIdx][field] = value;
+                await DB.put('caseConference', updated);
+                setSelectedConf(updated);
+            };
+
+            const removeCase = async (caseIdx) => {
+                if (!confirm('Remove this case from the conference?')) return;
+                const updated = { ...selectedConf };
+                updated.cases.splice(caseIdx, 1);
+                await DB.put('caseConference', updated);
+                setSelectedConf(updated);
+                loadData();
+            };
+
+            // ===== PRESENTATION GENERATOR =====
+            const generatePresentation = async () => {
+                if (!selectedConf || !selectedConf.cases?.length) { alert('Add cases first.'); return; }
+                if (typeof PptxGenJS === 'undefined') { alert('Presentation library loading. Try again.'); return; }
+                setGeneratingPptx(true);
+                try {
+                    const pres = new PptxGenJS();
+                    pres.layout = 'LAYOUT_16x9';
+                    pres.author = 'ChiefRounds';
+                    pres.title = selectedConf.title || 'Case Conference';
+
+                    const C = {
+                        navy: '1E293B', slate: '334155', muted: '64748B', light: '94A3B8',
+                        bg: 'F1F5F9', card: 'FFFFFF', accent: '0F766E', accentLight: 'CCFBF1',
+                        white: 'FFFFFF', divider: 'E2E8F0', red: 'DC2626', amber: 'D97706',
+                        blue: '2563EB', blueLight: 'DBEAFE'
+                    };
+                    const F = { head: 'Georgia', body: 'Calibri' };
+                    const safeStr = (v) => v == null ? '' : String(v);
+                    const cardShadow = () => ({ type: 'outer', blur: 6, offset: 2, angle: 135, color: '000000', opacity: 0.08 });
+                    const safeTextRuns = (arr) => arr.map(item =>
+                        typeof item === 'string' ? { text: item, options: {} } : { text: String(item.text || ''), options: item.options || {} }
+                    );
+
+                    // ====== SLIDE 1: Title ======
+                    let s1 = pres.addSlide();
+                    s1.background = { color: C.navy };
+                    s1.addShape(pres.shapes.RECTANGLE, { x: 0, y: 0, w: 10, h: 0.06, fill: { color: C.accent } });
+                    s1.addText('SURGICAL CASE CONFERENCE', {
+                        x: 0.8, y: 1.2, w: 8.4, h: 0.5,
+                        fontFace: F.head, fontSize: 13, color: C.accent, charSpacing: 5, bold: true
+                    });
+                    s1.addText(safeStr(selectedConf.title), {
+                        x: 0.8, y: 1.7, w: 8.4, h: 1.0,
+                        fontFace: F.head, fontSize: 36, color: C.white, bold: true
+                    });
+                    const confDateStr = new Date(selectedConf.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+                    const metaLine = [confDateStr, selectedConf.presenter ? 'Presented by: ' + selectedConf.presenter : ''].filter(Boolean).join('  |  ');
+                    s1.addText(metaLine, { x: 0.8, y: 3.0, w: 8.4, h: 0.5, fontFace: F.body, fontSize: 13, color: C.light });
+                    s1.addText(selectedConf.cases.length + ' Case' + (selectedConf.cases.length !== 1 ? 's' : ''), {
+                        x: 0.8, y: 3.5, w: 8.4, h: 0.4, fontFace: F.body, fontSize: 12, color: C.muted
+                    });
+                    s1.addShape(pres.shapes.RECTANGLE, { x: 0, y: 5.565, w: 10, h: 0.06, fill: { color: C.accent } });
+
+                    // ====== SLIDE 2: Agenda ======
+                    let s2 = pres.addSlide();
+                    s2.background = { color: C.bg };
+                    s2.addText('Agenda', { x: 0.6, y: 0.3, w: 8.8, h: 0.7, fontFace: F.head, fontSize: 28, color: C.navy, bold: true });
+                    s2.addShape(pres.shapes.RECTANGLE, { x: 0.6, y: 1.0, w: 1.5, h: 0.04, fill: { color: C.accent } });
+                    const agendaItems = selectedConf.cases.map((c, i) => ({
+                        text: `${i + 1}. ${safeStr(c.patientName)} - ${safeStr(c.procedure || c.diagnosis)}`,
+                        options: { breakLine: i < selectedConf.cases.length - 1, fontSize: 16, color: C.slate, bullet: false, lineSpacingMultiple: 1.8 }
+                    }));
+                    s2.addText(safeTextRuns(agendaItems), { x: 0.8, y: 1.4, w: 8.4, h: 3.8, fontFace: F.body });
+
+                    // ====== PER-CASE SLIDES ======
+                    selectedConf.cases.forEach((c, idx) => {
+                        // --- Slide A: Patient Overview ---
+                        let sA = pres.addSlide();
+                        sA.background = { color: C.bg };
+                        sA.addShape(pres.shapes.RECTANGLE, { x: 0, y: 0, w: 10, h: 0.8, fill: { color: C.navy } });
+                        sA.addText(`Case ${idx + 1}: ${safeStr(c.patientName)}`, {
+                            x: 0.6, y: 0.05, w: 8.8, h: 0.7, fontFace: F.head, fontSize: 22, color: C.white, bold: true, valign: 'middle'
+                        });
+
+                        // Diagnosis
+                        sA.addShape(pres.shapes.RECTANGLE, { x: 0.5, y: 1.1, w: 9.0, h: 0.5, fill: { color: C.accent }, rectRadius: 0.05 });
+                        sA.addText('Diagnosis: ' + safeStr(c.diagnosis), {
+                            x: 0.7, y: 1.1, w: 8.6, h: 0.5, fontFace: F.body, fontSize: 15, color: C.white, bold: true, valign: 'middle'
+                        });
+
+                        // History section - 2 columns
+                        const leftX = 0.5, rightX = 5.2, colW = 4.3, cardH = 1.6;
+                        // PMH
+                        sA.addShape(pres.shapes.RECTANGLE, { x: leftX, y: 1.85, w: colW, h: cardH, fill: { color: C.card }, shadow: cardShadow(), rectRadius: 0.05 });
+                        sA.addText('Past Medical History', { x: leftX + 0.15, y: 1.9, w: colW - 0.3, h: 0.35, fontFace: F.body, fontSize: 11, color: C.accent, bold: true });
+                        sA.addText(safeStr(c.pmh || 'None reported'), { x: leftX + 0.15, y: 2.25, w: colW - 0.3, h: cardH - 0.5, fontFace: F.body, fontSize: 10, color: C.slate, valign: 'top' });
+                        // PSH
+                        sA.addShape(pres.shapes.RECTANGLE, { x: rightX, y: 1.85, w: colW, h: cardH, fill: { color: C.card }, shadow: cardShadow(), rectRadius: 0.05 });
+                        sA.addText('Past Surgical History', { x: rightX + 0.15, y: 1.9, w: colW - 0.3, h: 0.35, fontFace: F.body, fontSize: 11, color: C.accent, bold: true });
+                        sA.addText(safeStr(c.psh || 'None reported'), { x: rightX + 0.15, y: 2.25, w: colW - 0.3, h: cardH - 0.5, fontFace: F.body, fontSize: 10, color: C.slate, valign: 'top' });
+                        // Meds & Allergies
+                        sA.addShape(pres.shapes.RECTANGLE, { x: leftX, y: 3.65, w: colW, h: 1.1, fill: { color: C.card }, shadow: cardShadow(), rectRadius: 0.05 });
+                        sA.addText('Medications', { x: leftX + 0.15, y: 3.7, w: colW - 0.3, h: 0.3, fontFace: F.body, fontSize: 11, color: C.accent, bold: true });
+                        sA.addText(safeStr(c.meds || 'None'), { x: leftX + 0.15, y: 4.0, w: colW - 0.3, h: 0.7, fontFace: F.body, fontSize: 10, color: C.slate, valign: 'top' });
+                        sA.addShape(pres.shapes.RECTANGLE, { x: rightX, y: 3.65, w: colW, h: 1.1, fill: { color: C.card }, shadow: cardShadow(), rectRadius: 0.05 });
+                        sA.addText('Allergies', { x: rightX + 0.15, y: 3.7, w: colW - 0.3, h: 0.3, fontFace: F.body, fontSize: 11, color: C.accent, bold: true });
+                        sA.addText(safeStr(c.allergies || 'NKDA'), { x: rightX + 0.15, y: 4.0, w: colW - 0.3, h: 0.7, fontFace: F.body, fontSize: 10, color: C.slate, valign: 'top' });
+                        // Footer
+                        sA.addText(`Case Conference  |  ${confDateStr}`, { x: 0.5, y: 5.2, w: 9.0, h: 0.3, fontFace: F.body, fontSize: 8, color: C.light, align: 'right' });
+
+                        // --- Slide B: Exam, Labs, Imaging ---
+                        let sB = pres.addSlide();
+                        sB.background = { color: C.bg };
+                        sB.addShape(pres.shapes.RECTANGLE, { x: 0, y: 0, w: 10, h: 0.8, fill: { color: C.navy } });
+                        sB.addText(`Case ${idx + 1}: Findings`, {
+                            x: 0.6, y: 0.05, w: 8.8, h: 0.7, fontFace: F.head, fontSize: 22, color: C.white, bold: true, valign: 'middle'
+                        });
+
+                        // Exam Findings
+                        sB.addShape(pres.shapes.RECTANGLE, { x: 0.5, y: 1.1, w: 4.3, h: 2.0, fill: { color: C.card }, shadow: cardShadow(), rectRadius: 0.05 });
+                        sB.addText('Physical Exam', { x: 0.65, y: 1.15, w: 4.0, h: 0.35, fontFace: F.body, fontSize: 12, color: C.accent, bold: true });
+                        sB.addText(safeStr(c.examFindings || 'Not documented'), { x: 0.65, y: 1.5, w: 4.0, h: 1.5, fontFace: F.body, fontSize: 11, color: C.slate, valign: 'top' });
+
+                        // Lab Findings
+                        sB.addShape(pres.shapes.RECTANGLE, { x: 5.2, y: 1.1, w: 4.3, h: 2.0, fill: { color: C.card }, shadow: cardShadow(), rectRadius: 0.05 });
+                        sB.addText('Lab Findings', { x: 5.35, y: 1.15, w: 4.0, h: 0.35, fontFace: F.body, fontSize: 12, color: C.accent, bold: true });
+                        sB.addText(safeStr(c.labFindings || 'Not documented'), { x: 5.35, y: 1.5, w: 4.0, h: 1.5, fontFace: F.body, fontSize: 11, color: C.slate, valign: 'top' });
+
+                        // Imaging - large card with placeholder for images
+                        sB.addShape(pres.shapes.RECTANGLE, { x: 0.5, y: 3.3, w: 9.0, h: 2.0, fill: { color: C.card }, shadow: cardShadow(), rectRadius: 0.05 });
+                        sB.addText('Imaging Findings', { x: 0.65, y: 3.35, w: 4.0, h: 0.35, fontFace: F.body, fontSize: 12, color: C.accent, bold: true });
+                        sB.addText(safeStr(c.imagingFindings || 'Not documented'), { x: 0.65, y: 3.7, w: 4.5, h: 1.5, fontFace: F.body, fontSize: 11, color: C.slate, valign: 'top' });
+                        // Image placeholder boxes
+                        sB.addShape(pres.shapes.RECTANGLE, { x: 5.5, y: 3.45, w: 1.8, h: 1.6, fill: { color: 'E2E8F0' }, line: { color: C.light, width: 1, dashType: 'dash' }, rectRadius: 0.05 });
+                        sB.addText('CT / CXR\nImage', { x: 5.5, y: 3.45, w: 1.8, h: 1.6, fontFace: F.body, fontSize: 9, color: C.muted, align: 'center', valign: 'middle' });
+                        sB.addShape(pres.shapes.RECTANGLE, { x: 7.5, y: 3.45, w: 1.8, h: 1.6, fill: { color: 'E2E8F0' }, line: { color: C.light, width: 1, dashType: 'dash' }, rectRadius: 0.05 });
+                        sB.addText('Additional\nImaging', { x: 7.5, y: 3.45, w: 1.8, h: 1.6, fontFace: F.body, fontSize: 9, color: C.muted, align: 'center', valign: 'middle' });
+                        sB.addText(`Case Conference  |  ${confDateStr}`, { x: 0.5, y: 5.2, w: 9.0, h: 0.3, fontFace: F.body, fontSize: 8, color: C.light, align: 'right' });
+
+                        // --- Slide C: Procedure & Indications ---
+                        let sC = pres.addSlide();
+                        sC.background = { color: C.bg };
+                        sC.addShape(pres.shapes.RECTANGLE, { x: 0, y: 0, w: 10, h: 0.8, fill: { color: C.navy } });
+                        sC.addText(`Case ${idx + 1}: Surgical Plan`, {
+                            x: 0.6, y: 0.05, w: 8.8, h: 0.7, fontFace: F.head, fontSize: 22, color: C.white, bold: true, valign: 'middle'
+                        });
+
+                        // Procedure
+                        sC.addShape(pres.shapes.RECTANGLE, { x: 0.5, y: 1.1, w: 9.0, h: 0.6, fill: { color: C.accent }, rectRadius: 0.05 });
+                        sC.addText('Planned Procedure: ' + safeStr(c.procedure), {
+                            x: 0.7, y: 1.1, w: 8.6, h: 0.6, fontFace: F.body, fontSize: 16, color: C.white, bold: true, valign: 'middle'
+                        });
+
+                        // Indications
+                        sC.addShape(pres.shapes.RECTANGLE, { x: 0.5, y: 1.95, w: 9.0, h: 1.6, fill: { color: C.card }, shadow: cardShadow(), rectRadius: 0.05 });
+                        sC.addText('Indications for Surgery', { x: 0.65, y: 2.0, w: 8.7, h: 0.35, fontFace: F.body, fontSize: 12, color: C.accent, bold: true });
+                        sC.addText(safeStr(c.indications || 'Not documented'), { x: 0.65, y: 2.35, w: 8.7, h: 1.1, fontFace: F.body, fontSize: 11, color: C.slate, valign: 'top' });
+
+                        // Key Steps
+                        if (c.keySteps) {
+                            sC.addShape(pres.shapes.RECTANGLE, { x: 0.5, y: 3.75, w: 9.0, h: 1.5, fill: { color: C.card }, shadow: cardShadow(), rectRadius: 0.05 });
+                            sC.addText('Key Operative Steps', { x: 0.65, y: 3.8, w: 8.7, h: 0.35, fontFace: F.body, fontSize: 12, color: C.accent, bold: true });
+                            sC.addText(safeStr(c.keySteps), { x: 0.65, y: 4.15, w: 8.7, h: 1.0, fontFace: F.body, fontSize: 10, color: C.slate, valign: 'top' });
+                        }
+                        sC.addText(`Case Conference  |  ${confDateStr}`, { x: 0.5, y: 5.2, w: 9.0, h: 0.3, fontFace: F.body, fontSize: 8, color: C.light, align: 'right' });
+                    });
+
+                    // ====== FINAL SLIDE ======
+                    let sF = pres.addSlide();
+                    sF.background = { color: C.navy };
+                    sF.addShape(pres.shapes.RECTANGLE, { x: 0, y: 0, w: 10, h: 0.06, fill: { color: C.accent } });
+                    sF.addText('Questions & Discussion', {
+                        x: 0.8, y: 1.8, w: 8.4, h: 1.0, fontFace: F.head, fontSize: 36, color: C.white, bold: true, align: 'center'
+                    });
+                    sF.addText('Thank you', {
+                        x: 0.8, y: 3.0, w: 8.4, h: 0.6, fontFace: F.body, fontSize: 16, color: C.light, align: 'center'
+                    });
+                    sF.addShape(pres.shapes.RECTANGLE, { x: 0, y: 5.565, w: 10, h: 0.06, fill: { color: C.accent } });
+
+                    const fileName = (selectedConf.title || 'Case_Conference').replace(/\s+/g, '_') + '.pptx';
+                    await pres.writeFile({ fileName });
+                } catch (e) {
+                    console.error('Presentation error:', e);
+                    alert('Error generating presentation: ' + e.message);
+                }
+                setGeneratingPptx(false);
+            };
+
+            // ===== RENDER =====
+            const AddCaseModal = () => {
+                const [newName, setNewName] = React.useState('');
+                if (!showAddCase) return null;
+                return (
+                    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowAddCase(false)}>
+                        <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+                            <div className="p-4 border-b border-gray-100">
+                                <h3 className="font-bold text-gray-800">Add Case to Conference</h3>
+                            </div>
+                            <div className="p-4 space-y-3">
+                                {patients.length > 0 && (
+                                    <div>
+                                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">From Patient List</p>
+                                        <div className="space-y-1 max-h-40 overflow-y-auto">
+                                            {patients.map(p => (
+                                                <button key={p.id} onClick={() => addCaseToConference({ type: 'patient', patient: p })}
+                                                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-blue-50 text-sm transition flex justify-between items-center">
+                                                    <span className="text-gray-800">Rm {p.room || '?'} - {p.diagnosis || 'No dx'}</span>
+                                                    <span className="text-xs text-gray-400">{(p.procedures || []).join(', ') || 'No procedure'}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                                {casePrepData.length > 0 && (
+                                    <div>
+                                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">From Case Prep</p>
+                                        <div className="space-y-1 max-h-40 overflow-y-auto">
+                                            {casePrepData.filter(cp => cp.date >= getTodayISO()).sort((a,b) => a.date.localeCompare(b.date)).map(cp => (
+                                                <button key={cp.id} onClick={() => addCaseToConference({ type: 'casePrep', casePrep: cp })}
+                                                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-emerald-50 text-sm transition flex justify-between items-center">
+                                                    <span className="text-gray-800">{cp.caseName}</span>
+                                                    <span className="text-xs text-gray-400">{cp.date}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                                <div>
+                                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">New Case (Manual)</p>
+                                    <div className="flex gap-2">
+                                        <input type="text" placeholder="Patient / case description" value={newName} onChange={e => setNewName(e.target.value)}
+                                            className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                                        <button onClick={() => { if (newName.trim()) { addCaseToConference({ type: 'manual', name: newName.trim() }); setNewName(''); } }}
+                                            className="px-4 py-2 bg-medical-600 text-white rounded-lg text-sm font-medium hover:bg-medical-700">Add</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
+            return (
+                <div className="p-4 max-w-4xl mx-auto">
+                    <div className="flex items-center justify-between mb-6">
+                        <h2 className="text-2xl font-bold text-medical-600">Case Conference</h2>
+                        <button onClick={() => setShowAddConf(true)} className="px-4 py-2 bg-medical-600 text-white rounded-lg text-sm font-medium hover:bg-medical-700">
+                            + New Conference
+                        </button>
+                    </div>
+
+                    {showAddConf && (
+                        <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4 space-y-3">
+                            <input type="text" placeholder="Conference title (e.g., Weekly Case Conference)" value={confTitle}
+                                onChange={e => setConfTitle(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                            <div className="flex gap-3">
+                                <input type="date" value={confDate} onChange={e => setConfDate(e.target.value)}
+                                    className="border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                                <input type="text" placeholder="Presenter name" value={confPresenter}
+                                    onChange={e => setConfPresenter(e.target.value)} className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                            </div>
+                            <div className="flex gap-2">
+                                <button onClick={createConference} className="px-4 py-2 bg-medical-600 text-white rounded-lg text-sm font-medium hover:bg-medical-700">Create</button>
+                                <button onClick={() => setShowAddConf(false)} className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm">Cancel</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Conference List */}
+                    {!selectedConf && (
+                        <div className="space-y-2">
+                            {conferences.length === 0 && (
+                                <div className="text-center py-12 text-gray-400">
+                                    <p className="text-lg mb-1">No conferences yet</p>
+                                    <p className="text-sm">Create one to start adding cases for presentation.</p>
+                                </div>
+                            )}
+                            {conferences.map(conf => (
+                                <button key={conf.id} onClick={() => setSelectedConf(conf)}
+                                    className="w-full text-left bg-white rounded-xl border border-gray-200 p-4 hover:shadow-md transition">
+                                    <div className="flex justify-between items-start">
+                                        <div>
+                                            <h3 className="font-bold text-gray-800">{conf.title}</h3>
+                                            <p className="text-sm text-gray-500 mt-0.5">
+                                                {new Date(conf.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                                                {conf.presenter ? ' - ' + conf.presenter : ''}
+                                            </p>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-xs bg-medical-100 text-medical-700 px-2 py-1 rounded-full font-medium">
+                                                {(conf.cases || []).length} case{(conf.cases || []).length !== 1 ? 's' : ''}
+                                            </span>
+                                            <button onClick={(e) => { e.stopPropagation(); deleteConference(conf.id); }}
+                                                className="text-gray-300 hover:text-red-500 transition text-lg leading-none">&times;</button>
+                                        </div>
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Selected Conference Detail */}
+                    {selectedConf && (
+                        <div>
+                            <div className="flex items-center gap-3 mb-4">
+                                <button onClick={() => setSelectedConf(null)} className="text-medical-600 hover:text-medical-700 text-sm font-medium">
+                                    &larr; All Conferences
+                                </button>
+                                <span className="text-gray-300">|</span>
+                                <h3 className="font-bold text-gray-800">{selectedConf.title}</h3>
+                            </div>
+
+                            <div className="flex gap-2 mb-4">
+                                <button onClick={() => setShowAddCase(true)}
+                                    className="px-4 py-2 bg-medical-600 text-white rounded-lg text-sm font-medium hover:bg-medical-700">
+                                    + Add Case
+                                </button>
+                                <button onClick={generatePresentation} disabled={generatingPptx || !selectedConf.cases?.length}
+                                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2">
+                                    {generatingPptx ? 'Generating...' : 'Generate Presentation'}
+                                </button>
+                            </div>
+
+                            <AddCaseModal />
+
+                            {/* Case Cards */}
+                            <div className="space-y-4">
+                                {(!selectedConf.cases || selectedConf.cases.length === 0) && (
+                                    <div className="text-center py-8 text-gray-400 bg-white rounded-xl border border-dashed border-gray-300">
+                                        <p>No cases added yet. Click "+ Add Case" to pull from patients or case prep.</p>
+                                    </div>
+                                )}
+                                {(selectedConf.cases || []).map((c, idx) => (
+                                    <div key={idx} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                                        <div className="p-4 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+                                            <div>
+                                                <span className="text-xs font-bold text-medical-600">CASE {idx + 1}</span>
+                                                <h4 className="font-bold text-gray-800">{c.patientName || 'Unnamed'}</h4>
+                                            </div>
+                                            <button onClick={() => removeCase(idx)} className="text-gray-400 hover:text-red-500 text-lg">&times;</button>
+                                        </div>
+                                        <div className="p-4 space-y-3">
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                <div>
+                                                    <label className="text-xs font-semibold text-gray-500 block mb-1">Diagnosis</label>
+                                                    <input type="text" value={c.diagnosis || ''} onChange={e => updateCaseField(idx, 'diagnosis', e.target.value)}
+                                                        className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm" />
+                                                </div>
+                                                <div>
+                                                    <label className="text-xs font-semibold text-gray-500 block mb-1">Planned Procedure</label>
+                                                    <input type="text" value={c.procedure || ''} onChange={e => updateCaseField(idx, 'procedure', e.target.value)}
+                                                        className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm" />
+                                                </div>
+                                            </div>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                <div>
+                                                    <label className="text-xs font-semibold text-gray-500 block mb-1">PMH</label>
+                                                    <textarea value={c.pmh || ''} onChange={e => updateCaseField(idx, 'pmh', e.target.value)}
+                                                        className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm" rows="2" />
+                                                </div>
+                                                <div>
+                                                    <label className="text-xs font-semibold text-gray-500 block mb-1">PSH</label>
+                                                    <textarea value={c.psh || ''} onChange={e => updateCaseField(idx, 'psh', e.target.value)}
+                                                        className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm" rows="2" />
+                                                </div>
+                                            </div>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                <div>
+                                                    <label className="text-xs font-semibold text-gray-500 block mb-1">Medications</label>
+                                                    <textarea value={c.meds || ''} onChange={e => updateCaseField(idx, 'meds', e.target.value)}
+                                                        className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm" rows="2" />
+                                                </div>
+                                                <div>
+                                                    <label className="text-xs font-semibold text-gray-500 block mb-1">Allergies</label>
+                                                    <input type="text" value={c.allergies || ''} onChange={e => updateCaseField(idx, 'allergies', e.target.value)}
+                                                        className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm" />
+                                                </div>
+                                            </div>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                <div>
+                                                    <label className="text-xs font-semibold text-gray-500 block mb-1">Exam Findings</label>
+                                                    <textarea value={c.examFindings || ''} onChange={e => updateCaseField(idx, 'examFindings', e.target.value)}
+                                                        className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm" rows="2" />
+                                                </div>
+                                                <div>
+                                                    <label className="text-xs font-semibold text-gray-500 block mb-1">Lab Findings</label>
+                                                    <textarea value={c.labFindings || ''} onChange={e => updateCaseField(idx, 'labFindings', e.target.value)}
+                                                        className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm" rows="2" />
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label className="text-xs font-semibold text-gray-500 block mb-1">Imaging Findings</label>
+                                                <textarea value={c.imagingFindings || ''} onChange={e => updateCaseField(idx, 'imagingFindings', e.target.value)}
+                                                    className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm" rows="2" />
+                                            </div>
+                                            <div>
+                                                <div className="flex items-center justify-between mb-1">
+                                                    <label className="text-xs font-semibold text-gray-500">Indications for Surgery</label>
+                                                    <button onClick={() => {
+                                                        if (indicationListening && dictatingCaseIdx === idx) { stopIndicationDictation(); }
+                                                        else { startIndicationDictation(idx, c.indications || ''); }
+                                                    }}
+                                                        className={`px-3 py-1 rounded text-xs font-medium ${indicationListening && dictatingCaseIdx === idx ? 'bg-red-500 text-white animate-pulse' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}>
+                                                        {indicationListening && dictatingCaseIdx === idx ? 'Stop' : 'Dictate'}
+                                                    </button>
+                                                </div>
+                                                <textarea
+                                                    value={indicationListening && dictatingCaseIdx === idx
+                                                        ? indicationText + (indicationInterim ? ' ' + indicationInterim : '')
+                                                        : c.indications || ''}
+                                                    onChange={e => updateCaseField(idx, 'indications', e.target.value)}
+                                                    className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm" rows="3"
+                                                    placeholder="Why is this surgery indicated? What are the clinical findings supporting operative intervention?" />
+                                            </div>
+                                            <div>
+                                                <label className="text-xs font-semibold text-gray-500 block mb-1">Key Operative Steps</label>
+                                                <textarea value={c.keySteps || ''} onChange={e => updateCaseField(idx, 'keySteps', e.target.value)}
+                                                    className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm" rows="3"
+                                                    placeholder="Key steps of the planned procedure..." />
+                                            </div>
+                                            {c.casePrepId && (
+                                                <p className="text-[10px] text-gray-400">Linked to Case Prep</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
         // ==================== MAIN APP ====================
         function App() {
             const [user, setUser] = React.useState(null);
@@ -11312,7 +11909,7 @@ To-do: Check AM labs, I/Os q4h`}
                 );
             }
 
-            const tabs = ['Patients', 'Attending', 'Tasks', 'Consults', 'Trauma', 'Census', 'Handoff', 'Pre-Round', 'Rounds', 'M&M', 'Case Prep'];
+            const tabs = ['Patients', 'Attending', 'Tasks', 'Consults', 'Trauma', 'Census', 'Handoff', 'Pre-Round', 'Rounds', 'M&M', 'Case Prep', 'Case Conf'];
 
             // Home landing page component
             const HomeScreen = () => {
@@ -11423,6 +12020,7 @@ To-do: Check AM labs, I/Os q4h`}
                     case 'Rounds': return <RoundsRecorder />;
                     case 'M&M': return <MMLessonsLearned currentUser={user} />;
                     case 'Case Prep': return <CasePrep />;
+                    case 'Case Conf': return <CaseConference />;
                     default: return <HomeScreen />;
                 }
             };
