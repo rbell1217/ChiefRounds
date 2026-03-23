@@ -2170,10 +2170,13 @@
                 setFormData(prev => ({ ...prev, [name]: value }));
             };
 
-            const handleSubmit = (e) => {
-                e.preventDefault();
-                if (formData.room.trim()) {
-                    onSave({
+            const [saving, setSaving] = React.useState(false);
+            const handleSubmit = async (e) => {
+                if (e) e.preventDefault();
+                if (!formData.room || !formData.room.trim()) return;
+                setSaving(true);
+                try {
+                    await onSave({
                         ...formData,
                         problems: typeof formData.problems === 'string'
                             ? formData.problems.split(',').map(p => p.trim()).filter(Boolean) : (formData.problems || []),
@@ -2188,6 +2191,11 @@
                         allergies: typeof formData.allergies === 'string'
                             ? formData.allergies.split(',').map(p => p.trim()).filter(Boolean) : (formData.allergies || [])
                     });
+                } catch(err) {
+                    console.error('Save failed:', err);
+                    alert('Error saving: ' + err.message);
+                } finally {
+                    setSaving(false);
                 }
             };
 
@@ -2202,7 +2210,7 @@
                             <button onClick={onClose} className="text-gray-500 hover:text-gray-800">✕</button>
                         </div>
 
-                        <form onSubmit={handleSubmit} className="p-4 space-y-4">
+                        <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="p-4 space-y-4">
                             {/* Voice Dictation - PRIMARY input method */}
                             <div className="bg-slate-50 border-2 border-medical-500/40 rounded-xl p-4">
                                 <p className="text-xs text-gray-500 mb-2">Speak naturally. Example: "Room 512 diagnosis s/p lap chole diet clears activity ambulate TID heparin prophylaxis plan advance diet dispo home concern wound redness"</p>
@@ -2442,10 +2450,10 @@
 
                             {/* Submit */}
                             <div className="flex gap-2 pt-4">
-                                <button type="submit" className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 rounded">
-                                    {editingPatient ? 'Update' : 'Save'} Patient
+                                <button type="button" onClick={() => handleSubmit()} disabled={saving} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 rounded disabled:opacity-50">
+                                    {saving ? 'Saving...' : (editingPatient ? 'Update' : 'Save')} Patient
                                 </button>
-                                <button type="button" onClick={onClose} className="flex-1 bg-gray-50 hover:bg-gray-100 font-bold py-2 rounded">Cancel</button>
+                                <button type="button" onClick={onClose} disabled={saving} className="flex-1 bg-gray-50 hover:bg-gray-100 font-bold py-2 rounded">Cancel</button>
                             </div>
                         </form>
                     </div>
@@ -3089,27 +3097,22 @@
             };
 
             const handleSavePatient = async (patientData) => {
-                try {
-                    // Use id from patientData (passed from form) or editingPatient state
-                    const existingId = patientData.id || editingPatient?.id;
-                    let patientId;
-                    if (existingId) {
-                        await DB.put('patients', { ...patientData, id: existingId });
-                        patientId = existingId;
-                    } else {
-                        patientId = await DB.add('patients', patientData);
-                    }
-                    // Close dialog first, then clear state
-                    setShowPatientForm(false);
-                    setEditingPatient(null);
-                    loadPatients();
-                    // Create tasks from plan text (non-blocking, after dialog closes)
-                    if (patientData.treatmentPlan && patientId) {
-                        createTasksFromPlanText(patientId, patientData.treatmentPlan, 'Patient Form').catch(e => console.error('Task sync error:', e));
-                    }
-                } catch(err) {
-                    console.error('Error saving patient:', err);
-                    alert('Error saving patient: ' + err.message);
+                // Use id from patientData (passed from form) or editingPatient state
+                const existingId = patientData.id || editingPatient?.id;
+                let patientId;
+                if (existingId) {
+                    await DB.put('patients', { ...patientData, id: existingId });
+                    patientId = existingId;
+                } else {
+                    patientId = await DB.add('patients', patientData);
+                }
+                // Close dialog and reload
+                setShowPatientForm(false);
+                setEditingPatient(null);
+                await loadPatients();
+                // Create tasks from plan text (non-blocking)
+                if (patientData.treatmentPlan && patientId) {
+                    createTasksFromPlanText(patientId, patientData.treatmentPlan, 'Patient Form').catch(e => console.error('Task sync error:', e));
                 }
             };
 
