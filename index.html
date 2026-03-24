@@ -3130,6 +3130,8 @@
                     }
                     setPendingDeleteId(null);
                     await loadPatients();
+                    await loadDeletedPatients();
+                    setShowDeletedPatients(true);
                 } catch(err) {
                     console.error('Delete patient error:', err);
                     alert('Error deleting patient: ' + err.message);
