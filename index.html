@@ -3121,13 +3121,18 @@
                 setPendingDeleteId(id);
             };
             const confirmDeletePatient = async () => {
-                if (pendingDeleteId) {
-                    const patient = patients.find(p => p.id === pendingDeleteId);
+                if (!pendingDeleteId) return;
+                try {
+                    const patient = await DB.get('patients', pendingDeleteId);
                     if (patient) {
-                        await DB.put('patients', { ...patient, deleted: true, deletedAt: new Date().toISOString(), deletedBy: currentUser?.displayName || currentUser?.email || 'Unknown' });
+                        await DB.put('patients', { ...patient, id: pendingDeleteId, deleted: true, deletedAt: new Date().toISOString(), deletedBy: currentUser?.displayName || currentUser?.email || 'Unknown' });
                     }
                     setPendingDeleteId(null);
-                    loadPatients();
+                    await loadPatients();
+                } catch(err) {
+                    console.error('Delete patient error:', err);
+                    alert('Error deleting patient: ' + err.message);
+                    setPendingDeleteId(null);
                 }
             };
 
@@ -5053,7 +5058,7 @@
                     alert('Please mention a room number (e.g., "room 512...")');
                     return;
                 }
-                const foundPatient = patients.find(p => p.room === parsed.room);
+                const foundPatient = patients.find(p => String(p.room) === String(parsed.room));
                 if (!foundPatient) {
                     alert(`Room ${parsed.room} not found`);
                     return;
@@ -6065,7 +6070,7 @@
             const handleParseCensusDictation = (transcript) => {
                 const parsed = parseCensusSpeech(transcript);
                 if (parsed.room) {
-                    const patient = patients.find(p => p.room === parsed.room);
+                    const patient = patients.find(p => String(p.room) === String(parsed.room));
                     if (patient) {
                         if (parsed.action === 'discharge') {
                             setPendingAction({ type: 'discharge', patientId: patient.id, patientRoom: patient.room });
@@ -6906,7 +6911,7 @@
 
                     for (const parsed of parsedImport) {
                         // Check if a patient with this room already exists (and is not discharged)
-                        const existing = existingPatients.find(p => p.room === parsed.room && p.status !== 'discharged' && !p.deleted);
+                        const existing = existingPatients.find(p => String(p.room) === String(parsed.room) && p.status !== 'discharged' && !p.deleted);
 
                         let patientId;
 
@@ -7676,7 +7681,7 @@ To-do: Check AM labs, I/Os q4h`}
                 let targetPatientId = null;
                 const roomMatch = transcript.match(/room\s+(\d+)/i);
                 if (roomMatch) {
-                    const patient = patients.find(p => p.room === roomMatch[1]);
+                    const patient = patients.find(p => String(p.room) === roomMatch[1]);
                     if (patient) targetPatientId = patient.id;
                 } else {
                     targetPatientId = expandedPatient;
@@ -13586,13 +13591,25 @@ To-do: Check AM labs, I/Os q4h`}
                 }
             };
 
-            const removeCase = async (caseIdx) => {
-                if (!confirm('Remove this case from the conference?')) return;
-                const updated = { ...selectedConf };
-                updated.cases.splice(caseIdx, 1);
-                await DB.put('caseConference', updated);
-                setSelectedConf(updated);
-                loadData();
+            const [pendingRemoveCaseIdx, setPendingRemoveCaseIdx] = React.useState(null);
+            const removeCase = (caseIdx) => {
+                setPendingRemoveCaseIdx(caseIdx);
+            };
+            const confirmRemoveCase = async () => {
+                if (pendingRemoveCaseIdx === null || !selectedConf) return;
+                try {
+                    const newCases = [...(selectedConf.cases || [])];
+                    newCases.splice(pendingRemoveCaseIdx, 1);
+                    const updated = { ...selectedConf, cases: newCases };
+                    await DB.put('caseConference', updated);
+                    setSelectedConf(updated);
+                    setPendingRemoveCaseIdx(null);
+                    loadData();
+                } catch(err) {
+                    console.error('Remove case error:', err);
+                    alert('Error removing case: ' + err.message);
+                    setPendingRemoveCaseIdx(null);
+                }
             };
 
             // ===== PRESENTATION GENERATOR =====
@@ -13934,7 +13951,7 @@ To-do: Check AM labs, I/Os q4h`}
                                     </div>
                                 )}
                                 {(selectedConf.cases || []).map((c, idx) => (
-                                    <div key={idx} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                                    <div key={c.id || c.patientId || c.patientName + '-' + idx} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                                         <div className="p-4 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
                                             <div>
                                                 <span className="text-xs font-bold text-medical-600">CASE {idx + 1}</span>
@@ -13971,6 +13988,24 @@ To-do: Check AM labs, I/Os q4h`}
                                         </div>
                                     </div>
                                 ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Remove Case Confirmation Modal */}
+                    {pendingRemoveCaseIdx !== null && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={() => setPendingRemoveCaseIdx(null)}>
+                            <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
+                                <h3 className="text-lg font-bold text-gray-800 mb-2">Remove Case?</h3>
+                                <p className="text-sm text-gray-600 mb-4">
+                                    {selectedConf?.cases?.[pendingRemoveCaseIdx]
+                                        ? `Remove "${selectedConf.cases[pendingRemoveCaseIdx].patientName || 'Unnamed'}" from this conference?`
+                                        : 'Remove this case from the conference?'}
+                                </p>
+                                <div className="flex gap-3 justify-end">
+                                    <button onClick={() => setPendingRemoveCaseIdx(null)} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium">Cancel</button>
+                                    <button onClick={confirmRemoveCase} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium">Remove</button>
+                                </div>
                             </div>
                         </div>
                     )}
