@@ -1704,6 +1704,49 @@
                 [/\bheart\s*(?:rate|raid|great)\b/gi, 'heart rate'],
                 [/\bblood\s*(?:pressure|presser)\b/gi, 'blood pressure'],
                 [/\brespiratory\s*(?:rate|raid)\b/gi, 'respiratory rate'],
+
+                // Contextual number corrections: "to"/"too"/"two" -> "2" before units/medical context
+                [/\b(?:to|too|two)\s*(?=L\b|liters?\b|mL\b|cc\b|mg\b|mcg\b|units?\b|tabs?\b|capsules?\b|grams?\b)/gi, '2 '],
+                [/\b(?:to|too|two)\s*(?=nasal\s*cannula|NC\b)/gi, '2 '],
+                [/\b(?:to|too|two)\s*(?=times?\s*(?:a|per)\s*day|times?\s*daily)/gi, '2 '],
+                // "for" -> "4" before units (e.g., "for liters" = "4 liters")
+                [/\b(?:for|four)\s*(?=L\b|liters?\b|mL\b|cc\b|mg\b|mcg\b|units?\b|tabs?\b)/gi, '4 '],
+                [/\b(?:for|four)\s*(?=nasal\s*cannula|NC\b)/gi, '4 '],
+                // Number words -> digits before units (L, mg, mL, cc, etc.)
+                [/\b(?:won|one)\s*(?=L\b|liters?\b|mL\b|cc\b|mg\b|mcg\b|units?\b|tabs?\b)/gi, '1 '],
+                [/\b(?:ate|eight)\s*(?=L\b|liters?\b|mL\b|cc\b|mg\b|mcg\b|units?\b)/gi, '8 '],
+                [/\b(?:three|tree)\s*(?=L\b|liters?\b|mL\b|cc\b|mg\b)/gi, '3 '],
+                [/\b(?:five)\s*(?=L\b|liters?\b|mL\b|cc\b|mg\b)/gi, '5 '],
+                [/\b(?:six)\s*(?=L\b|liters?\b|mL\b|cc\b|mg\b)/gi, '6 '],
+                [/\b(?:seven)\s*(?=L\b|liters?\b|mL\b|cc\b|mg\b)/gi, '7 '],
+                [/\b(?:nine)\s*(?=L\b|liters?\b|mL\b|cc\b|mg\b)/gi, '9 '],
+                [/\b(?:ten)\s*(?=L\b|liters?\b|mL\b|cc\b|mg\b)/gi, '10 '],
+                // "to" -> "2" after a number for ranges: "1 to 2 liters" stays natural, but "put on to liters" -> "put on 2 liters"
+                // Handle "on to L" / "on to liters"
+                [/\bon\s+(?:to|too|two)\s+(?=L\b|liters?\b)/gi, 'on 2 '],
+
+                // Homophones in dosage context: "Tylenol to fifty" -> "Tylenol 250"
+                [/\b(\w+)\s+(?:to|too|two)\s+(hundred|fifty|twenty|thirty|forty|sixty|seventy|eighty|ninety)\b/gi, (m, drug, num) => {
+                    const vals = { hundred: '100', fifty: '50', twenty: '20', thirty: '30', forty: '40', sixty: '60', seventy: '70', eighty: '80', ninety: '90' };
+                    return drug + ' 2' + vals[num.toLowerCase()];
+                }],
+
+                // "POD to" -> "POD 2", "POD for" -> "POD 4" etc
+                [/\bPOD\s+(?:to|too|two)\b/gi, 'POD 2'],
+                [/\bPOD\s+(?:for|four)\b/gi, 'POD 4'],
+                [/\bPOD\s+(?:won|one)\b/gi, 'POD 1'],
+                [/\bPOD\s+(?:three|tree)\b/gi, 'POD 3'],
+                [/\bPOD\s+(?:five)\b/gi, 'POD 5'],
+                [/\bPOD\s+(?:six)\b/gi, 'POD 6'],
+                [/\bPOD\s+(?:seven)\b/gi, 'POD 7'],
+
+                // "room to 34" -> "room 234" -- common for room numbers
+                [/\broom\s+(?:to|too|two)\s*(\d{2})\b/gi, 'room 2$1'],
+                [/\broom\s+(?:won|one)\s*(\d{2})\b/gi, 'room 1$1'],
+                [/\broom\s+(?:three|tree)\s*(\d{2})\b/gi, 'room 3$1'],
+                [/\broom\s+(?:for|four)\s*(\d{2})\b/gi, 'room 4$1'],
+                [/\broom\s+(?:five)\s*(\d{2})\b/gi, 'room 5$1'],
+
                 [/\bstatus post\b/gi, 's/p'],
                 [/\bpost op(erative)?\b/gi, 'postop'],
                 [/\bpre op(erative)?\b/gi, 'preop'],
@@ -1750,6 +1793,41 @@
                 [/\bmilligrams?\b/gi, 'mg'],
                 [/\bmilliliters?\b/gi, 'mL'],
                 [/\bsubcutaneous(ly)?\b/gi, 'subQ'],
+
+                // Common medical STT garbles
+                [/\burine\s*(?:output|out put|al put)\b/gi, 'urine output'],
+                [/\b(?:you're in|urine|your in)\s*(?:output|out put)\b/gi, 'urine output'],
+                [/\b(?:you owe p|UOP|you\.? oh\.? p\.?)\b/gi, 'UOP'],
+                [/\bjunction pratt\b/gi, 'JP'],
+                [/\bchest\s*(?:to|tube)\b/gi, (m) => /to/i.test(m) ? 'chest tube' : m],
+                [/\bN\s*G\s*T\b/g, 'NGT'],
+                [/\bnaso\s*gastric\b/gi, 'nasogastric'],
+                [/\bhemo\s*vac\b/gi, 'Hemovac'],
+                [/\bblake\s*drain\b/gi, 'Blake drain'],
+                [/\bpen\s*rose\s*drain\b/gi, 'Penrose drain'],
+                [/\bwound\s*(?:back|vac|vack)\b/gi, 'wound vac'],
+
+                // Assessment terms
+                [/\ba\s*(?:febrile|fibril|fib real|feb rile)\b/gi, 'afebrile'],
+                [/\bhemo\s*(?:dynamically|dynamic lee)\s*stable\b/gi, 'hemodynamically stable'],
+                [/\b(?:sero\s*sanguinous|sarah\s*sang|serous?\s*sang)\b/gi, 'serosanguinous'],
+                [/\b(?:bilious|billious|bill use)\b/gi, 'bilious'],
+                [/\b(?:per\s*?stalsis|parastalsis|perry\s*stalsis)\b/gi, 'peristalsis'],
+                [/\b(?:bowel\s*sounds?)\b/gi, 'bowel sounds'],
+                [/\b(?:flatus|flat us)\b/gi, 'flatus'],
+
+                // Medication STT garbles
+                [/\b(?:Tylenol|tie\s*len\s*all?|title\s*all?)\b/gi, 'Tylenol'],
+                [/\b(?:heparin|hep\s*a?\s*rin|have\s*a?\s*rin)\b/gi, 'heparin'],
+                [/\b(?:pantoprazole|panto\s*pray?\s*zole?|pan\s*top?\s*rah?\s*zole?)\b/gi, 'pantoprazole'],
+                [/\b(?:famotidine|fam\s*oh?\s*t[iy]\s*deen?|from\s*auto\s*dean?)\b/gi, 'famotidine'],
+                [/\b(?:lovenox|love\s*a?\s*nox|love\s*in\s*ox)\b/gi, 'Lovenox'],
+                [/\b(?:enoxaparin|in\s*ox\s*a?\s*par\s*in)\b/gi, 'enoxaparin'],
+                [/\b(?:morphine|more\s*?feen?)\b/gi, 'morphine'],
+                [/\b(?:dilaudid|dill?\s*a?\s*la?\s*[uw]\s*did)\b/gi, 'Dilaudid'],
+                [/\b(?:toradol|tore?\s*a?\s*doll?)\b/gi, 'Toradol'],
+                [/\b(?:zofran|so\s*?fran|zoe?\s*fran)\b/gi, 'Zofran'],
+                [/\b(?:ondansetron|on\s*dan\s*set?\s*ron)\b/gi, 'ondansetron'],
             ];
 
             for (const [pattern, replacement] of medTerms) {
@@ -8196,6 +8274,11 @@ To-do: Check AM labs, I/Os q4h`}
                         }
 
                         await DB.put('patients', updates);
+
+                        // Sync plan to task list
+                        if (parsed.sectionNotes.plan) {
+                            createTasksFromPlanText(targetPatientId, parsed.sectionNotes.plan, 'Pre-Round').catch(e => console.error('Task sync error:', e));
+                        }
                         loadPatients();
                     }
                 }
