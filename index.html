@@ -240,6 +240,181 @@
             'roundsHistory', 'preRoundHistory', 'diet', 'activity', 'dvtProphylaxis', 'giProphylaxis',
             'subjective', 'objective', 'assessment', 'plan', 'vitals', 'labNotes', 'socialHx', 'familyHx'];
 
+        // ==================== CPT CODE MAPPING ====================
+        const CPT_CODES = {
+            // General Surgery - Abdomen
+            'appendectomy': { code: '44970', desc: 'Laparoscopic appendectomy' },
+            'open appendectomy': { code: '44950', desc: 'Appendectomy' },
+            'lap appendectomy': { code: '44970', desc: 'Laparoscopic appendectomy' },
+            'cholecystectomy': { code: '47562', desc: 'Laparoscopic cholecystectomy' },
+            'lap cholecystectomy': { code: '47562', desc: 'Laparoscopic cholecystectomy' },
+            'lap chole': { code: '47562', desc: 'Laparoscopic cholecystectomy' },
+            'open cholecystectomy': { code: '47600', desc: 'Cholecystectomy' },
+            'inguinal hernia repair': { code: '49650', desc: 'Lap inguinal hernia repair' },
+            'lap inguinal hernia': { code: '49650', desc: 'Lap inguinal hernia repair' },
+            'open inguinal hernia': { code: '49505', desc: 'Inguinal hernia repair' },
+            'ventral hernia repair': { code: '49652', desc: 'Lap ventral hernia repair' },
+            'lap ventral hernia': { code: '49652', desc: 'Lap ventral hernia repair' },
+            'open ventral hernia': { code: '49560', desc: 'Ventral hernia repair' },
+            'umbilical hernia repair': { code: '49652', desc: 'Lap umbilical/ventral hernia repair' },
+            'incisional hernia repair': { code: '49656', desc: 'Lap incisional hernia repair' },
+            'hiatal hernia repair': { code: '43281', desc: 'Lap hiatal hernia repair' },
+            'nissen fundoplication': { code: '43280', desc: 'Lap fundoplication' },
+            'fundoplication': { code: '43280', desc: 'Lap fundoplication' },
+            'paraesophageal hernia': { code: '43281', desc: 'Lap paraesophageal hernia repair' },
+            'exploratory laparotomy': { code: '49000', desc: 'Exploratory laparotomy' },
+            'ex lap': { code: '49000', desc: 'Exploratory laparotomy' },
+            'diagnostic laparoscopy': { code: '49320', desc: 'Diagnostic laparoscopy' },
+            'small bowel resection': { code: '44120', desc: 'Small bowel resection' },
+            'lysis of adhesions': { code: '44005', desc: 'Enterolysis' },
+            'adhesiolysis': { code: '44005', desc: 'Enterolysis' },
+            'gastrostomy tube': { code: '43246', desc: 'PEG placement' },
+            'peg tube': { code: '43246', desc: 'PEG placement' },
+            'peg placement': { code: '43246', desc: 'PEG placement' },
+            'feeding tube': { code: '44300', desc: 'Enterostomy/feeding tube' },
+            'gastrojejunostomy': { code: '43632', desc: 'Gastrojejunostomy' },
+            'splenectomy': { code: '38120', desc: 'Laparoscopic splenectomy' },
+            'lap splenectomy': { code: '38120', desc: 'Laparoscopic splenectomy' },
+            'open splenectomy': { code: '38100', desc: 'Splenectomy' },
+            // Colorectal
+            'colectomy': { code: '44204', desc: 'Lap partial colectomy with anastomosis' },
+            'right colectomy': { code: '44204', desc: 'Lap partial colectomy with anastomosis' },
+            'right hemicolectomy': { code: '44204', desc: 'Lap partial colectomy with anastomosis' },
+            'left colectomy': { code: '44204', desc: 'Lap partial colectomy with anastomosis' },
+            'left hemicolectomy': { code: '44204', desc: 'Lap partial colectomy with anastomosis' },
+            'sigmoid colectomy': { code: '44204', desc: 'Lap partial colectomy with anastomosis' },
+            'sigmoidectomy': { code: '44204', desc: 'Lap partial colectomy with anastomosis' },
+            'low anterior resection': { code: '44207', desc: 'Lap low anterior resection' },
+            'lar': { code: '44207', desc: 'Lap low anterior resection' },
+            'abdominoperineal resection': { code: '44212', desc: 'Lap APR' },
+            'apr': { code: '44212', desc: 'Lap APR' },
+            'total colectomy': { code: '44210', desc: 'Lap total colectomy' },
+            'total abdominal colectomy': { code: '44210', desc: 'Lap total colectomy' },
+            'colostomy': { code: '44320', desc: 'Colostomy' },
+            'colostomy reversal': { code: '44625', desc: 'Colostomy closure' },
+            'colostomy takedown': { code: '44625', desc: 'Colostomy closure' },
+            'ileostomy': { code: '44310', desc: 'Ileostomy' },
+            'ileostomy reversal': { code: '44620', desc: 'Ileostomy closure' },
+            'ileostomy takedown': { code: '44620', desc: 'Ileostomy closure' },
+            'hemorrhoidectomy': { code: '46260', desc: 'Hemorrhoidectomy' },
+            'hemorrhoid banding': { code: '46221', desc: 'Hemorrhoid ligation' },
+            'anal fistulotomy': { code: '46270', desc: 'Fistulotomy' },
+            'fistulotomy': { code: '46270', desc: 'Fistulotomy' },
+            'perianal abscess': { code: '46050', desc: 'I&D perianal abscess' },
+            'pilonidal cyst': { code: '11770', desc: 'Pilonidal cyst excision' },
+            'rectal prolapse repair': { code: '45130', desc: 'Rectopexy' },
+            // Breast
+            'mastectomy': { code: '19303', desc: 'Simple mastectomy' },
+            'simple mastectomy': { code: '19303', desc: 'Simple mastectomy' },
+            'modified radical mastectomy': { code: '19307', desc: 'Modified radical mastectomy' },
+            'bilateral mastectomy': { code: '19303', desc: 'Simple mastectomy (bilateral)' },
+            'lumpectomy': { code: '19301', desc: 'Partial mastectomy/lumpectomy' },
+            'partial mastectomy': { code: '19301', desc: 'Partial mastectomy' },
+            'breast biopsy': { code: '19101', desc: 'Breast biopsy, open' },
+            'sentinel lymph node biopsy': { code: '38900', desc: 'Sentinel lymph node biopsy' },
+            'slnb': { code: '38900', desc: 'Sentinel lymph node biopsy' },
+            'axillary lymph node dissection': { code: '38745', desc: 'Axillary lymphadenectomy' },
+            'alnd': { code: '38745', desc: 'Axillary lymphadenectomy' },
+            // Endocrine
+            'thyroidectomy': { code: '60240', desc: 'Thyroidectomy' },
+            'total thyroidectomy': { code: '60240', desc: 'Total thyroidectomy' },
+            'thyroid lobectomy': { code: '60220', desc: 'Thyroid lobectomy' },
+            'hemithyroidectomy': { code: '60220', desc: 'Thyroid lobectomy' },
+            'parathyroidectomy': { code: '60500', desc: 'Parathyroidectomy' },
+            'adrenalectomy': { code: '60650', desc: 'Laparoscopic adrenalectomy' },
+            'lap adrenalectomy': { code: '60650', desc: 'Laparoscopic adrenalectomy' },
+            // Hepatobiliary / Pancreas
+            'whipple': { code: '48150', desc: 'Pancreaticoduodenectomy' },
+            'pancreaticoduodenectomy': { code: '48150', desc: 'Pancreaticoduodenectomy' },
+            'distal pancreatectomy': { code: '48140', desc: 'Distal pancreatectomy' },
+            'hepatectomy': { code: '47120', desc: 'Hepatectomy, partial lobectomy' },
+            'liver resection': { code: '47120', desc: 'Hepatectomy, partial lobectomy' },
+            'liver biopsy': { code: '47000', desc: 'Liver biopsy, needle' },
+            'common bile duct exploration': { code: '47610', desc: 'CBD exploration' },
+            'cbde': { code: '47610', desc: 'CBD exploration' },
+            'ercp': { code: '43274', desc: 'ERCP with stent placement' },
+            // Trauma / Emergency
+            'damage control laparotomy': { code: '49000', desc: 'Exploratory laparotomy' },
+            'dcl': { code: '49000', desc: 'Exploratory laparotomy' },
+            'chest tube': { code: '32551', desc: 'Tube thoracostomy' },
+            'tube thoracostomy': { code: '32551', desc: 'Tube thoracostomy' },
+            'thoracotomy': { code: '32100', desc: 'Thoracotomy' },
+            'tracheostomy': { code: '31600', desc: 'Tracheostomy' },
+            'trach': { code: '31600', desc: 'Tracheostomy' },
+            'cricothyrotomy': { code: '31605', desc: 'Emergency cricothyrotomy' },
+            'central line': { code: '36556', desc: 'Central venous catheter insertion' },
+            'central venous catheter': { code: '36556', desc: 'Central venous catheter insertion' },
+            'arterial line': { code: '36620', desc: 'Arterial catheterization' },
+            // Vascular
+            'carotid endarterectomy': { code: '35301', desc: 'Carotid endarterectomy' },
+            'cea': { code: '35301', desc: 'Carotid endarterectomy' },
+            'aaa repair': { code: '34802', desc: 'Endovascular AAA repair' },
+            'evar': { code: '34802', desc: 'Endovascular AAA repair' },
+            'open aaa repair': { code: '35081', desc: 'Open AAA repair' },
+            'femoral popliteal bypass': { code: '35556', desc: 'Fem-pop bypass' },
+            'fem pop bypass': { code: '35556', desc: 'Fem-pop bypass' },
+            'av fistula': { code: '36821', desc: 'AV fistula creation' },
+            'av fistula creation': { code: '36821', desc: 'AV fistula creation' },
+            'av graft': { code: '36830', desc: 'AV graft creation' },
+            'embolectomy': { code: '34201', desc: 'Embolectomy' },
+            'thrombectomy': { code: '34201', desc: 'Thrombectomy' },
+            'amputation below knee': { code: '27880', desc: 'Below-knee amputation' },
+            'bka': { code: '27880', desc: 'Below-knee amputation' },
+            'amputation above knee': { code: '27590', desc: 'Above-knee amputation' },
+            'aka': { code: '27590', desc: 'Above-knee amputation' },
+            'toe amputation': { code: '28810', desc: 'Toe amputation' },
+            // Skin / Soft Tissue
+            'incision and drainage': { code: '10060', desc: 'I&D abscess' },
+            'i&d': { code: '10060', desc: 'I&D abscess' },
+            'i and d': { code: '10060', desc: 'I&D abscess' },
+            'wound debridement': { code: '11042', desc: 'Debridement, subcutaneous' },
+            'debridement': { code: '11042', desc: 'Debridement, subcutaneous' },
+            'wound vac': { code: '97605', desc: 'Negative pressure wound therapy' },
+            'skin graft': { code: '15100', desc: 'Split-thickness skin graft' },
+            'stsg': { code: '15100', desc: 'Split-thickness skin graft' },
+            'lipoma excision': { code: '21931', desc: 'Excision soft tissue tumor' },
+            'soft tissue mass excision': { code: '21931', desc: 'Excision soft tissue tumor' },
+            'melanoma excision': { code: '11606', desc: 'Excision malignant lesion' },
+            'wide local excision': { code: '11606', desc: 'Excision malignant lesion' },
+            // Bariatric
+            'gastric bypass': { code: '43644', desc: 'Lap gastric bypass' },
+            'roux en y': { code: '43644', desc: 'Lap Roux-en-Y gastric bypass' },
+            'rygb': { code: '43644', desc: 'Lap Roux-en-Y gastric bypass' },
+            'sleeve gastrectomy': { code: '43775', desc: 'Lap sleeve gastrectomy' },
+            'gastric sleeve': { code: '43775', desc: 'Lap sleeve gastrectomy' },
+            'lap band': { code: '43770', desc: 'Lap gastric band placement' },
+            'gastric band': { code: '43770', desc: 'Lap gastric band placement' },
+            // Transplant
+            'kidney transplant': { code: '50360', desc: 'Renal transplant' },
+            'liver transplant': { code: '47135', desc: 'Liver transplant' },
+            'donor nephrectomy': { code: '50547', desc: 'Lap donor nephrectomy' },
+        };
+
+        function lookupCPT(caseName) {
+            if (!caseName) return { code: '', desc: '' };
+            const lower = caseName.toLowerCase().trim();
+            // Exact match first
+            if (CPT_CODES[lower]) return CPT_CODES[lower];
+            // Check if case name contains a known procedure
+            for (const [key, val] of Object.entries(CPT_CODES)) {
+                if (lower.includes(key) || key.includes(lower)) return val;
+            }
+            // Word-level matching: find the entry with the most overlapping words
+            const caseWords = lower.split(/\s+/).filter(w => w.length > 2);
+            let bestMatch = null;
+            let bestScore = 0;
+            for (const [key, val] of Object.entries(CPT_CODES)) {
+                const keyWords = key.split(/\s+/);
+                const overlap = caseWords.filter(w => keyWords.some(kw => kw.includes(w) || w.includes(kw))).length;
+                if (overlap > bestScore) {
+                    bestScore = overlap;
+                    bestMatch = val;
+                }
+            }
+            if (bestScore >= 1) return bestMatch;
+            return { code: '', desc: '' };
+        }
+
         const CryptoHelper = {
             _key: null,
             _enabled: false,
@@ -12025,6 +12200,12 @@ To-do: Check AM labs, I/Os q4h`}
             const [editingPrefs, setEditingPrefs] = React.useState({});
             const [savingPrefs, setSavingPrefs] = React.useState(false);
             const [surgeonDraft, setSurgeonDraft] = React.useState('');
+            const [showExportModal, setShowExportModal] = React.useState(false);
+            const [exportStartDate, setExportStartDate] = React.useState(() => {
+                const d = new Date(); d.setDate(d.getDate() - 30);
+                return d.toISOString().split('T')[0];
+            });
+            const [exportEndDate, setExportEndDate] = React.useState(getTodayISO());
 
             React.useEffect(() => { DB.init().then(() => { loadCases(); loadPatients(); loadSurgeonPrefs(); }); }, []);
 
@@ -12521,9 +12702,94 @@ To-do: Check AM labs, I/Os q4h`}
                 return date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
             };
 
+            const exportCaseLogCSV = () => {
+                const start = exportStartDate;
+                const end = exportEndDate;
+                if (!start || !end) return;
+                const filtered = cases.filter(c => c.date >= start && c.date <= end)
+                    .sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : (a.order || 0) - (b.order || 0));
+                if (filtered.length === 0) {
+                    alert('No cases found in the selected date range.');
+                    return;
+                }
+                const rows = [['Date', 'Case #', 'Procedure', 'Attending Surgeon', 'CPT Code', 'CPT Description']];
+                filtered.forEach(c => {
+                    const cpt = lookupCPT(c.caseName);
+                    const [y, m, d] = (c.date || '').split('-');
+                    const displayDate = m && d && y ? `${m}/${d}/${y}` : c.date;
+                    rows.push([
+                        displayDate,
+                        String(c.order || ''),
+                        c.caseName || '',
+                        c.attendingSurgeon || '',
+                        cpt.code,
+                        cpt.desc
+                    ]);
+                });
+                const csvContent = rows.map(row => row.map(cell => {
+                    const escaped = String(cell).replace(/"/g, '""');
+                    return `"${escaped}"`;
+                }).join(',')).join('\n');
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `case-log_${start}_to_${end}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                setShowExportModal(false);
+            };
+
             return (
                 <div className="p-4 md:p-6 max-w-4xl mx-auto">
-                    <h2 className="text-2xl font-bold text-medical-600 mb-6">Case Prep</h2>
+                    <div className="flex items-center justify-between mb-6">
+                        <h2 className="text-2xl font-bold text-medical-600">Case Prep</h2>
+                        <button onClick={() => setShowExportModal(true)}
+                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium flex items-center gap-2">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                            Export Case Log
+                        </button>
+                    </div>
+
+                    {/* Export Case Log Modal */}
+                    {showExportModal && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={() => setShowExportModal(false)}>
+                            <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+                                <h3 className="text-lg font-bold text-gray-800 mb-1">Export Case Log</h3>
+                                <p className="text-sm text-gray-500 mb-4">Download a CSV of your cases with CPT codes for the selected date range.</p>
+                                <div className="space-y-3 mb-5">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+                                        <input type="date" value={exportStartDate} onChange={e => setExportStartDate(e.target.value)}
+                                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-medical-500" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+                                        <input type="date" value={exportEndDate} onChange={e => setExportEndDate(e.target.value)}
+                                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-medical-500" />
+                                    </div>
+                                    <div className="bg-gray-50 rounded-lg p-3">
+                                        <p className="text-xs text-gray-500 mb-1">Cases in range:</p>
+                                        <p className="text-lg font-bold text-gray-800">
+                                            {cases.filter(c => c.date >= exportStartDate && c.date <= exportEndDate).length}
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className="flex gap-3 justify-end">
+                                    <button onClick={() => setShowExportModal(false)}
+                                        className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg">
+                                        Cancel
+                                    </button>
+                                    <button onClick={exportCaseLogCSV}
+                                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium">
+                                        Download CSV
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Calendar */}
                     <div className="bg-white border border-gray-100 rounded-xl p-4 mb-6">
