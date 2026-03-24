@@ -3353,15 +3353,11 @@
 
                 const today = getTodayISO();
 
-                // Daily plan reset: if plan was set on a prior day, rebuild from carryover tasks + scheduled tasks
+                // Daily plan reset: if plan was set on a prior day (or has no date), rebuild from carryover tasks
                 for (const patient of active) {
                     const planDate = patient.planDate || '';
-                    // If no planDate, stamp today so reset logic can work tomorrow
-                    if (patient.treatmentPlan && !planDate) {
-                        patient.planDate = today;
-                        await DB.put('patients', { id: patient.id, planDate: today });
-                    }
-                    if (patient.treatmentPlan && planDate && planDate < today) {
+                    const isStale = patient.treatmentPlan && (!planDate || planDate < today);
+                    if (isStale) {
                         // Gather incomplete tasks for this patient (carryover from prior days)
                         const incompleteTasks = tasksData.filter(t =>
                             t.patientId === patient.id && !t.completed
