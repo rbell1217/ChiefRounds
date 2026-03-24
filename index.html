@@ -209,16 +209,24 @@
         // Creates tasks from plan text items that don't already have matching tasks
         const createTasksFromPlanText = async (patientId, planText, source) => {
             if (!planText || !planText.trim()) return;
-            // Split plan into individual items by period or semicolon
-            const planItems = planText.split(/[.;]\s*/).map(s => s.trim()).filter(s => s.length > 2);
+            // Split plan into individual items by period, semicolon, or comma
+            const planItems = planText.split(/[.;,]\s*/).map(s => s.trim()).filter(s => s.length > 2);
             if (planItems.length === 0) return;
-            // Get existing tasks for this patient
+
+            // Replace strategy: remove old plan-sourced tasks for this patient, then recreate
             const existingTasks = await DB.getAll('tasks');
-            const patientTasks = existingTasks.filter(t => t.patientId === patientId);
-            const existingDescs = patientTasks.map(t => t.description.toLowerCase());
+            const oldPlanTasks = existingTasks.filter(t => t.patientId === patientId && t.fromPlan && !t.completed);
+            for (const old of oldPlanTasks) {
+                await DB.delete('tasks', old.id);
+            }
+
+            // Also check for non-plan tasks to avoid duplicating manually created ones
+            const remainingTasks = existingTasks.filter(t => t.patientId === patientId && !t.fromPlan);
+            const manualDescs = remainingTasks.map(t => t.description.toLowerCase());
+
             for (const item of planItems) {
-                // Skip if a matching task already exists
-                if (existingDescs.some(d => d === item.toLowerCase() || d.includes(item.toLowerCase().substring(0, 15)) || item.toLowerCase().includes(d.substring(0, 15)))) continue;
+                // Skip if a manually-created task already covers this
+                if (manualDescs.some(d => d === item.toLowerCase())) continue;
                 // Determine category
                 let category = 'Plan';
                 const il = item.toLowerCase();
@@ -240,6 +248,15 @@
                     assignedBy: source || 'Plan',
                     fromPlan: true
                 });
+            }
+        };
+
+        // Helper: delete all plan-sourced tasks for a patient
+        const deletePatientPlanTasks = async (patientId) => {
+            const allTasks = await DB.getAll('tasks');
+            const planTasks = allTasks.filter(t => t.patientId === patientId && t.fromPlan);
+            for (const task of planTasks) {
+                await DB.delete('tasks', task.id);
             }
         };
 
@@ -8197,8 +8214,9 @@ To-do: Check AM labs, I/Os q4h`}
                                 await DB.put('patients', { id: patientId, treatmentPlan: note, planDate: today });
                                 createTasksFromPlanText(patientId, note, 'Pre-Round').catch(e => console.error('Task sync error:', e));
                             } else {
-                                // Plan was cleared - also clear treatmentPlan
+                                // Plan was cleared - also clear treatmentPlan AND delete plan tasks
                                 await DB.put('patients', { id: patientId, treatmentPlan: '', planDate: today });
+                                deletePatientPlanTasks(patientId).catch(e => console.error('Task delete error:', e));
                             }
                         }
                     }
@@ -8368,12 +8386,8 @@ To-do: Check AM labs, I/Os q4h`}
                     preRoundHistory[today] = { sections: {}, timestamp: new Date().toISOString() };
                     // Also clear treatmentPlan since pre-round data is being wiped
                     await DB.put('patients', { id: patient.id, preRoundHistory, treatmentPlan: '', planDate: today });
-                    // Delete pre-round-sourced tasks for this patient
-                    const allTasks = await DB.getAll('tasks');
-                    const preRoundTasks = allTasks.filter(t => t.patientId === patient.id && t.source === 'Pre-Round');
-                    for (const task of preRoundTasks) {
-                        await DB.delete('tasks', task.id);
-                    }
+                    // Delete all plan-sourced tasks for this patient
+                    await deletePatientPlanTasks(patient.id);
                 }
                 setChecklist(emptyChecklist);
                 setShowClearConfirm(false);
