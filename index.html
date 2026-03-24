@@ -2138,17 +2138,50 @@
             if (/\b(net\s*even|even\s*(?:fluid|balance)|fluid\s*even|balanced)\b/i.test(t)) ioNotes.push('Net even');
             if (/\b(good\s*(?:urine\s*)?output|adequate\s*(?:urine\s*)?output|making\s*(?:good\s*)?urine|good\s*uop)\b/i.test(t)) ioNotes.push('Adequate UOP');
             if (/\b(low\s*(?:urine\s*)?output|poor\s*output|oliguric|not\s*making\s*(?:much\s*)?urine|decreased\s*(?:urine\s*)?output|low\s*uop)\b/i.test(t)) ioNotes.push('Low UOP');
-            // Match specific drain types with amount and optional descriptors
-            // Order matters: longer phrases first so "chest tube" matches before generic "drain"
-            const drainPattern = /\b(chest\s*tube|jackson[\s-]?pratt|wound\s*vac|ileostomy|colostomy|ostomy|ng\s*tube|ngt|jp|ng|drain)\s*(?:output|put out|putting out|is|was|of|:)?\s*(\d+)\s*(?:ml|cc|mls)?\s*((?:purulent|serous|serosanguinous|sanguinous|bilious|bloody|bile|chylous|milky|cloudy|clear|dark|green|thin|thick|foul[\s-]?smelling|malodorous)\s*(?:output|drainage|fluid|looking)?)?/gi;
-            let drainMatch;
-            while ((drainMatch = drainPattern.exec(t)) !== null) {
-                const drainType = drainMatch[1].trim();
-                const drainAmt = drainMatch[2];
-                const descriptor = (drainMatch[3] || '').trim();
-                const drainLabels = { 'jp': 'JP', 'jackson-pratt': 'JP', 'jackson pratt': 'JP', 'ng': 'NGT', 'ng tube': 'NGT', 'ngt': 'NGT', 'chest tube': 'Chest tube', 'wound vac': 'Wound vac', 'ostomy': 'Ostomy', 'ileostomy': 'Ileostomy', 'colostomy': 'Colostomy', 'drain': 'Drain' };
-                const label = drainLabels[drainType.toLowerCase()] || drainType;
-                ioNotes.push(`${label} ${drainAmt}mL${descriptor ? ' ' + descriptor : ''}`);
+            // Match each specific drain type individually to avoid "drain" swallowing specific names
+            const drainDescriptors = '(?:\\s+(purulent|serous|serosanguinous|sanguinous|bilious|bloody|bile|chylous|milky|cloudy|clear|dark|green|thin|thick|foul[\\s-]?smelling|malodorous)\\s*(?:output|drainage|fluid|looking)?)?';
+            const drainAmtPat = '\\s*(?:output|put out|putting out|drain(?:age|ing)?|is|was|of|:)?\\s*(\\d+)\\s*(?:ml|cc|mls)?' + drainDescriptors;
+            const specificDrains = [
+                { pattern: new RegExp('\\b(chest\\s*tube)' + drainAmtPat, 'gi'), label: 'Chest tube' },
+                { pattern: new RegExp('\\b(jackson[\\s-]?pratt)' + drainAmtPat, 'gi'), label: 'JP' },
+                { pattern: new RegExp('\\b(wound\\s*vac)' + drainAmtPat, 'gi'), label: 'Wound vac' },
+                { pattern: new RegExp('\\b(ileostomy)' + drainAmtPat, 'gi'), label: 'Ileostomy' },
+                { pattern: new RegExp('\\b(colostomy)' + drainAmtPat, 'gi'), label: 'Colostomy' },
+                { pattern: new RegExp('\\b(ostomy)' + drainAmtPat, 'gi'), label: 'Ostomy' },
+                { pattern: new RegExp('\\b(ng\\s*tube|ngt)' + drainAmtPat, 'gi'), label: 'NGT' },
+                { pattern: new RegExp('\\b(jp)' + drainAmtPat, 'gi'), label: 'JP' },
+                { pattern: new RegExp('\\b(penrose)' + drainAmtPat, 'gi'), label: 'Penrose' },
+                { pattern: new RegExp('\\b(blake)' + drainAmtPat, 'gi'), label: 'Blake' },
+                { pattern: new RegExp('\\b(hemovac)' + drainAmtPat, 'gi'), label: 'Hemovac' },
+            ];
+            const matchedDrainPositions = new Set();
+            specificDrains.forEach(({ pattern, label }) => {
+                let dm;
+                while ((dm = pattern.exec(t)) !== null) {
+                    const amt = dm[2];
+                    const desc = (dm[3] || '').trim();
+                    ioNotes.push(`${label} ${amt}mL${desc ? ' ' + desc : ''}`);
+                    // Track matched range so generic "drain" won't double-match
+                    for (let ci = dm.index; ci < dm.index + dm[0].length; ci++) matchedDrainPositions.add(ci);
+                }
+            });
+            // Generic "drain" fallback only for unmatched positions
+            const genericDrainPat = new RegExp('\\b(drain)' + drainAmtPat, 'gi');
+            let gdm;
+            while ((gdm = genericDrainPat.exec(t)) !== null) {
+                // Skip if this position was already captured by a specific drain
+                if (matchedDrainPositions.has(gdm.index)) continue;
+                // Also check if a specific drain name appears within 30 chars before this match
+                const prefix = t.substring(Math.max(0, gdm.index - 30), gdm.index).toLowerCase();
+                let specificFound = false;
+                for (const name of ['chest tube', 'jp', 'jackson', 'ng tube', 'ngt', 'wound vac', 'ileostomy', 'colostomy', 'ostomy', 'penrose', 'blake', 'hemovac']) {
+                    if (prefix.includes(name)) { specificFound = true; break; }
+                }
+                if (!specificFound) {
+                    const amt = gdm[2];
+                    const desc = (gdm[3] || '').trim();
+                    ioNotes.push(`Drain ${amt}mL${desc ? ' ' + desc : ''}`);
+                }
             }
             if (/\b(i\s*(?:and|&)\s*o(?:s)?|i\/o(?:s)?|ins?\s*and\s*outs?)\s*(?:are\s*|look\s*)?(reviewed|even|balanced|wnl|good|fine|look\s*good)\b/i.test(t)) ioNotes.push('I/Os reviewed');
             if (/\b(stop(?:ping)?\s*(?:the\s*)?(?:iv|IV)\s*fluids?|d\/?c\s*(?:the\s*)?(?:iv|IV)\s*fluids?|off\s*(?:iv|IV)\s*fluids?)\b/i.test(t)) ioNotes.push('D/C IV fluids');
