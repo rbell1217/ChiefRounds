@@ -2091,34 +2091,43 @@
                 if (rangeWord) return wordToNum[rangeWord[1].toLowerCase()] || rangeWord[1];
                 return null;
             };
-            const hrV = t.match(/(?:heart rate|hr|pulse)\s*(?:is|was|of|:)?\s*(\d{2,3})/i);
+            // Range check FIRST (since "60s" would also match exact "60")
             const hrRange = parseRange(t, '(?:heart rate|hr|pulse)');
-            if (hrV) vitals.push(`HR ${hrV[1]}`);
-            else if (hrRange) vitals.push(`HR ${hrRange}`);
+            const hrV = !hrRange ? t.match(/(?:heart rate|hr|pulse)\s*(?:is|was|of|:)?\s*(\d{2,3})/i) : null;
+            if (hrRange) vitals.push(`HR ${hrRange}`);
+            else if (hrV) vitals.push(`HR ${hrV[1]}`);
             else if (/\btachycardic\b/i.test(t)) vitals.push('Tachy');
             else if (/\bbradycardic\b/i.test(t)) vitals.push('Brady');
+
+            // BP: exact "120/80" first, then systolic/diastolic ranges as SEPARATE entries
             const bpV = t.match(/(?:bp|blood pressure)\s*(?:is|was|of|:)?\s*(\d{2,3}\s*\/\s*\d{2,3})/i);
-            if (bpV) vitals.push(`BP ${bpV[1].replace(/\s/g, '')}`);
-            else {
-                // Systolic/diastolic ranges: "systolic in the 130s" or "systolics running in the one hundreds"
-                const sysRange = parseRange(t, '(?:systolic(?:s)?|sys|sbp)');
-                const diaRange = parseRange(t, '(?:diastolic(?:s)?|dia|dbp)');
+            if (bpV) {
+                vitals.push(`BP ${bpV[1].replace(/\s/g, '')}`);
+            } else {
+                // Systolic and diastolic ranges are separate entries (not combined into BP x/y)
+                const sysRange = parseRange(t, '(?:systolic(?:s)?(?:\\s*pressures?)?|sys|sbp)');
+                const diaRange = parseRange(t, '(?:diastolic(?:s)?(?:\\s*pressures?)?|dia|dbp)');
                 const bpRange = parseRange(t, '(?:bp|blood pressure|pressures?)');
-                if (sysRange && diaRange) vitals.push(`BP ${sysRange}/${diaRange}`);
-                else if (sysRange) vitals.push(`SBP ${sysRange}`);
-                else if (diaRange) vitals.push(`DBP ${diaRange}`);
-                else if (bpRange) vitals.push(`BP ${bpRange}`);
-                else if (/\bhypotensive\b/i.test(t)) vitals.push('Hypotensive');
-                else if (/\bhypertensive\b/i.test(t)) vitals.push('Hypertensive');
+                if (sysRange) vitals.push(`SBP ${sysRange}`);
+                if (diaRange) vitals.push(`DBP ${diaRange}`);
+                if (!sysRange && !diaRange && bpRange) vitals.push(`BP ${bpRange}`);
+                if (!sysRange && !diaRange && !bpRange) {
+                    if (/\bhypotensive\b/i.test(t)) vitals.push('Hypotensive');
+                    else if (/\bhypertensive\b/i.test(t)) vitals.push('Hypertensive');
+                }
             }
-            const rrV = t.match(/(?:rr|resp(?:iratory)?\s*rate|respirations?)\s*(?:is|was|of|:)?\s*(\d{1,2})/i);
+
+            // RR: range first, then exact
             const rrRange = parseRange(t, '(?:rr|resp(?:iratory)?\\s*rate|respirations?)');
-            if (rrV) vitals.push(`RR ${rrV[1]}`);
-            else if (rrRange) vitals.push(`RR ${rrRange}`);
-            const satV = t.match(/(?:sat(?:s|uration)?|o2|spo2|pulse ox)\s*(?:is|was|of|:)?\s*(\d{2,3})\s*%?/i);
+            const rrV = !rrRange ? t.match(/(?:rr|resp(?:iratory)?\s*rate|respirations?)\s*(?:is|was|of|:)?\s*(\d{1,2})/i) : null;
+            if (rrRange) vitals.push(`RR ${rrRange}`);
+            else if (rrV) vitals.push(`RR ${rrV[1]}`);
+
+            // SpO2: range first, then exact
             const satRange = parseRange(t, '(?:sat(?:s|uration)?|o2|spo2|pulse ox)');
-            if (satV) vitals.push(`SpO2 ${satV[1]}%`);
-            else if (satRange) vitals.push(`SpO2 ${satRange}`);
+            const satV = !satRange ? t.match(/(?:sat(?:s|uration)?|o2|spo2|pulse ox)\s*(?:is|was|of|:)?\s*(\d{2,3})\s*%?/i) : null;
+            if (satRange) vitals.push(`SpO2 ${satRange}`);
+            else if (satV) vitals.push(`SpO2 ${satV[1]}%`);
             if (/\b(hemodynamically stable|hd stable|vitals?\s*(?:are\s*)?stable|vitals?\s*(?:are\s*)?(?:within )?normal|vitals?\s*(?:look\s*)?good|vitals?\s*wnl|stable vitals?)\b/i.test(t)) {
                 if (vitals.length === 0) vitals.push('Stable');
             }
@@ -8073,28 +8082,36 @@ To-do: Check AM labs, I/Os q4h`}
                         return updated;
                     });
 
-                    // Update patient profile: pre-round summary + physical exam only
-                    const patient = patients.find(p => p.id === targetPatientId);
-                    if (patient) {
-                        const updates = { ...patient };
+                    // Update patient profile: fetch FRESH data from Firestore to avoid stale state
+                    const freshPatient = await DB.get('patients', targetPatientId);
+                    if (freshPatient) {
+                        // Only build the specific fields we need to update
+                        const updates = { id: targetPatientId };
 
-                        // Build today's pre-round summary from section notes
-                        const preRoundHistory = patient.preRoundHistory || {};
-                        const todaySummary = preRoundHistory[today] || { sections: {}, timestamp: '' };
+                        // Build today's pre-round summary from FRESH Firestore data
+                        const preRoundHistory = { ...(freshPatient.preRoundHistory || {}) };
+                        const todaySummary = { ...(preRoundHistory[today] || { sections: {}, timestamp: '' }) };
+                        todaySummary.sections = { ...todaySummary.sections };
 
-                        // Merge section notes into today's summary (append, don't replace)
+                        // Use current checklist state (which reflects user edits like Clear All) as base
+                        const currentNotes = checklist[targetPatientId]?.notes || {};
+
+                        // Merge: start from current UI state (respects user clears), then layer new parsed data
                         parsed.checkedItems.forEach(item => {
-                            if (parsed.sectionNotes[item]) {
-                                const existingSection = todaySummary.sections[item] || '';
-                                const newParts = parsed.sectionNotes[item].split(/,\s*|;\s*/);
-                                if (existingSection) {
-                                    const existingLower = existingSection.toLowerCase();
+                            const uiValue = currentNotes[item] || '';
+                            const newValue = parsed.sectionNotes[item] || '';
+                            if (newValue) {
+                                const newParts = newValue.split(/,\s*|;\s*/);
+                                if (uiValue) {
+                                    const existingLower = uiValue.toLowerCase();
                                     const toAdd = newParts.filter(p => !existingLower.includes(p.trim().toLowerCase()));
                                     if (toAdd.length > 0) {
-                                        todaySummary.sections[item] = existingSection + ', ' + toAdd.join(', ');
+                                        todaySummary.sections[item] = uiValue + ', ' + toAdd.join(', ');
+                                    } else {
+                                        todaySummary.sections[item] = uiValue;
                                     }
                                 } else {
-                                    todaySummary.sections[item] = parsed.sectionNotes[item];
+                                    todaySummary.sections[item] = newValue;
                                 }
                             }
                         });
@@ -8102,13 +8119,10 @@ To-do: Check AM labs, I/Os q4h`}
 
                         // Carry forward yesterday's trending labs if today is fresh
                         if (!preRoundHistory[today]) {
-                            // Find most recent previous day
                             const prevDays = Object.keys(preRoundHistory).filter(d => d < today).sort().reverse();
                             if (prevDays.length > 0) {
                                 const prevLabs = preRoundHistory[prevDays[0]]?.sections?.labs;
-                                if (prevLabs) {
-                                    todaySummary.priorLabs = prevLabs;
-                                }
+                                if (prevLabs) todaySummary.priorLabs = prevLabs;
                             }
                         }
 
@@ -8122,17 +8136,9 @@ To-do: Check AM labs, I/Os q4h`}
 
                         updates.preRoundHistory = preRoundHistory;
 
-                        // Only update examFindings with actual physical exam findings
-                        if (parsed.examFindings) {
-                            updates.examFindings = parsed.examFindings;
-                        }
-
-                        // Update diet if mentioned
-                        if (parsed.patientUpdates.diet) {
-                            updates.diet = parsed.patientUpdates.diet;
-                        }
-
-                        // Update plan from dictation only if explicit plan statement
+                        // Only update specific fields, not the whole patient
+                        if (parsed.examFindings) updates.examFindings = parsed.examFindings;
+                        if (parsed.patientUpdates.diet) updates.diet = parsed.patientUpdates.diet;
                         if (parsed.sectionNotes.plan) {
                             updates.treatmentPlan = parsed.sectionNotes.plan;
                             updates.planDate = getTodayISO();
@@ -8534,25 +8540,28 @@ To-do: Check AM labs, I/Os q4h`}
                     if (rw) return vWordToNum[rw[1].toLowerCase()] || rw[1];
                     return null;
                 };
+                // BP: exact "120/80" first, then systolic/diastolic as separate entries
                 const bpMatch = t.match(/(?:BP|blood pressure)\s*(?:is|was|of|:)?\s*(\d+\s*\/\s*\d+)/i);
-                if (bpMatch) vitalParts.push('BP ' + bpMatch[1].replace(/\s/g, ''));
-                else {
-                    const sysR = vParseRange(t, '(?:systolic(?:s)?|sys|sbp)');
-                    const diaR = vParseRange(t, '(?:diastolic(?:s)?|dia|dbp)');
+                if (bpMatch) {
+                    vitalParts.push('BP ' + bpMatch[1].replace(/\s/g, ''));
+                } else {
+                    const sysR = vParseRange(t, '(?:systolic(?:s)?(?:\\s*pressures?)?|sys|sbp)');
+                    const diaR = vParseRange(t, '(?:diastolic(?:s)?(?:\\s*pressures?)?|dia|dbp)');
                     const bpR = vParseRange(t, '(?:bp|blood pressure|pressures?)');
-                    if (sysR && diaR) vitalParts.push('BP ' + sysR + '/' + diaR);
-                    else if (sysR) vitalParts.push('SBP ' + sysR);
-                    else if (diaR) vitalParts.push('DBP ' + diaR);
-                    else if (bpR) vitalParts.push('BP ' + bpR);
+                    if (sysR) vitalParts.push('SBP ' + sysR);
+                    if (diaR) vitalParts.push('DBP ' + diaR);
+                    if (!sysR && !diaR && bpR) vitalParts.push('BP ' + bpR);
                 }
-                const hrMatch = t.match(/(?:HR|heart rate|pulse)\s*(?:is|was|of|:)?\s*(\d{2,3})/i);
+                // HR: range first, then exact
                 const hrR = vParseRange(t, '(?:HR|heart rate|pulse)');
-                if (hrMatch) vitalParts.push('HR ' + hrMatch[1]);
-                else if (hrR) vitalParts.push('HR ' + hrR);
-                const rrMatch = t.match(/(?:RR|resp(?:iratory)?\\s*rate|respirations?)\s*(?:is|was|of|:)?\s*(\d{1,2})/i);
+                const hrMatch = !hrR ? t.match(/(?:HR|heart rate|pulse)\s*(?:is|was|of|:)?\s*(\d{2,3})/i) : null;
+                if (hrR) vitalParts.push('HR ' + hrR);
+                else if (hrMatch) vitalParts.push('HR ' + hrMatch[1]);
+                // RR: range first, then exact
                 const rrR = vParseRange(t, '(?:RR|resp(?:iratory)?\\s*rate|respirations?)');
-                if (rrMatch) vitalParts.push('RR ' + rrMatch[1]);
-                else if (rrR) vitalParts.push('RR ' + rrR);
+                const rrMatch = !rrR ? t.match(/(?:RR|resp(?:iratory)?\s*rate|respirations?)\s*(?:is|was|of|:)?\s*(\d{1,2})/i) : null;
+                if (rrR) vitalParts.push('RR ' + rrR);
+                else if (rrMatch) vitalParts.push('RR ' + rrMatch[1]);
                 const spo2Match = t.match(/SpO2\s*(\d{2,3})/i);
                 if (spo2Match) vitalParts.push('SpO2 ' + spo2Match[1] + '%');
                 const tempMatch = t.match(/(?:temp|temperature|t-?max)\s*(?:is|of|was)?\s*(\d{2,3}\.?\d?)/i);
