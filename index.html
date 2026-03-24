@@ -3353,11 +3353,11 @@
 
                 const today = getTodayISO();
 
-                // Daily plan reset: if plan was set on a prior day (or has no date), rebuild from carryover tasks
+                // Daily plan reset: runs once per day per patient
                 for (const patient of active) {
-                    const planDate = patient.planDate || '';
-                    const isStale = patient.treatmentPlan && (!planDate || planDate < today);
-                    if (isStale) {
+                    const lastReset = patient.planResetDate || '';
+                    // Only run if we haven't already reset today
+                    if (patient.treatmentPlan && lastReset !== today) {
                         // Gather incomplete tasks for this patient (carryover from prior days)
                         const incompleteTasks = tasksData.filter(t =>
                             t.patientId === patient.id && !t.completed
@@ -3375,12 +3375,14 @@
                             const newPlan = planItems.join('. ') + '.';
                             patient.treatmentPlan = newPlan;
                             patient.planDate = today;
-                            await DB.put('patients', { id: patient.id, treatmentPlan: newPlan, planDate: today, priorPlan: oldPlan });
+                            patient.planResetDate = today;
+                            await DB.put('patients', { id: patient.id, treatmentPlan: newPlan, planDate: today, planResetDate: today, priorPlan: oldPlan });
                         } else {
                             // No carryover -- reset plan
                             patient.treatmentPlan = '';
                             patient.planDate = today;
-                            await DB.put('patients', { id: patient.id, treatmentPlan: '', planDate: today, priorPlan: oldPlan });
+                            patient.planResetDate = today;
+                            await DB.put('patients', { id: patient.id, treatmentPlan: '', planDate: today, planResetDate: today, priorPlan: oldPlan });
                         }
                     }
                 }
