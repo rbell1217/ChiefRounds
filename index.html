@@ -2083,11 +2083,11 @@
                 'one sixties': '160s', 'one-sixties': '160s', 'hundreds': '100s', 'teens': 'teens',
                 'two hundreds': '200s', 'two-hundreds': '200s' };
             const parseRange = (text, prefix) => {
-                // Match "in the 70s" / "in the seventies" / "running in the 80s" / "ranging 90s to 100s"
-                const rangeNum = text.match(new RegExp(prefix + '\\s*(?:is|was|are|running|ranging)?\\s*(?:in the\\s*|in\\s*the\\s*)(\\d{2,3})s', 'i'));
+                // Match "in the 70s" / "seventies" / "running 80s" / "60s" -- "in the" is optional
+                const rangeNum = text.match(new RegExp(prefix + '\\s*(?:is|was|are|running|ranging)?\\s*(?:in\\s*the\\s*)?\\s*(\\d{2,3})s', 'i'));
                 if (rangeNum) return rangeNum[1] + 's';
-                // Match word-based ranges
-                const rangeWord = text.match(new RegExp(prefix + '\\s*(?:is|was|are|running|ranging)?\\s*(?:in the\\s*|in\\s*the\\s*)((?:one[- ]?)?(?:twenties|thirties|forties|fifties|sixties|seventies|eighties|nineties|hundreds|tens))', 'i'));
+                // Match word-based ranges: "heart rate sixties" / "pulse in the seventies"
+                const rangeWord = text.match(new RegExp(prefix + '\\s*(?:is|was|are|running|ranging)?\\s*(?:in\\s*the\\s*)?\\s*((?:one[- ]?)?(?:twenties|thirties|forties|fifties|sixties|seventies|eighties|nineties|hundreds|tens))', 'i'));
                 if (rangeWord) return wordToNum[rangeWord[1].toLowerCase()] || rangeWord[1];
                 return null;
             };
@@ -7973,6 +7973,7 @@ To-do: Check AM labs, I/Os q4h`}
                 }));
             };
 
+            const noteSaveTimerRef = React.useRef({});
             const updateNote = (patientId, item, note) => {
                 setChecklist(prev => ({
                     ...prev,
@@ -7984,6 +7985,21 @@ To-do: Check AM labs, I/Os q4h`}
                         }
                     }
                 }));
+                // Debounce-save to Firestore so manual edits persist across loadPatients()
+                const key = patientId + '-' + item;
+                if (noteSaveTimerRef.current[key]) clearTimeout(noteSaveTimerRef.current[key]);
+                noteSaveTimerRef.current[key] = setTimeout(async () => {
+                    const patient = patients.find(p => p.id === patientId);
+                    if (patient) {
+                        const today = getTodayISO();
+                        const preRoundHistory = { ...(patient.preRoundHistory || {}) };
+                        const todaySummary = { ...(preRoundHistory[today] || { sections: {}, timestamp: '' }) };
+                        todaySummary.sections = { ...todaySummary.sections, [item]: note };
+                        todaySummary.timestamp = new Date().toISOString();
+                        preRoundHistory[today] = todaySummary;
+                        await DB.put('patients', { id: patientId, preRoundHistory });
+                    }
+                }, 800);
             };
 
             const totalItems = patients.length * 8;
@@ -8133,17 +8149,51 @@ To-do: Check AM labs, I/Os q4h`}
             // Keep ref in sync so the debounced callback always uses latest version
             handleParseRef.current = handleParsePreRoundDictation;
 
+            const [showClearConfirm, setShowClearConfirm] = React.useState(false);
+            const handleClearAll = async () => {
+                const today = getTodayISO();
+                const emptyChecklist = {};
+                for (const patient of patients) {
+                    emptyChecklist[patient.id] = { notes: {} };
+                    // Clear today's pre-round data in Firestore
+                    const preRoundHistory = { ...(patient.preRoundHistory || {}) };
+                    preRoundHistory[today] = { sections: {}, timestamp: new Date().toISOString() };
+                    await DB.put('patients', { id: patient.id, preRoundHistory });
+                }
+                setChecklist(emptyChecklist);
+                setShowClearConfirm(false);
+                setExpandedPatient(null);
+            };
+
             return (
                 <div className="p-4 md:p-6 max-w-4xl mx-auto">
                     <div className="mb-6">
                         <div className="flex justify-between items-center mb-2">
                             <h2 className="text-2xl font-bold text-medical-600">Pre-Rounded: {Math.floor(checkedItems / 8)}/{patients.length} patients</h2>
-                            <p className="text-sm text-gray-500">Est. time remaining: ~{timeRemaining} min</p>
+                            <div className="flex items-center gap-3">
+                                <p className="text-sm text-gray-500">Est. ~{timeRemaining} min</p>
+                                <button onClick={() => setShowClearConfirm(true)} className="px-3 py-1 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition">
+                                    Clear All
+                                </button>
+                            </div>
                         </div>
                         <div className="w-full bg-gray-50 rounded h-2">
                             <div className="bg-medical-500 text-white h-2 rounded transition-all" style={{width: `${patients.length > 0 ? (checkedItems / totalItems) * 100 : 0}%`}}></div>
                         </div>
                     </div>
+
+                    {showClearConfirm && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                            <div className="bg-white rounded-xl p-6 max-w-sm mx-4 shadow-xl">
+                                <h3 className="text-lg font-bold text-gray-900 mb-2">Clear All Pre-Round Data?</h3>
+                                <p className="text-sm text-gray-600 mb-4">This will uncheck all items and clear all notes for every patient today. This cannot be undone.</p>
+                                <div className="flex gap-3 justify-end">
+                                    <button onClick={() => setShowClearConfirm(false)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg">Cancel</button>
+                                    <button onClick={handleClearAll} className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg">Clear All</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     <DictationBar dictation={dictation} onParse={handleParsePreRoundDictation} parseLabel="Auto-Fill Pre-Round" />
 
@@ -8478,9 +8528,9 @@ To-do: Check AM labs, I/Os q4h`}
                     'one tens': '110s', 'one twenties': '120s', 'one thirties': '130s',
                     'one forties': '140s', 'one fifties': '150s', 'one sixties': '160s' };
                 const vParseRange = (text, prefix) => {
-                    const rn = text.match(new RegExp(prefix + '\\s*(?:is|was|are|running|ranging)?\\s*(?:in the\\s*|in\\s*the\\s*)(\\d{2,3})s', 'i'));
+                    const rn = text.match(new RegExp(prefix + '\\s*(?:is|was|are|running|ranging)?\\s*(?:in\\s*the\\s*)?\\s*(\\d{2,3})s', 'i'));
                     if (rn) return rn[1] + 's';
-                    const rw = text.match(new RegExp(prefix + '\\s*(?:is|was|are|running|ranging)?\\s*(?:in the\\s*|in\\s*the\\s*)((?:one[- ]?)?(?:twenties|thirties|forties|fifties|sixties|seventies|eighties|nineties|hundreds|tens))', 'i'));
+                    const rw = text.match(new RegExp(prefix + '\\s*(?:is|was|are|running|ranging)?\\s*(?:in\\s*the\\s*)?\\s*((?:one[- ]?)?(?:twenties|thirties|forties|fifties|sixties|seventies|eighties|nineties|hundreds|tens))', 'i'));
                     if (rw) return vWordToNum[rw[1].toLowerCase()] || rw[1];
                     return null;
                 };
