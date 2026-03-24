@@ -2484,46 +2484,53 @@
             }
 
             // ---- PLAN ----
-            const planNotes = [];
-            // Capture "plan is to..." or "the plan for today is..." or "plan: ..." or "today's plan..."
-            const planMatch = t.match(/(?:the\s*)?plan\s*(?:is|for today(?:'?s)?|today(?:'?s)?\s*plan\s*is)?\s*(?:is\s*)?(?:to\s*)?(.+?)(?:(?:\.\s*(?:vitals|labs|pain|overnight|lines|i\/o|exam))|$)/i);
-            if (planMatch && planMatch[1].trim().length > 3) planNotes.push(planMatch[1].trim().substring(0, 120));
-            // Broader plan triggers: "we want to...", "we need to...", "going to...", "will..."
-            if (planNotes.length === 0) {
-                const broadPlan = t.match(/(?:we\s*(?:want|need|are going|plan|would like)\s*to|going\s*to|will\s+(?!be\s+(?:stable|fine|okay)))\s+(.+?)(?:(?:\.\s*(?:vitals|labs|pain|overnight|lines|i\/o|exam))|$)/i);
-                if (broadPlan && broadPlan[1].trim().length > 3) planNotes.push(broadPlan[1].trim().substring(0, 120));
-            }
-            if (/\b(advance\s*(?:the\s*)?diet|advancing\s*diet|advance\s*to)\b/i.test(t)) planNotes.push('Advance diet');
-            if (/\b(d\/?c\s*(?:today|tomorrow|in the morning|home|when)|discharge\s*(?:today|tomorrow|pending|home|when)|going\s*home|ready\s*for\s*discharge|send\s*(?:them?\s*)?home)\b/i.test(t)) planNotes.push('D/C planning');
-            if (/\b(to\s*(?:the\s*)?or|back\s*to\s*or|surgery\s*today|procedure\s*today|scope\s*today|operative|taking\s*(?:them?\s*)?(?:to|back))\b/i.test(t)) planNotes.push('OR/procedure');
-            if (/\b(continue\s*(?:current|same|the)?\s*(?:plan|management|antibiotics?|meds?|medications?)|stay\s*the\s*course|same\s*plan|no\s*changes?\s*(?:to\s*(?:the\s*)?plan)?)\b/i.test(t)) planNotes.push('Continue current plan');
+            // First collect specific, normalized plan items
+            const specificPlanNotes = [];
+            if (/\b(advance\s*(?:the\s*)?diet|advancing\s*diet|advance\s*to)\b/i.test(t)) specificPlanNotes.push('Advance diet');
+            if (/\b(d\/?c\s*(?:today|tomorrow|in the morning|home|when)|discharge\s*(?:today|tomorrow|pending|home|when)|going\s*home|ready\s*for\s*discharge|send\s*(?:them?\s*)?home)\b/i.test(t)) specificPlanNotes.push('D/C planning');
+            if (/\b(to\s*(?:the\s*)?or|back\s*to\s*or|surgery\s*today|procedure\s*today|scope\s*today|operative|taking\s*(?:them?\s*)?(?:to|back))\b/i.test(t)) specificPlanNotes.push('OR/procedure');
+            if (/\b(continue\s*(?:current|same|the)?\s*(?:plan|management|antibiotics?|meds?|medications?)|stay\s*the\s*course|same\s*plan|no\s*changes?\s*(?:to\s*(?:the\s*)?plan)?)\b/i.test(t)) specificPlanNotes.push('Continue current plan');
             if (/\b(repeat\s*(?:labs?|imaging|ct|cbc|bmp|cmp)\s*(?:in\s*the\s*morning|tomorrow|today|am)?)\b/i.test(t)) {
                 const rl = t.match(/(repeat\s*(?:labs?|imaging|ct|cbc|bmp|cmp)\s*(?:in\s*the\s*morning|tomorrow|today|am)?)/i);
-                planNotes.push(rl[1].trim());
+                specificPlanNotes.push(rl[1].trim());
             }
             if (/\b(start|begin|initiate)\s+(?:on\s*)?(\w+(?:\s+\w+)?)\b/i.test(t)) {
                 const sm = t.match(/\b(?:start|begin|initiate)\s+(?:on\s*)?(\w+(?:\s+\w+)?)\b/i);
-                if (sm && sm[1].length > 2 && !/^(the|to|a|an|with)$/i.test(sm[1])) planNotes.push(`Start ${sm[1]}`);
+                if (sm && sm[1].length > 2 && !/^(the|to|a|an|with)$/i.test(sm[1])) specificPlanNotes.push(`Start ${sm[1]}`);
             }
             if (/\b(wean|titrate|taper)\s+(?:off\s*)?(\w+)/i.test(t)) {
                 const wm = t.match(/\b(wean|titrate|taper)\s+(?:off\s*)?(\w+)/i);
-                planNotes.push(`${wm[1].charAt(0).toUpperCase() + wm[1].slice(1)} ${wm[2]}`);
+                specificPlanNotes.push(`${wm[1].charAt(0).toUpperCase() + wm[1].slice(1)} ${wm[2]}`);
             }
             if (/\b(consult|get\s*(?:a\s*)?consult|call\s*(?:a\s*)?consult)\b/i.test(t)) {
                 const cm = t.match(/consult\s+(\w+)/i);
-                planNotes.push(cm ? `Consult ${cm[1]}` : 'Consult pending');
+                specificPlanNotes.push(cm ? `Consult ${cm[1]}` : 'Consult pending');
             }
             if (/\b(remove|pull|take\s*out|d\/?c)\s*(?:the\s*)?(?:foley|jp|drain|ngt?|ng\s*tube|chest\s*tube|picc|central\s*line)\b/i.test(t)) {
                 const rm = t.match(/(?:remove|pull|take\s*out|d\/?c)\s*(?:the\s*)?(foley|jp|drain|ngt?|ng\s*tube|chest\s*tube|picc|central\s*line)/i);
-                planNotes.push(`D/C ${rm[1]}`);
+                specificPlanNotes.push(`D/C ${rm[1]}`);
             }
             if (/\b(check|order|send|get)\s+(?:a\s*)?(?:ct|mri|xray|x-ray|ultrasound|echo|ekg|labs?|cbc|bmp|cmp|lfts?|lipase|lactate|cultures?|ua|urinalysis)\b/i.test(t)) {
                 const om = t.match(/\b(?:check|order|send|get)\s+(?:a\s*)?(ct|mri|xray|x-ray|ultrasound|echo|ekg|labs?|cbc|bmp|cmp|lfts?|lipase|lactate|cultures?|ua|urinalysis)\b/i);
-                planNotes.push(`Order ${om[1]}`);
+                specificPlanNotes.push(`Order ${om[1]}`);
             }
             if (/\b(ambulate|mobilize|pt\s*(?:eval|consult)|physical\s*therapy|occupational\s*therapy|ot\s*(?:eval|consult))\b/i.test(t)) {
                 const am = t.match(/\b(ambulate|mobilize|pt\s*(?:eval|consult)|physical\s*therapy|occupational\s*therapy|ot\s*(?:eval|consult))\b/i);
-                planNotes.push(am[1].trim());
+                specificPlanNotes.push(am[1].trim());
+            }
+
+            // Only use broad "plan is to..." capture if NO specific patterns matched
+            const planNotes = [];
+            if (specificPlanNotes.length > 0) {
+                planNotes.push(...specificPlanNotes);
+            } else {
+                // Fallback to broad capture when no specific items detected
+                const planMatch = t.match(/(?:the\s*)?plan\s*(?:is|for today(?:'?s)?|today(?:'?s)?\s*plan\s*is)?\s*(?:is\s*)?(?:to\s*)?(.+?)(?:(?:\.\s*(?:vitals|labs|pain|overnight|lines|i\/o|exam))|$)/i);
+                if (planMatch && planMatch[1].trim().length > 3) planNotes.push(planMatch[1].trim().substring(0, 120));
+                if (planNotes.length === 0) {
+                    const broadPlan = t.match(/(?:we\s*(?:want|need|are going|plan|would like)\s*to|going\s*to|will\s+(?!be\s+(?:stable|fine|okay)))\s+(.+?)(?:(?:\.\s*(?:vitals|labs|pain|overnight|lines|i\/o|exam))|$)/i);
+                    if (broadPlan && broadPlan[1].trim().length > 3) planNotes.push(broadPlan[1].trim().substring(0, 120));
+                }
             }
 
             if (planNotes.length > 0) {
@@ -8278,16 +8285,22 @@ To-do: Check AM labs, I/Os q4h`}
                         parsed.checkedItems.forEach(item => {
                             updated[targetPatientId][item] = true;
                             if (parsed.sectionNotes[item]) {
-                                const existing = updated[targetPatientId].notes[item] || '';
-                                const newParts = parsed.sectionNotes[item].split(/,\s*|;\s*/);
-                                if (existing) {
-                                    const existingLower = existing.toLowerCase();
-                                    const toAdd = newParts.filter(p => !existingLower.includes(p.trim().toLowerCase()));
-                                    if (toAdd.length > 0) {
-                                        updated[targetPatientId].notes[item] = existing + ', ' + toAdd.join(', ');
-                                    }
-                                } else {
+                                if (item === 'plan') {
+                                    // Plan uses REPLACE strategy to avoid duplication
                                     updated[targetPatientId].notes[item] = parsed.sectionNotes[item];
+                                } else {
+                                    // Other fields use dedup-aware append
+                                    const existing = updated[targetPatientId].notes[item] || '';
+                                    const newParts = parsed.sectionNotes[item].split(/,\s*|;\s*/);
+                                    if (existing) {
+                                        const existingLower = existing.toLowerCase();
+                                        const toAdd = newParts.filter(p => !existingLower.includes(p.trim().toLowerCase()));
+                                        if (toAdd.length > 0) {
+                                            updated[targetPatientId].notes[item] = existing + ', ' + toAdd.join(', ');
+                                        }
+                                    } else {
+                                        updated[targetPatientId].notes[item] = parsed.sectionNotes[item];
+                                    }
                                 }
                             }
                         });
@@ -8313,17 +8326,23 @@ To-do: Check AM labs, I/Os q4h`}
                             const uiValue = currentNotes[item] || '';
                             const newValue = parsed.sectionNotes[item] || '';
                             if (newValue) {
-                                const newParts = newValue.split(/,\s*|;\s*/);
-                                if (uiValue) {
-                                    const existingLower = uiValue.toLowerCase();
-                                    const toAdd = newParts.filter(p => !existingLower.includes(p.trim().toLowerCase()));
-                                    if (toAdd.length > 0) {
-                                        todaySummary.sections[item] = uiValue + ', ' + toAdd.join(', ');
-                                    } else {
-                                        todaySummary.sections[item] = uiValue;
-                                    }
-                                } else {
+                                if (item === 'plan') {
+                                    // Plan uses REPLACE to avoid duplication
                                     todaySummary.sections[item] = newValue;
+                                } else {
+                                    // Other fields use dedup-aware append
+                                    const newParts = newValue.split(/,\s*|;\s*/);
+                                    if (uiValue) {
+                                        const existingLower = uiValue.toLowerCase();
+                                        const toAdd = newParts.filter(p => !existingLower.includes(p.trim().toLowerCase()));
+                                        if (toAdd.length > 0) {
+                                            todaySummary.sections[item] = uiValue + ', ' + toAdd.join(', ');
+                                        } else {
+                                            todaySummary.sections[item] = uiValue;
+                                        }
+                                    } else {
+                                        todaySummary.sections[item] = newValue;
+                                    }
                                 }
                             }
                         });
