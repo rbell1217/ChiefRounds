@@ -3201,10 +3201,14 @@
             };
 
             const handleRestorePatient = async (patient) => {
-                const { deleted, deletedAt, deletedBy, ...restored } = patient;
-                await DB.put('patients', { ...restored, id: patient.id });
-                loadPatients();
-                loadDeletedPatients();
+                try {
+                    await DB.put('patients', { ...patient, id: patient.id, deleted: false, deletedAt: null, deletedBy: null });
+                    await loadPatients();
+                    await loadDeletedPatients();
+                } catch(err) {
+                    console.error('Restore patient error:', err);
+                    alert('Error restoring patient: ' + err.message);
+                }
             };
 
             const handlePermanentDelete = async (id) => {
