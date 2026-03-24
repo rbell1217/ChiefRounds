@@ -3125,7 +3125,8 @@
                 try {
                     const patient = await DB.get('patients', pendingDeleteId);
                     if (patient) {
-                        await DB.put('patients', { ...patient, id: pendingDeleteId, deleted: true, deletedAt: new Date().toISOString(), deletedBy: currentUser?.displayName || currentUser?.email || 'Unknown' });
+                        const authUser = firebase.auth().currentUser;
+                        await DB.put('patients', { ...patient, id: pendingDeleteId, deleted: true, deletedAt: new Date().toISOString(), deletedBy: authUser?.displayName || authUser?.email || 'Unknown' });
                     }
                     setPendingDeleteId(null);
                     await loadPatients();
