@@ -12211,7 +12211,9 @@ To-do: Check AM labs, I/Os q4h`}
 
             const loadCases = async () => {
                 const all = await DB.getAll('casePrep');
-                setCases(all || []);
+                const uid = firebase.auth().currentUser?.uid;
+                // Show only cases belonging to this user, plus legacy cases with no userId
+                setCases((all || []).filter(c => c.userId === uid || !c.userId));
             };
             const loadPatients = async () => {
                 const all = await DB.getAll('patients');
@@ -12302,6 +12304,7 @@ To-do: Check AM labs, I/Os q4h`}
 
             const addCase = async () => {
                 if (!newCaseName.trim()) return;
+                const authUser = firebase.auth().currentUser;
                 await DB.add('casePrep', {
                     date: selectedDate,
                     caseName: newCaseName.trim(),
@@ -12314,6 +12317,7 @@ To-do: Check AM labs, I/Os q4h`}
                     keyOperativeSteps: '',
                     attendingSurgeon: '',
                     addedToPatientList: false,
+                    userId: authUser?.uid || '',
                     createdAt: new Date().toISOString()
                 });
                 setNewCaseName('');
@@ -13670,7 +13674,8 @@ To-do: Check AM labs, I/Os q4h`}
                 const pts = await DB.getAll('patients');
                 setPatients((pts || []).filter(p => p.status !== 'discharged' && !p.deleted));
                 const cp = await DB.getAll('casePrep');
-                setCasePrepData(cp || []);
+                const ccUid = firebase.auth().currentUser?.uid;
+                setCasePrepData((cp || []).filter(c => c.userId === ccUid || !c.userId));
             };
 
             const setupIndicationDictation = () => {
@@ -13816,6 +13821,7 @@ To-do: Check AM labs, I/Os q4h`}
                             cp.date === newCase.surgeryDate && cp.caseName === caseName
                         );
                         if (!alreadyExists) {
+                            const ccAuthUser = firebase.auth().currentUser;
                             const prepId = await DB.add('casePrep', {
                                 date: newCase.surgeryDate,
                                 caseName: caseName,
@@ -13829,6 +13835,7 @@ To-do: Check AM labs, I/Os q4h`}
                                 addedToPatientList: !!newCase.patientId,
                                 patientId: newCase.patientId || null,
                                 fromConference: selectedConf.id,
+                                userId: ccAuthUser?.uid || '',
                                 createdAt: new Date().toISOString()
                             });
                             // Link the case back to the new prep entry
