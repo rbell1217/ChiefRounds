@@ -1705,6 +1705,21 @@
                 [/\bblood\s*(?:pressure|presser)\b/gi, 'blood pressure'],
                 [/\brespiratory\s*(?:rate|raid)\b/gi, 'respiratory rate'],
 
+                // Contextual number corrections: "to"/"too"/"two" -> "2" AFTER lab names
+                // This must come before the unit-based rules so "creatinine too" -> "creatinine 2" works
+                [/\b(wbc|white\s*(?:blood\s*)?count|hemoglobin|hgb|hct|hematocrit|platelets?|plt|sodium|na|potassium|chloride|cl|co2|bicarb|bun|creatinine|cr|glucose|calcium|ca|magnesium|phosphorus|phos|inr|ptt|pt|lactate|lactic|troponin|lipase|bilirubin|tbili|ast|alt|alk\s*phos|albumin)\s+(?:is|was|of|at|came\s*back|:)?\s*(?:to|too|two)\b/gi, '$1 2'],
+                [/\b(wbc|white\s*(?:blood\s*)?count|hemoglobin|hgb|hct|hematocrit|platelets?|plt|sodium|na|potassium|chloride|cl|co2|bicarb|bun|creatinine|cr|glucose|calcium|ca|magnesium|phosphorus|phos|inr|ptt|pt|lactate|lactic|troponin|lipase|bilirubin|tbili|ast|alt|alk\s*phos|albumin)\s+(?:is|was|of|at|came\s*back|:)?\s*(?:for|four)\b/gi, '$1 4'],
+                [/\b(wbc|white\s*(?:blood\s*)?count|hemoglobin|hgb|hct|hematocrit|platelets?|plt|sodium|na|potassium|chloride|cl|co2|bicarb|bun|creatinine|cr|glucose|calcium|ca|magnesium|phosphorus|phos|inr|ptt|pt|lactate|lactic|troponin|lipase|bilirubin|tbili|ast|alt|alk\s*phos|albumin)\s+(?:is|was|of|at|came\s*back|:)?\s*(?:won|one)\b/gi, '$1 1'],
+                [/\b(wbc|white\s*(?:blood\s*)?count|hemoglobin|hgb|hct|hematocrit|platelets?|plt|sodium|na|potassium|chloride|cl|co2|bicarb|bun|creatinine|cr|glucose|calcium|ca|magnesium|phosphorus|phos|inr|ptt|pt|lactate|lactic|troponin|lipase|bilirubin|tbili|ast|alt|alk\s*phos|albumin)\s+(?:is|was|of|at|came\s*back|:)?\s*(?:three|tree)\b/gi, '$1 3'],
+                [/\b(wbc|white\s*(?:blood\s*)?count|hemoglobin|hgb|hct|hematocrit|platelets?|plt|sodium|na|potassium|chloride|cl|co2|bicarb|bun|creatinine|cr|glucose|calcium|ca|magnesium|phosphorus|phos|inr|ptt|pt|lactate|lactic|troponin|lipase|bilirubin|tbili|ast|alt|alk\s*phos|albumin)\s+(?:is|was|of|at|came\s*back|:)?\s*(?:five)\b/gi, '$1 5'],
+                [/\b(wbc|white\s*(?:blood\s*)?count|hemoglobin|hgb|hct|hematocrit|platelets?|plt|sodium|na|potassium|chloride|cl|co2|bicarb|bun|creatinine|cr|glucose|calcium|ca|magnesium|phosphorus|phos|inr|ptt|pt|lactate|lactic|troponin|lipase|bilirubin|tbili|ast|alt|alk\s*phos|albumin)\s+(?:is|was|of|at|came\s*back|:)?\s*(?:six)\b/gi, '$1 6'],
+                [/\b(wbc|white\s*(?:blood\s*)?count|hemoglobin|hgb|hct|hematocrit|platelets?|plt|sodium|na|potassium|chloride|cl|co2|bicarb|bun|creatinine|cr|glucose|calcium|ca|magnesium|phosphorus|phos|inr|ptt|pt|lactate|lactic|troponin|lipase|bilirubin|tbili|ast|alt|alk\s*phos|albumin)\s+(?:is|was|of|at|came\s*back|:)?\s*(?:seven)\b/gi, '$1 7'],
+                [/\b(wbc|white\s*(?:blood\s*)?count|hemoglobin|hgb|hct|hematocrit|platelets?|plt|sodium|na|potassium|chloride|cl|co2|bicarb|bun|creatinine|cr|glucose|calcium|ca|magnesium|phosphorus|phos|inr|ptt|pt|lactate|lactic|troponin|lipase|bilirubin|tbili|ast|alt|alk\s*phos|albumin)\s+(?:is|was|of|at|came\s*back|:)?\s*(?:ate|eight)\b/gi, '$1 8'],
+                [/\b(wbc|white\s*(?:blood\s*)?count|hemoglobin|hgb|hct|hematocrit|platelets?|plt|sodium|na|potassium|chloride|cl|co2|bicarb|bun|creatinine|cr|glucose|calcium|ca|magnesium|phosphorus|phos|inr|ptt|pt|lactate|lactic|troponin|lipase|bilirubin|tbili|ast|alt|alk\s*phos|albumin)\s+(?:is|was|of|at|came\s*back|:)?\s*(?:nine)\b/gi, '$1 9'],
+                [/\b(wbc|white\s*(?:blood\s*)?count|hemoglobin|hgb|hct|hematocrit|platelets?|plt|sodium|na|potassium|chloride|cl|co2|bicarb|bun|creatinine|cr|glucose|calcium|ca|magnesium|phosphorus|phos|inr|ptt|pt|lactate|lactic|troponin|lipase|bilirubin|tbili|ast|alt|alk\s*phos|albumin)\s+(?:is|was|of|at|came\s*back|:)?\s*(?:ten)\b/gi, '$1 10'],
+                // Also handle "lab point number" patterns: "creatinine too point five" -> "creatinine 2.5"
+                [/\b(wbc|hemoglobin|hgb|hct|hematocrit|platelets?|plt|sodium|na|potassium|chloride|cl|co2|bicarb|bun|creatinine|cr|glucose|calcium|ca|magnesium|phosphorus|phos|inr|ptt|pt|lactate|lactic|troponin|lipase|bilirubin|tbili|ast|alt|alk\s*phos|albumin)\s+(?:is|was|of|at|came\s*back|:)?\s*(?:to|too|two)\s*(?:point|\.)\s*(\d+)/gi, '$1 2.$2'],
+
                 // Contextual number corrections: "to"/"too"/"two" -> "2" before units/medical context
                 [/\b(?:to|too|two)\s*(?=L\b|liters?\b|mL\b|cc\b|mg\b|mcg\b|units?\b|tabs?\b|capsules?\b|grams?\b)/gi, '2 '],
                 [/\b(?:to|too|two)\s*(?=nasal\s*cannula|NC\b)/gi, '2 '],
@@ -2453,13 +2468,30 @@
 
             // ---- PLAN ----
             const planNotes = [];
-            // Capture "plan is to..." or "the plan for today is..."
+            // Capture "plan is to..." or "the plan for today is..." or "plan: ..." or "today's plan..."
             const planMatch = t.match(/(?:the\s*)?plan\s*(?:is|for today(?:'?s)?|today(?:'?s)?\s*plan\s*is)?\s*(?:is\s*)?(?:to\s*)?(.+?)(?:(?:\.\s*(?:vitals|labs|pain|overnight|lines|i\/o|exam))|$)/i);
             if (planMatch && planMatch[1].trim().length > 3) planNotes.push(planMatch[1].trim().substring(0, 120));
+            // Broader plan triggers: "we want to...", "we need to...", "going to...", "will..."
+            if (planNotes.length === 0) {
+                const broadPlan = t.match(/(?:we\s*(?:want|need|are going|plan|would like)\s*to|going\s*to|will\s+(?!be\s+(?:stable|fine|okay)))\s+(.+?)(?:(?:\.\s*(?:vitals|labs|pain|overnight|lines|i\/o|exam))|$)/i);
+                if (broadPlan && broadPlan[1].trim().length > 3) planNotes.push(broadPlan[1].trim().substring(0, 120));
+            }
             if (/\b(advance\s*(?:the\s*)?diet|advancing\s*diet|advance\s*to)\b/i.test(t)) planNotes.push('Advance diet');
             if (/\b(d\/?c\s*(?:today|tomorrow|in the morning|home|when)|discharge\s*(?:today|tomorrow|pending|home|when)|going\s*home|ready\s*for\s*discharge|send\s*(?:them?\s*)?home)\b/i.test(t)) planNotes.push('D/C planning');
             if (/\b(to\s*(?:the\s*)?or|back\s*to\s*or|surgery\s*today|procedure\s*today|scope\s*today|operative|taking\s*(?:them?\s*)?(?:to|back))\b/i.test(t)) planNotes.push('OR/procedure');
-            if (/\b(continue\s*(?:current|same|the)?\s*(?:plan|management)|stay\s*the\s*course|same\s*plan|no\s*changes?\s*(?:to\s*(?:the\s*)?plan)?)\b/i.test(t)) planNotes.push('Continue current plan');
+            if (/\b(continue\s*(?:current|same|the)?\s*(?:plan|management|antibiotics?|meds?|medications?)|stay\s*the\s*course|same\s*plan|no\s*changes?\s*(?:to\s*(?:the\s*)?plan)?)\b/i.test(t)) planNotes.push('Continue current plan');
+            if (/\b(repeat\s*(?:labs?|imaging|ct|cbc|bmp|cmp)\s*(?:in\s*the\s*morning|tomorrow|today|am)?)\b/i.test(t)) {
+                const rl = t.match(/(repeat\s*(?:labs?|imaging|ct|cbc|bmp|cmp)\s*(?:in\s*the\s*morning|tomorrow|today|am)?)/i);
+                planNotes.push(rl[1].trim());
+            }
+            if (/\b(start|begin|initiate)\s+(?:on\s*)?(\w+(?:\s+\w+)?)\b/i.test(t)) {
+                const sm = t.match(/\b(?:start|begin|initiate)\s+(?:on\s*)?(\w+(?:\s+\w+)?)\b/i);
+                if (sm && sm[1].length > 2 && !/^(the|to|a|an|with)$/i.test(sm[1])) planNotes.push(`Start ${sm[1]}`);
+            }
+            if (/\b(wean|titrate|taper)\s+(?:off\s*)?(\w+)/i.test(t)) {
+                const wm = t.match(/\b(wean|titrate|taper)\s+(?:off\s*)?(\w+)/i);
+                planNotes.push(`${wm[1].charAt(0).toUpperCase() + wm[1].slice(1)} ${wm[2]}`);
+            }
             if (/\b(consult|get\s*(?:a\s*)?consult|call\s*(?:a\s*)?consult)\b/i.test(t)) {
                 const cm = t.match(/consult\s+(\w+)/i);
                 planNotes.push(cm ? `Consult ${cm[1]}` : 'Consult pending');
@@ -2467,6 +2499,14 @@
             if (/\b(remove|pull|take\s*out|d\/?c)\s*(?:the\s*)?(?:foley|jp|drain|ngt?|ng\s*tube|chest\s*tube|picc|central\s*line)\b/i.test(t)) {
                 const rm = t.match(/(?:remove|pull|take\s*out|d\/?c)\s*(?:the\s*)?(foley|jp|drain|ngt?|ng\s*tube|chest\s*tube|picc|central\s*line)/i);
                 planNotes.push(`D/C ${rm[1]}`);
+            }
+            if (/\b(check|order|send|get)\s+(?:a\s*)?(?:ct|mri|xray|x-ray|ultrasound|echo|ekg|labs?|cbc|bmp|cmp|lfts?|lipase|lactate|cultures?|ua|urinalysis)\b/i.test(t)) {
+                const om = t.match(/\b(?:check|order|send|get)\s+(?:a\s*)?(ct|mri|xray|x-ray|ultrasound|echo|ekg|labs?|cbc|bmp|cmp|lfts?|lipase|lactate|cultures?|ua|urinalysis)\b/i);
+                planNotes.push(`Order ${om[1]}`);
+            }
+            if (/\b(ambulate|mobilize|pt\s*(?:eval|consult)|physical\s*therapy|occupational\s*therapy|ot\s*(?:eval|consult))\b/i.test(t)) {
+                const am = t.match(/\b(ambulate|mobilize|pt\s*(?:eval|consult)|physical\s*therapy|occupational\s*therapy|ot\s*(?:eval|consult))\b/i);
+                planNotes.push(am[1].trim());
             }
 
             if (planNotes.length > 0) {
@@ -8136,6 +8176,11 @@ To-do: Check AM labs, I/Os q4h`}
                         todaySummary.timestamp = new Date().toISOString();
                         preRoundHistory[today] = todaySummary;
                         await DB.put('patients', { id: patientId, preRoundHistory });
+                        // If this is the plan field, also sync to tasks and update treatmentPlan
+                        if (item === 'plan' && note && note.trim().length > 0) {
+                            await DB.put('patients', { id: patientId, treatmentPlan: note, planDate: today });
+                            createTasksFromPlanText(patientId, note, 'Pre-Round').catch(e => console.error('Task sync error:', e));
+                        }
                     }
                 }, 800);
             };
@@ -8268,16 +8313,19 @@ To-do: Check AM labs, I/Os q4h`}
                         // Only update specific fields, not the whole patient
                         if (parsed.examFindings) updates.examFindings = parsed.examFindings;
                         if (parsed.patientUpdates.diet) updates.diet = parsed.patientUpdates.diet;
-                        if (parsed.sectionNotes.plan) {
-                            updates.treatmentPlan = parsed.sectionNotes.plan;
+
+                        // Determine plan text: use NLP-parsed plan if available, otherwise use current plan note from UI
+                        const planText = parsed.sectionNotes.plan || todaySummary.sections.plan || currentNotes.plan || '';
+                        if (planText && planText.trim().length > 0) {
+                            updates.treatmentPlan = planText;
                             updates.planDate = getTodayISO();
                         }
 
                         await DB.put('patients', updates);
 
-                        // Sync plan to task list
-                        if (parsed.sectionNotes.plan) {
-                            createTasksFromPlanText(targetPatientId, parsed.sectionNotes.plan, 'Pre-Round').catch(e => console.error('Task sync error:', e));
+                        // Sync plan to task list - use whatever plan text we have
+                        if (planText && planText.trim().length > 0) {
+                            createTasksFromPlanText(targetPatientId, planText, 'Pre-Round').catch(e => console.error('Task sync error:', e));
                         }
                         loadPatients();
                     }
