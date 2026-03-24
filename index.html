@@ -5445,18 +5445,20 @@
             const rebuildPatientPlan = async (patientId, allTasks) => {
                 const patient = (await DB.getAll('patients')).find(p => p.id === patientId);
                 if (!patient) return;
-                const allPatientTasks = (allTasks || tasks).filter(t => t.patientId === patientId);
-                const taskLines = allPatientTasks.map(t => t.description);
-                // Preserve any existing plan text that isn't a task description
+                const freshTasks = allTasks || await DB.getAll('tasks');
+                const patientTasks = freshTasks.filter(t => t.patientId === patientId && !t.completed);
+                if (patientTasks.length === 0) {
+                    // No incomplete tasks left: clear the plan
+                    if (patient.treatmentPlan) {
+                        await DB.put('patients', { id: patientId, treatmentPlan: '', planDate: getTodayISO() });
+                    }
+                    return;
+                }
+                const taskLines = patientTasks.map(t => t.description);
+                const newPlan = taskLines.join('. ') + '.';
                 const currentPlan = patient.treatmentPlan || '';
-                const existingLines = currentPlan.split(/[.\n]/).map(s => s.trim()).filter(s => s);
-                // Merge: keep existing non-task lines + add task lines
-                const allTaskDescriptions = tasks.filter(t => t.patientId === patientId).map(t => t.description.toLowerCase());
-                const nonTaskLines = existingLines.filter(line => !allTaskDescriptions.includes(line.toLowerCase()));
-                const combined = [...nonTaskLines, ...taskLines].filter(s => s);
-                const newPlan = combined.join('. ') + (combined.length > 0 ? '.' : '');
                 if (newPlan !== currentPlan) {
-                    await DB.put('patients', { ...patient, treatmentPlan: newPlan, planDate: getTodayISO() });
+                    await DB.put('patients', { id: patientId, treatmentPlan: newPlan, planDate: getTodayISO() });
                 }
             };
 
@@ -5522,7 +5524,20 @@
             };
 
             const deleteTask = async (taskId) => {
+                // Find the task before deleting so we know its patient
+                const taskToDelete = tasks.find(t => t.id === taskId);
                 await DB.delete('tasks', taskId);
+                // Rebuild the patient's plan from remaining tasks
+                if (taskToDelete?.patientId) {
+                    const remainingTasks = await DB.getAll('tasks');
+                    const patientTasks = remainingTasks.filter(t => t.patientId === taskToDelete.patientId && !t.completed);
+                    if (patientTasks.length === 0) {
+                        // No tasks left: clear the treatmentPlan entirely
+                        await DB.put('patients', { id: taskToDelete.patientId, treatmentPlan: '', planDate: getTodayISO() });
+                    } else {
+                        await rebuildPatientPlan(taskToDelete.patientId, remainingTasks);
+                    }
+                }
                 loadData();
             };
 
@@ -8176,10 +8191,15 @@ To-do: Check AM labs, I/Os q4h`}
                         todaySummary.timestamp = new Date().toISOString();
                         preRoundHistory[today] = todaySummary;
                         await DB.put('patients', { id: patientId, preRoundHistory });
-                        // If this is the plan field, also sync to tasks and update treatmentPlan
-                        if (item === 'plan' && note && note.trim().length > 0) {
-                            await DB.put('patients', { id: patientId, treatmentPlan: note, planDate: today });
-                            createTasksFromPlanText(patientId, note, 'Pre-Round').catch(e => console.error('Task sync error:', e));
+                        // If this is the plan field, sync to treatmentPlan and tasks
+                        if (item === 'plan') {
+                            if (note && note.trim().length > 0) {
+                                await DB.put('patients', { id: patientId, treatmentPlan: note, planDate: today });
+                                createTasksFromPlanText(patientId, note, 'Pre-Round').catch(e => console.error('Task sync error:', e));
+                            } else {
+                                // Plan was cleared - also clear treatmentPlan
+                                await DB.put('patients', { id: patientId, treatmentPlan: '', planDate: today });
+                            }
                         }
                     }
                 }, 800);
@@ -8346,11 +8366,19 @@ To-do: Check AM labs, I/Os q4h`}
                     // Clear today's pre-round data in Firestore
                     const preRoundHistory = { ...(patient.preRoundHistory || {}) };
                     preRoundHistory[today] = { sections: {}, timestamp: new Date().toISOString() };
-                    await DB.put('patients', { id: patient.id, preRoundHistory });
+                    // Also clear treatmentPlan since pre-round data is being wiped
+                    await DB.put('patients', { id: patient.id, preRoundHistory, treatmentPlan: '', planDate: today });
+                    // Delete pre-round-sourced tasks for this patient
+                    const allTasks = await DB.getAll('tasks');
+                    const preRoundTasks = allTasks.filter(t => t.patientId === patient.id && t.source === 'Pre-Round');
+                    for (const task of preRoundTasks) {
+                        await DB.delete('tasks', task.id);
+                    }
                 }
                 setChecklist(emptyChecklist);
                 setShowClearConfirm(false);
                 setExpandedPatient(null);
+                loadPatients();
             };
 
             return (
