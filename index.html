@@ -1688,6 +1688,22 @@
 
             // Step 2: Medical abbreviation corrections (speech-to-text often expands these)
             const medTerms = [
+                // SpO2/O2 sats speech corrections (STT garbles these heavily)
+                [/\b(?:0\s*2|oh?\s*2|oh?\s*two|zero\s*(?:two|2))\s*(?:stats?|sats?|sat)\b/gi, 'O2 sats'],
+                [/\b(?:SP|es\s*p)\s*(?:0\s*2|oh?\s*2|oh?\s*two)\b/gi, 'SpO2'],
+                [/\bpulse\s*(?:ox(?:imetry)?|rocks?)\b/gi, 'pulse ox'],
+                [/\b(?:oh?\s*two|0\s*2)\s*(?:saturation|level)s?\b/gi, 'O2 sats'],
+                [/\b(?:oxygen|oh?\s*two|0\s*2)\s*(?:stats?)\b/gi, 'O2 sats'],
+                [/\bsat(?:ting|uration)?\s+(?:at\s+)?(\d{2,3})\s*%?\s*(?:on|via)\b/gi, 'sats $1% on'],
+                // Nasal cannula speech corrections (STT produces: canala, canula, cannoli, canal, canola, etc.)
+                [/\bnasal\s*(?:can+[aeiou]?l+[aeiou]?|cannoli|canal|canola|can[iy]ula)\b/gi, 'nasal cannula'],
+                [/\b(?:n\.?\s*c\.?|NC)\s*(?:at\s*)?(\d+)\s*(?:L|liters?)\b/gi, 'NC $1L'],
+                [/\bhigh\s*flow\s*(?:nasal\s*)?(?:can+[aeiou]?l+[aeiou]?|cannoli|canal|canola|cannula)\b/gi, 'high flow nasal cannula'],
+                [/\bnon\s*re\s*breather\b/gi, 'non-rebreather'],
+                // Heart rate speech corrections
+                [/\bheart\s*(?:rate|raid|great)\b/gi, 'heart rate'],
+                [/\bblood\s*(?:pressure|presser)\b/gi, 'blood pressure'],
+                [/\brespiratory\s*(?:rate|raid)\b/gi, 'respiratory rate'],
                 [/\bstatus post\b/gi, 's/p'],
                 [/\bpost op(erative)?\b/gi, 'postop'],
                 [/\bpre op(erative)?\b/gi, 'preop'],
@@ -2128,10 +2144,41 @@
             else if (rrV) vitals.push(`RR ${rrV[1]}`);
 
             // SpO2: range first, then exact
-            const satRange = parseRange(t, '(?:sat(?:s|uration)?|o2|spo2|pulse ox)');
-            const satV = !satRange ? t.match(/(?:sat(?:s|uration)?|o2|spo2|pulse ox)\s*(?:is|was|of|:)?\s*(\d{2,3})\s*%?/i) : null;
+            const satPrefix = '(?:o2\\s*sats?|sat(?:s|uration|ting)?|spo2|pulse ox|oxygen\\s*sat(?:s|uration)?)';
+            const satRange = parseRange(t, satPrefix);
+            const satV = !satRange ? t.match(new RegExp(satPrefix + '\\s*(?:is|was|of|at|:)?\\s*(\\d{2,3})\\s*%?', 'i')) : null;
             if (satRange) vitals.push(`SpO2 ${satRange}`);
             else if (satV) vitals.push(`SpO2 ${satV[1]}%`);
+
+            // Oxygen delivery device
+            const o2Devices = [
+                [/\b(?:room air|RA)\b/i, 'RA'],
+                [/\b(\d+\.?\d*)\s*(?:L|liters?)\s*(?:nasal cannula|NC|n\.?c\.?)\b/i, (m) => m[1] + 'L NC'],
+                [/\b(?:nasal cannula|NC|n\.?c\.?)\s*(?:at\s*)?(\d+\.?\d*)\s*(?:L|liters?)\b/i, (m) => m[1] + 'L NC'],
+                [/\b(\d+\.?\d*)\s*(?:L|liters?)\s*(?:via\s*)?(?:nasal cannula|NC)\b/i, (m) => m[1] + 'L NC'],
+                [/\b(\d+\.?\d*)\s*(?:L|liters?)\b(?!.*(?:drain|output|jp|chest|ng))/i, (m) => m[1] + 'L NC'], // "2L" alone in vitals context
+                [/\bhigh\s*flow\s*(?:nasal\s*cannula|NC)?\s*(?:at\s*)?(\d+)\s*(?:L|liters?)?/i, (m) => 'HFNC ' + (m[1] ? m[1] + 'L' : '')],
+                [/\bHFNC\s*(?:at\s*)?(\d+)?\s*(?:L|liters?)?/i, (m) => 'HFNC' + (m[1] ? ' ' + m[1] + 'L' : '')],
+                [/\bnon[- ]?rebreather|NRB\b/i, 'NRB'],
+                [/\bventuri\s*(?:mask)?\s*(?:at\s*)?(\d+)\s*%?/i, (m) => 'Venturi ' + m[1] + '%'],
+                [/\bface\s*mask|simple\s*mask\b/i, 'Face mask'],
+                [/\btrach\s*(?:collar|mask)\b/i, 'Trach collar'],
+                [/\bventi?\s*mask\b/i, 'Venti mask'],
+                [/\bb[iy]\s*pap\b/i, 'BiPAP'],
+                [/\bc\s*pap\b/i, 'CPAP'],
+                [/\bshovel\s*(?:nasal)?\s*prongs?\b/i, 'Nasal prongs'],
+                [/\b(?:on|via)\s*(?:the\s*)?(?:vent(?:ilator)?|mechanical\s*vent(?:ilation)?)\b/i, 'Ventilator'],
+                [/\bintubated\b/i, 'Intubated'],
+                [/\bextubated\b/i, 'Extubated'],
+            ];
+            for (const [pat, result] of o2Devices) {
+                const m = t.match(pat);
+                if (m) {
+                    vitals.push(typeof result === 'function' ? result(m) : result);
+                    break;
+                }
+            }
+
             if (/\b(hemodynamically stable|hd stable|vitals?\s*(?:are\s*)?stable|vitals?\s*(?:are\s*)?(?:within )?normal|vitals?\s*(?:look\s*)?good|vitals?\s*wnl|stable vitals?)\b/i.test(t)) {
                 if (vitals.length === 0) vitals.push('Stable');
             }
@@ -8569,12 +8616,43 @@ To-do: Check AM labs, I/Os q4h`}
                 const rrMatch = !rrR ? t.match(/(?:RR|resp(?:iratory)?\s*rate|respirations?)\s*(?:is|was|of|:)?\s*(\d{1,2})/i) : null;
                 if (rrR) vitalParts.push('RR ' + rrR);
                 else if (rrMatch) vitalParts.push('RR ' + rrMatch[1]);
-                const spo2Match = t.match(/SpO2\s*(\d{2,3})/i);
-                if (spo2Match) vitalParts.push('SpO2 ' + spo2Match[1] + '%');
+                // SpO2: range first, then exact (enhanced prefix)
+                const vSatPrefix = '(?:o2\\s*sats?|sat(?:s|uration|ting)?|spo2|pulse ox|oxygen\\s*sat(?:s|uration)?)';
+                const spo2R = vParseRange(t, vSatPrefix);
+                const spo2Match = !spo2R ? t.match(new RegExp(vSatPrefix + '\\s*(?:is|was|of|at|:)?\\s*(\\d{2,3})\\s*%?', 'i')) : null;
+                if (spo2R) vitalParts.push('SpO2 ' + spo2R);
+                else if (spo2Match) vitalParts.push('SpO2 ' + spo2Match[1] + '%');
                 const tempMatch = t.match(/(?:temp|temperature|t-?max)\s*(?:is|of|was)?\s*(\d{2,3}\.?\d?)/i);
                 if (tempMatch) vitalParts.push('Temp ' + tempMatch[1]);
                 if (/(?:a)?febrile|no\s*fever/i.test(lower)) vitalParts.push('Afebrile');
                 if (/febrile|fever|temp\s*(?:up|elevated|spike)/i.test(lower) && !/afebrile/i.test(lower)) vitalParts.push('Febrile');
+
+                // Oxygen delivery device
+                const vO2Devices = [
+                    [/\b(?:room air|RA)\b/i, 'RA'],
+                    [/\b(\d+\.?\d*)\s*(?:L|liters?)\s*(?:nasal cannula|NC|n\.?c\.?)\b/i, (m) => m[1] + 'L NC'],
+                    [/\b(?:nasal cannula|NC|n\.?c\.?)\s*(?:at\s*)?(\d+\.?\d*)\s*(?:L|liters?)\b/i, (m) => m[1] + 'L NC'],
+                    [/\b(\d+\.?\d*)\s*(?:L|liters?)\b(?!.*(?:drain|output|jp|chest|ng))/i, (m) => m[1] + 'L NC'],
+                    [/\bhigh\s*flow\s*(?:nasal\s*cannula|NC)?\s*(?:at\s*)?(\d+)\s*(?:L|liters?)?/i, (m) => 'HFNC ' + (m[1] ? m[1] + 'L' : '')],
+                    [/\bHFNC\s*(?:at\s*)?(\d+)?\s*(?:L|liters?)?/i, (m) => 'HFNC' + (m[1] ? ' ' + m[1] + 'L' : '')],
+                    [/\bnon[- ]?rebreather|NRB\b/i, 'NRB'],
+                    [/\bventuri\s*(?:mask)?\s*(?:at\s*)?(\d+)\s*%?/i, (m) => 'Venturi ' + m[1] + '%'],
+                    [/\bface\s*mask|simple\s*mask\b/i, 'Face mask'],
+                    [/\btrach\s*(?:collar|mask)\b/i, 'Trach collar'],
+                    [/\bb[iy]\s*pap\b/i, 'BiPAP'],
+                    [/\bc\s*pap\b/i, 'CPAP'],
+                    [/\b(?:on|via)\s*(?:the\s*)?(?:vent(?:ilator)?|mechanical\s*vent(?:ilation)?)\b/i, 'Ventilator'],
+                    [/\bintubated\b/i, 'Intubated'],
+                    [/\bextubated\b/i, 'Extubated'],
+                ];
+                for (const [pat, result] of vO2Devices) {
+                    const m = t.match(pat);
+                    if (m) {
+                        vitalParts.push(typeof result === 'function' ? result(m) : result);
+                        break;
+                    }
+                }
+
                 if (vitalParts.length > 0) parsed.vitals = vitalParts.join(', ');
 
                 // Lab values mentioned
