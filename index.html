@@ -2138,14 +2138,17 @@
             if (/\b(net\s*even|even\s*(?:fluid|balance)|fluid\s*even|balanced)\b/i.test(t)) ioNotes.push('Net even');
             if (/\b(good\s*(?:urine\s*)?output|adequate\s*(?:urine\s*)?output|making\s*(?:good\s*)?urine|good\s*uop)\b/i.test(t)) ioNotes.push('Adequate UOP');
             if (/\b(low\s*(?:urine\s*)?output|poor\s*output|oliguric|not\s*making\s*(?:much\s*)?urine|decreased\s*(?:urine\s*)?output|low\s*uop)\b/i.test(t)) ioNotes.push('Low UOP');
-            const drainPattern = /\b(jp|jackson[\s-]?pratt|drain|ng\s*(?:tube)?|ngt|chest\s*tube|wound\s*vac|ostomy|ileostomy|colostomy)\s*(?:output|put out|putting out|is|was|:)?\s*(\d+)\s*(?:ml|cc)?/gi;
+            // Match specific drain types with amount and optional descriptors
+            // Order matters: longer phrases first so "chest tube" matches before generic "drain"
+            const drainPattern = /\b(chest\s*tube|jackson[\s-]?pratt|wound\s*vac|ileostomy|colostomy|ostomy|ng\s*tube|ngt|jp|ng|drain)\s*(?:output|put out|putting out|is|was|of|:)?\s*(\d+)\s*(?:ml|cc|mls)?\s*((?:purulent|serous|serosanguinous|sanguinous|bilious|bloody|bile|chylous|milky|cloudy|clear|dark|green|thin|thick|foul[\s-]?smelling|malodorous)\s*(?:output|drainage|fluid|looking)?)?/gi;
             let drainMatch;
             while ((drainMatch = drainPattern.exec(t)) !== null) {
                 const drainType = drainMatch[1].trim();
                 const drainAmt = drainMatch[2];
-                const drainLabels = { 'jp': 'JP', 'jackson-pratt': 'JP', 'jackson pratt': 'JP', 'drain': 'Drain', 'ng': 'NGT', 'ng tube': 'NGT', 'ngt': 'NGT', 'chest tube': 'Chest tube', 'wound vac': 'Wound vac', 'ostomy': 'Ostomy', 'ileostomy': 'Ileostomy', 'colostomy': 'Colostomy' };
+                const descriptor = (drainMatch[3] || '').trim();
+                const drainLabels = { 'jp': 'JP', 'jackson-pratt': 'JP', 'jackson pratt': 'JP', 'ng': 'NGT', 'ng tube': 'NGT', 'ngt': 'NGT', 'chest tube': 'Chest tube', 'wound vac': 'Wound vac', 'ostomy': 'Ostomy', 'ileostomy': 'Ileostomy', 'colostomy': 'Colostomy', 'drain': 'Drain' };
                 const label = drainLabels[drainType.toLowerCase()] || drainType;
-                ioNotes.push(`${label} ${drainAmt}mL`);
+                ioNotes.push(`${label} ${drainAmt}mL${descriptor ? ' ' + descriptor : ''}`);
             }
             if (/\b(i\s*(?:and|&)\s*o(?:s)?|i\/o(?:s)?|ins?\s*and\s*outs?)\s*(?:are\s*|look\s*)?(reviewed|even|balanced|wnl|good|fine|look\s*good)\b/i.test(t)) ioNotes.push('I/Os reviewed');
             if (/\b(stop(?:ping)?\s*(?:the\s*)?(?:iv|IV)\s*fluids?|d\/?c\s*(?:the\s*)?(?:iv|IV)\s*fluids?|off\s*(?:iv|IV)\s*fluids?)\b/i.test(t)) ioNotes.push('D/C IV fluids');
