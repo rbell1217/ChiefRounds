@@ -2083,12 +2083,16 @@
                 'one sixties': '160s', 'one-sixties': '160s', 'hundreds': '100s', 'teens': 'teens',
                 'two hundreds': '200s', 'two-hundreds': '200s' };
             const parseRange = (text, prefix) => {
-                // Match "in the 70s" / "seventies" / "running 80s" / "60s" -- "in the" is optional
+                // Match explicit "60s" suffix
                 const rangeNum = text.match(new RegExp(prefix + '\\s*(?:is|was|are|running|ranging)?\\s*(?:in\\s*the\\s*)?\\s*(\\d{2,3})s', 'i'));
                 if (rangeNum) return rangeNum[1] + 's';
                 // Match word-based ranges: "heart rate sixties" / "pulse in the seventies"
                 const rangeWord = text.match(new RegExp(prefix + '\\s*(?:is|was|are|running|ranging)?\\s*(?:in\\s*the\\s*)?\\s*((?:one[- ]?)?(?:twenties|thirties|forties|fifties|sixties|seventies|eighties|nineties|hundreds|tens))', 'i'));
                 if (rangeWord) return wordToNum[rangeWord[1].toLowerCase()] || rangeWord[1];
+                // Match round numbers as ranges: "HR 60" -> "HR 60s" (speech often drops the "s")
+                // Round tens (20,30,...90,100,110,...200) are almost always ranges in clinical speech
+                const anyNum = text.match(new RegExp(prefix + '\\s*(?:is|was|are|running|ranging)?\\s*(?:in\\s*the\\s*)?\\s*(\\d{2,3})(?!\\d|s|/)', 'i'));
+                if (anyNum && anyNum[1].endsWith('0')) return anyNum[1] + 's';
                 return null;
             };
             // Range check FIRST (since "60s" would also match exact "60")
@@ -8538,6 +8542,9 @@ To-do: Check AM labs, I/Os q4h`}
                     if (rn) return rn[1] + 's';
                     const rw = text.match(new RegExp(prefix + '\\s*(?:is|was|are|running|ranging)?\\s*(?:in\\s*the\\s*)?\\s*((?:one[- ]?)?(?:twenties|thirties|forties|fifties|sixties|seventies|eighties|nineties|hundreds|tens))', 'i'));
                     if (rw) return vWordToNum[rw[1].toLowerCase()] || rw[1];
+                    // Round numbers (ending in 0) treated as ranges: "HR 60" -> "HR 60s"
+                    const anyNum = text.match(new RegExp(prefix + '\\s*(?:is|was|are|running|ranging)?\\s*(?:in\\s*the\\s*)?\\s*(\\d{2,3})(?!\\d|s|/)', 'i'));
+                    if (anyNum && anyNum[1].endsWith('0')) return anyNum[1] + 's';
                     return null;
                 };
                 // BP: exact "120/80" first, then systolic/diastolic as separate entries
