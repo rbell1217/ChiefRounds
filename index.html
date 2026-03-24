@@ -7920,10 +7920,16 @@ To-do: Check AM labs, I/Os q4h`}
                             updated[targetPatientId][item] = true;
                             if (parsed.sectionNotes[item]) {
                                 const existing = updated[targetPatientId].notes[item] || '';
-                                const newNote = parsed.sectionNotes[item];
-                                updated[targetPatientId].notes[item] = existing
-                                    ? existing + '; ' + newNote
-                                    : newNote;
+                                const newParts = parsed.sectionNotes[item].split(/,\s*|;\s*/);
+                                if (existing) {
+                                    const existingLower = existing.toLowerCase();
+                                    const toAdd = newParts.filter(p => !existingLower.includes(p.trim().toLowerCase()));
+                                    if (toAdd.length > 0) {
+                                        updated[targetPatientId].notes[item] = existing + ', ' + toAdd.join(', ');
+                                    }
+                                } else {
+                                    updated[targetPatientId].notes[item] = parsed.sectionNotes[item];
+                                }
                             }
                         });
                         return updated;
@@ -7938,10 +7944,20 @@ To-do: Check AM labs, I/Os q4h`}
                         const preRoundHistory = patient.preRoundHistory || {};
                         const todaySummary = preRoundHistory[today] || { sections: {}, timestamp: '' };
 
-                        // Merge section notes into today's summary
+                        // Merge section notes into today's summary (append, don't replace)
                         parsed.checkedItems.forEach(item => {
                             if (parsed.sectionNotes[item]) {
-                                todaySummary.sections[item] = parsed.sectionNotes[item];
+                                const existingSection = todaySummary.sections[item] || '';
+                                const newParts = parsed.sectionNotes[item].split(/,\s*|;\s*/);
+                                if (existingSection) {
+                                    const existingLower = existingSection.toLowerCase();
+                                    const toAdd = newParts.filter(p => !existingLower.includes(p.trim().toLowerCase()));
+                                    if (toAdd.length > 0) {
+                                        todaySummary.sections[item] = existingSection + ', ' + toAdd.join(', ');
+                                    }
+                                } else {
+                                    todaySummary.sections[item] = parsed.sectionNotes[item];
+                                }
                             }
                         });
                         todaySummary.timestamp = new Date().toISOString();
