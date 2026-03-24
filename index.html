@@ -66,7 +66,7 @@
             }
         }
         .patient-card-hover {
-            transition: all 0.2s ease;
+            transition: box-shadow 0.2s ease, transform 0.2s ease;
         }
         .patient-card-hover:hover {
             box-shadow: 0 4px 16px -2px rgba(71, 85, 105, 0.12);
@@ -77,7 +77,17 @@
             border-color: rgb(71, 85, 105);
         }
         .nav-item {
-            transition: all 0.2s ease;
+            transition: color 0.2s ease, border-color 0.2s ease;
+        }
+        .expanded-content {
+            contain: layout style;
+        }
+        @keyframes autofillFlash {
+            0% { background-color: rgba(16, 185, 129, 0.3); }
+            100% { background-color: transparent; }
+        }
+        .autofill-highlight {
+            animation: autofillFlash 2s ease-out;
         }
         .abnormal-lab {
             background-color: rgba(239, 68, 68, 0.08);
@@ -2572,10 +2582,17 @@
                                 </div>
                                 <div>
                                     <label className={`block text-sm font-semibold mb-1 ${labelHighlight('activity')}`}>Activity</label>
-                                    <select name="activity" value={formData.activity} onChange={handleInputChange}
+                                    <select name="activity" value={['Bedrest','Dangle','Up to Chair','Ambulate with Assist','Ambulate TID','Ad Lib','NWB','WBAT','PWB','TDWB','Per Protocol'].includes(formData.activity) ? formData.activity : '__custom__'} onChange={(e) => {
+                                        if (e.target.value === '__custom__') return;
+                                        handleInputChange({ target: { name: 'activity', value: e.target.value } });
+                                    }}
                                         className={`w-full bg-gray-50 border border-gray-300 rounded px-3 py-2 text-gray-800 transition ${fieldHighlight('activity')}`}>
                                         <option>Bedrest</option><option>Dangle</option><option>Up to Chair</option>
                                         <option>Ambulate with Assist</option><option>Ambulate TID</option><option>Ad Lib</option>
+                                        <option>NWB</option><option>WBAT</option><option>PWB</option><option>TDWB</option><option>Per Protocol</option>
+                                        {formData.activity && !['Bedrest','Dangle','Up to Chair','Ambulate with Assist','Ambulate TID','Ad Lib','NWB','WBAT','PWB','TDWB','Per Protocol'].includes(formData.activity) && (
+                                            <option value="__custom__">{formData.activity} (custom)</option>
+                                        )}
                                     </select>
                                 </div>
                             </div>
@@ -3953,7 +3970,7 @@
 
                                     {/* Expandable Section */}
                                     {expandedPatient === patient.id && (
-                                        <div className="border-t border-gray-200 pt-3 mt-3 space-y-3">
+                                        <div className="expanded-content border-t border-gray-200 pt-3 mt-3 space-y-3">
                                             {/* Today's Pre-Round Summary */}
                                             {(() => {
                                                 const today = getTodayISO();
@@ -4153,79 +4170,74 @@
                                             )}
 
                                             {/* Labs */}
-                                            <div>
-                                                <div className="flex justify-between items-center mb-2">
-                                                    <p className="text-xs font-semibold text-gray-500 uppercase">Labs</p>
-                                                    <button
-                                                        onClick={() => {
-                                                            setSelectedPatientForLab(patient.id);
-                                                            setShowLabForm(true);
-                                                        }}
-                                                        className="text-xs bg-medical-600 text-white hover:bg-medical-700 text-white px-2 py-1 rounded"
-                                                    >
-                                                        + Lab
-                                                    </button>
-                                                </div>
-                                                {getPatientLabs(patient.id).length === 0 ? (
-                                                    <p className="text-xs text-gray-500">No labs yet</p>
-                                                ) : (
-                                                    <div className="space-y-1">
-                                                        {getPatientLabs(patient.id).slice(0, 5).map((lab, i) => {
-                                                            const isAbnormal = isLabAbnormal(lab.type, lab.value);
-                                                            const range = LAB_RANGES[lab.type];
-                                                            const prevLab = getPatientLabs(patient.id)[i + 1];
-                                                            const trend = getTrendArrow(lab.value, prevLab?.value);
-                                                            return (
-                                                                <div
-                                                                    key={lab.id}
-                                                                    className={`text-xs p-2 rounded ${isAbnormal ? 'abnormal-lab' : 'bg-gray-50'}`}
-                                                                >
-                                                                    <strong>{lab.type}</strong>: {lab.value} {range?.unit} {trend}
-                                                                    <span className="text-gray-500 text-xs ml-1">
-                                                                        ({range?.min}-{range?.max})
-                                                                    </span>
-                                                                </div>
-                                                            );
-                                                        })}
+                                            {(() => {
+                                                const pLabs = getPatientLabs(patient.id);
+                                                return (
+                                                    <div>
+                                                        <div className="flex justify-between items-center mb-2">
+                                                            <p className="text-xs font-semibold text-gray-500 uppercase">Labs</p>
+                                                            <button
+                                                                onClick={() => { setSelectedPatientForLab(patient.id); setShowLabForm(true); }}
+                                                                className="text-xs bg-medical-600 text-white hover:bg-medical-700 px-2 py-1 rounded"
+                                                            >+ Lab</button>
+                                                        </div>
+                                                        {pLabs.length === 0 ? (
+                                                            <p className="text-xs text-gray-500">No labs yet</p>
+                                                        ) : (
+                                                            <div className="space-y-1">
+                                                                {pLabs.slice(0, 5).map((lab, i) => {
+                                                                    const isAbnormal = isLabAbnormal(lab.type, lab.value);
+                                                                    const range = LAB_RANGES[lab.type];
+                                                                    const trend = getTrendArrow(lab.value, pLabs[i + 1]?.value);
+                                                                    return (
+                                                                        <div key={lab.id} className={`text-xs p-2 rounded ${isAbnormal ? 'abnormal-lab' : 'bg-gray-50'}`}>
+                                                                            <strong>{lab.type}</strong>: {lab.value} {range?.unit} {trend}
+                                                                            <span className="text-gray-500 text-xs ml-1">({range?.min}-{range?.max})</span>
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        )}
                                                     </div>
-                                                )}
-                                            </div>
+                                                );
+                                            })()}
 
                                             {/* Outputs */}
-                                            <div>
-                                                <div className="flex justify-between items-center mb-2">
-                                                    <p className="text-xs font-semibold text-gray-500 uppercase">Outputs</p>
-                                                    <button
-                                                        onClick={() => {
-                                                            setSelectedPatientForOutput(patient.id);
-                                                            setShowOutputForm(true);
-                                                        }}
-                                                        className="text-xs bg-medical-600 text-white hover:bg-medical-700 text-white px-2 py-1 rounded"
-                                                    >
-                                                        + Output
-                                                    </button>
-                                                </div>
-                                                {getPatientOutputs(patient.id).length === 0 ? (
-                                                    <p className="text-xs text-gray-500">No outputs recorded</p>
-                                                ) : (
-                                                    <div className="space-y-1">
-                                                        {getPatientOutputs(patient.id).slice(0, 5).map(output => (
-                                                            <div key={output.id} className="text-xs bg-gray-50 p-2 rounded">
-                                                                <strong>{output.type}</strong>: {output.amount}mL ({output.shift})
+                                            {(() => {
+                                                const pOutputs = getPatientOutputs(patient.id);
+                                                const pRecs = getOutputRecommendations(patient.id);
+                                                return (
+                                                    <div>
+                                                        <div className="flex justify-between items-center mb-2">
+                                                            <p className="text-xs font-semibold text-gray-500 uppercase">Outputs</p>
+                                                            <button
+                                                                onClick={() => { setSelectedPatientForOutput(patient.id); setShowOutputForm(true); }}
+                                                                className="text-xs bg-medical-600 text-white hover:bg-medical-700 px-2 py-1 rounded"
+                                                            >+ Output</button>
+                                                        </div>
+                                                        {pOutputs.length === 0 ? (
+                                                            <p className="text-xs text-gray-500">No outputs recorded</p>
+                                                        ) : (
+                                                            <div className="space-y-1">
+                                                                {pOutputs.slice(0, 5).map(output => (
+                                                                    <div key={output.id} className="text-xs bg-gray-50 p-2 rounded">
+                                                                        <strong>{output.type}</strong>: {output.amount}mL ({output.shift})
+                                                                    </div>
+                                                                ))}
                                                             </div>
-                                                        ))}
-                                                    </div>
-                                                )}
-                                                {getOutputRecommendations(patient.id).length > 0 && (
-                                                    <div className="mt-2 space-y-1">
-                                                        {getOutputRecommendations(patient.id).map((rec, i) => (
-                                                            <div key={i} className="text-xs bg-amber-500/20 border border-amber-500/50 p-1 rounded text-amber-200">
-                                                                💡 {rec}
+                                                        )}
+                                                        {pRecs.length > 0 && (
+                                                            <div className="mt-2 space-y-1">
+                                                                {pRecs.map((rec, i) => (
+                                                                    <div key={i} className="text-xs bg-amber-500/20 border border-amber-500/50 p-1 rounded text-amber-200">
+                                                                        💡 {rec}
+                                                                    </div>
+                                                                ))}
                                                             </div>
-                                                        ))}
+                                                        )}
                                                     </div>
-                                                )}
-                                            </div>
+                                                );
+                                            })()}
                                         </div>
                                     )}
 
@@ -4949,7 +4961,7 @@
                                     return (
                                         <button
                                             key={group}
-                                            onClick={() => setExpandedGroup(expandedGroup === group ? null : group)}
+                                            onClick={() => setExpandedGroup(group)}
                                             className={`px-2 py-1 rounded-full whitespace-nowrap border transition ${
                                                 expandedGroup === group
                                                     ? 'bg-medical-600 text-white border-medical-600'
@@ -7740,6 +7752,8 @@ To-do: Check AM labs, I/Os q4h`}
             const [labs, setLabs] = React.useState([]);
             const [outputs, setOutputs] = React.useState([]);
             const [expandedPatient, setExpandedPatient] = React.useState(null);
+            const [highlightedFields, setHighlightedFields] = React.useState({});
+            const [lastAutoFillSummary, setLastAutoFillSummary] = React.useState(null);
             const dictation = useDictation();
 
             React.useEffect(() => {
@@ -7866,12 +7880,31 @@ To-do: Check AM labs, I/Os q4h`}
                 const roomMatch = transcript.match(/room\s+(\d+)/i);
                 if (roomMatch) {
                     const patient = patients.find(p => String(p.room) === roomMatch[1]);
-                    if (patient) targetPatientId = patient.id;
+                    if (patient) {
+                        targetPatientId = patient.id;
+                        // Auto-expand the targeted patient
+                        setExpandedPatient(patient.id);
+                    }
                 } else {
                     targetPatientId = expandedPatient;
                 }
 
                 if (targetPatientId) {
+                    const itemLabels = { vitals: 'Vitals', ios: 'I/Os', labs: 'Labs', overnight: 'Overnight', lines: 'Lines/Drains', meds: 'Meds', pain: 'Pain', plan: 'Plan' };
+
+                    // Visual feedback: highlight auto-filled fields
+                    if (parsed.checkedItems.length > 0) {
+                        const highlights = {};
+                        parsed.checkedItems.forEach(item => { highlights[targetPatientId + '-' + item] = true; });
+                        setHighlightedFields(highlights);
+                        setTimeout(() => setHighlightedFields({}), 3000);
+
+                        // Show summary banner
+                        const filledNames = parsed.checkedItems.map(i => itemLabels[i] || i);
+                        setLastAutoFillSummary({ patientId: targetPatientId, fields: filledNames });
+                        setTimeout(() => setLastAutoFillSummary(null), 4000);
+                    }
+
                     // Update checklist: check items AND fill in section notes
                     setChecklist(prev => {
                         const updated = { ...prev, [targetPatientId]: { ...prev[targetPatientId] } };
@@ -7964,6 +7997,19 @@ To-do: Check AM labs, I/Os q4h`}
 
                     <DictationBar dictation={dictation} onParse={handleParsePreRoundDictation} parseLabel="Auto-Fill Pre-Round" />
 
+                    {/* Auto-fill success banner */}
+                    {lastAutoFillSummary && (
+                        <div className="bg-emerald-50 border border-emerald-300 rounded-xl p-3 mb-3 flex items-center gap-2">
+                            <span className="text-emerald-600 text-lg">&#10003;</span>
+                            <div className="flex-1">
+                                <p className="text-sm font-medium text-emerald-800">
+                                    Auto-filled {lastAutoFillSummary.fields.length} section{lastAutoFillSummary.fields.length > 1 ? 's' : ''}:
+                                </p>
+                                <p className="text-xs text-emerald-600">{lastAutoFillSummary.fields.join(', ')}</p>
+                            </div>
+                        </div>
+                    )}
+
                     <div className="space-y-3">
                         {[...patients].sort((a, b) => {
                             if (a.isTrauma && !b.isTrauma) return -1;
@@ -7991,7 +8037,7 @@ To-do: Check AM labs, I/Os q4h`}
                                     </div>
 
                                     {isExpanded && (
-                                        <div className="p-4 border-t border-gray-200 space-y-3">
+                                        <div className="expanded-content p-4 border-t border-gray-200 space-y-3">
                                             {c.notes?._priorLabs && (
                                                 <div className="bg-slate-50 border border-slate-200 rounded p-2 text-xs">
                                                     <span className="font-semibold text-slate-700">Yesterday's labs:</span>{' '}
@@ -8002,7 +8048,7 @@ To-do: Check AM labs, I/Os q4h`}
                                                 <DictationBar dictation={dictation} onParse={handleParsePreRoundDictation} parseLabel="Auto-Fill" compact={true} />
                                             </div>
                                             {items.map((item, idx) => (
-                                                <div key={item}>
+                                                <div key={item} className={highlightedFields[patient.id + '-' + item] ? 'autofill-highlight rounded-lg p-1 -m-1' : ''}>
                                                     <div className="flex items-start gap-3">
                                                         <input type="checkbox" checked={c[item] || false} onChange={() => toggleItem(patient.id, item)}
                                                             className="mt-1 w-4 h-4 cursor-pointer"/>
@@ -8010,6 +8056,7 @@ To-do: Check AM labs, I/Os q4h`}
                                                             <label className={`text-sm cursor-pointer font-medium ${c[item] ? 'text-emerald-700' : 'text-gray-600'}`}>
                                                                 {itemLabels[idx]}
                                                                 {c[item] && c.notes?.[item] && <span className="ml-1 text-xs text-emerald-500 font-normal">(noted)</span>}
+                                                                {highlightedFields[patient.id + '-' + item] && <span className="ml-1 text-xs text-emerald-600 font-bold">Auto-filled</span>}
                                                             </label>
                                                             <textarea value={c.notes?.[item] || ''} onChange={(e) => updateNote(patient.id, item, e.target.value)}
                                                                 className={`w-full mt-1 px-2 py-1 border rounded text-xs transition ${c.notes?.[item] ? 'bg-emerald-50 border-emerald-300 text-gray-800' : 'bg-gray-50 border-gray-300 text-gray-600'}`}
@@ -9747,8 +9794,7 @@ To-do: Check AM labs, I/Os q4h`}
                     // Try H&P parse if consult parse fails - still save
                 }
 
-                const patientId = parsed.patientId ? Number(parsed.patientId) : null;
-                const patient = patientId ? patients.find(p => p.id === patientId) : null;
+                const patient = parsed.patientId ? patients.find(p => String(p.id) === String(parsed.patientId)) : null;
 
                 const data = {
                     patientId: parsed.patientId || '',
@@ -9842,8 +9888,8 @@ To-do: Check AM labs, I/Os q4h`}
 
             const handleSave = async () => {
                 if (!form.service || !form.reason) return;
-                const patient = patients.find(p => p.id === Number(form.patientId));
-                const data = { ...form, patientRoom: patient ? patient.room : 'N/A', updatedAt: new Date().toISOString() };
+                const patient = form.patientId ? patients.find(p => String(p.id) === String(form.patientId)) : null;
+                const data = { ...form, patientRoom: patient ? String(patient.room) : 'N/A', updatedAt: new Date().toISOString() };
                 if (editingConsult) {
                     await DB.put('consults', { ...data, id: editingConsult.id });
                 } else {
@@ -9989,7 +10035,7 @@ To-do: Check AM labs, I/Os q4h`}
                                         <span className={`text-xs font-medium ${urgencyColors[c.urgency]}`}>({c.urgency})</span>
                                         <span className={`text-xs px-2 py-0.5 rounded-full border ${statusColors[c.status]}`}>{c.status}</span>
                                     </div>
-                                    <p className="text-sm text-gray-500">Rm {c.patientRoom} | Requested: {formatShortDateTime(c.requestTime)}</p>
+                                    <p className="text-sm text-gray-500">Rm {(c.patientRoom && c.patientRoom !== 'N/A') ? c.patientRoom : (c.patientId ? (patients.find(p => String(p.id) === String(c.patientId))?.room || 'N/A') : 'N/A')} | Requested: {formatShortDateTime(c.requestTime)}</p>
                                 </div>
                                 <div className="flex gap-1">
                                     <button onClick={() => handleEdit(c)} className="text-medical-600 hover:text-medical-500 text-sm px-2 py-1">Edit</button>
