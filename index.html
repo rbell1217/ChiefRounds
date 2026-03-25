@@ -2468,6 +2468,55 @@
                 result.checkedItems.push('meds');
             }
 
+            // ---- ORDERS ----
+            const orderNotes = [];
+            if (/\b(orders?\s*(?:reviewed|checked|look(?:ed)?(?:\s*at)?|updated|placed|entered|good|correct|appropriate|no\s*(?:new\s*)?changes?))\b/i.test(t)) {
+                const om = t.match(/orders?\s*(?:are\s*)?(reviewed|checked|updated|placed|entered|good|correct|appropriate|no\s*(?:new\s*)?changes?)/i);
+                orderNotes.push(om ? `Orders ${om[1]}` : 'Orders reviewed');
+            }
+            if (/\b(new\s*orders?|orders?\s*(?:to\s*)?(?:place|enter|put\s*in|write))\b/i.test(t)) orderNotes.push('New orders needed');
+            if (/\b(d\/?c\s*order|discontinue\s*order|stop\s*order)\b/i.test(t)) orderNotes.push('D/C order');
+            if (/\b(diet\s*order|activity\s*order|nursing\s*order)\b/i.test(t)) {
+                const doa = t.match(/(diet|activity|nursing)\s*order/i);
+                orderNotes.push(`${doa[1].charAt(0).toUpperCase() + doa[1].slice(1)} order`);
+            }
+            if (/\b(prn\s*orders?|as\s*needed\s*orders?)\b/i.test(t)) orderNotes.push('PRN orders');
+            if (/\b(standing\s*orders?)\b/i.test(t)) orderNotes.push('Standing orders');
+            if (/\b(order\s*set|protocol\s*orders?)\b/i.test(t)) orderNotes.push('Order set');
+            if (/\b(missing\s*orders?|orders?\s*missing|need(?:s|ed)?\s*(?:to\s*)?(?:be\s*)?order(?:ed)?)\b/i.test(t)) orderNotes.push('Missing orders');
+
+            if (orderNotes.length > 0) {
+                result.sectionNotes.orders = orderNotes.join(', ');
+                result.checkedItems.push('orders');
+            }
+
+            // ---- MAR (Medication Administration Record) ----
+            const marNotes = [];
+            if (/\b(mar\s*(?:reviewed|checked|look(?:ed)?(?:\s*at)?|good|clean|up\s*to\s*date|no\s*(?:issues?|concerns?|problems?)))\b/i.test(t)) {
+                const mm = t.match(/mar\s*(?:is\s*)?(reviewed|checked|good|clean|up\s*to\s*date|no\s*(?:issues?|concerns?|problems?))/i);
+                marNotes.push(mm ? `MAR ${mm[1]}` : 'MAR reviewed');
+            }
+            if (/\b(?:all\s*)?meds?\s*(?:were\s*)?(?:given|administered|taken)\s*(?:overnight|last\s*night|as\s*(?:scheduled|ordered))\b/i.test(t)) marNotes.push('Meds given as scheduled');
+            if (/\b(?:missed|held|skipped|refused|not\s*given|not\s*taken|not\s*administered)\s*(?:dose|med|medication|drug)s?\b/i.test(t)) {
+                const missed = t.match(/(?:missed|held|skipped|refused|not\s*given)\s*(?:dose\s*of\s*)?(\w+(?:\s+\w+)?)?/i);
+                marNotes.push(missed && missed[1] ? `Missed: ${missed[1]}` : 'Missed dose');
+            }
+            if (/\b(?:dose|med|medication)s?\s*(?:were?\s*)?(?:missed|held|skipped|refused)\b/i.test(t)) {
+                if (!marNotes.some(n => n.startsWith('Missed'))) marNotes.push('Missed dose');
+            }
+            if (/\b(late\s*(?:dose|med|administration)|delayed\s*(?:dose|med|administration))\b/i.test(t)) marNotes.push('Late administration');
+            if (/\b(prn\s*(?:meds?\s*)?(?:given|used|administered))\b/i.test(t)) {
+                const prn = t.match(/prn\s*(?:meds?\s*)?(?:given|used|administered)\s*(?::\s*)?(\w+(?:\s+\w+)?)?/i);
+                marNotes.push(prn && prn[1] ? `PRN given: ${prn[1]}` : 'PRN meds given');
+            }
+            if (/\b(?:overnight|last\s*night)\s*(?:meds?\s*)?(?:given|ok|fine|no\s*issues?)\b/i.test(t)) marNotes.push('Overnight meds OK');
+            if (/\b(mar\s*(?:discrepanc|error|issue|concern|problem))/i.test(t)) marNotes.push('MAR discrepancy');
+
+            if (marNotes.length > 0) {
+                result.sectionNotes.mar = marNotes.join(', ');
+                result.checkedItems.push('mar');
+            }
+
             // ---- PAIN ----
             const painNotes = [];
             const painScore = t.match(/(?:pain\s*(?:(?:score|level|scale|is|was|of|at|:)\s*)?)(\d{1,2})\s*(?:\/|out of)\s*10/i) ||
@@ -8120,7 +8169,7 @@ To-do: Check AM labs, I/Os q4h`}
                     // Restore today's pre-round data if it exists (daily reset with persistence)
                     const todayPR = p.preRoundHistory?.[today];
                     const sections = todayPR?.sections || {};
-                    const items = ['vitals', 'ios', 'labs', 'overnight', 'lines', 'meds', 'pain', 'plan'];
+                    const items = ['vitals', 'ios', 'labs', 'overnight', 'lines', 'meds', 'orders', 'mar', 'pain', 'plan'];
                     const notes = {};
                     const checks = {};
                     items.forEach(item => {
@@ -8230,18 +8279,19 @@ To-do: Check AM labs, I/Os q4h`}
                 }, 800);
             };
 
-            const totalItems = patients.length * 8;
+            const items = ['vitals', 'ios', 'labs', 'overnight', 'lines', 'meds', 'orders', 'mar', 'pain', 'plan'];
+            const itemLabels = ['Vitals reviewed', 'I/Os reviewed', 'Labs reviewed', 'Overnight events reviewed', 'Lines/drains/tubes assessed', 'Current medications reviewed', 'Orders reviewed', 'MAR reviewed', 'Pain assessment', 'Plan updated'];
+            const itemCount = items.length;
+
+            const totalItems = patients.length * itemCount;
             const checkedItems = patients.reduce((sum, p) => {
                 const c = checklist[p.id];
                 if (!c) return sum;
-                return sum + [c.vitals, c.ios, c.labs, c.overnight, c.lines, c.meds, c.pain, c.plan].filter(Boolean).length;
+                return sum + items.filter(item => c[item]).length;
             }, 0);
 
-            const items = ['vitals', 'ios', 'labs', 'overnight', 'lines', 'meds', 'pain', 'plan'];
-            const itemLabels = ['Vitals reviewed', 'I/Os reviewed', 'Labs reviewed', 'Overnight events reviewed', 'Lines/drains/tubes assessed', 'Current medications reviewed', 'Pain assessment', 'Plan updated'];
-
-            const uncheckedCount = patients.length * 8 - checkedItems;
-            const timeRemaining = Math.ceil((uncheckedCount / 8) * 3);
+            const uncheckedCount = patients.length * itemCount - checkedItems;
+            const timeRemaining = Math.ceil((uncheckedCount / itemCount) * 3);
 
             const handleParsePreRoundDictation = async (transcript) => {
                 if (!transcript || !transcript.trim()) return;
@@ -8263,7 +8313,7 @@ To-do: Check AM labs, I/Os q4h`}
                 }
 
                 if (targetPatientId) {
-                    const itemLabels = { vitals: 'Vitals', ios: 'I/Os', labs: 'Labs', overnight: 'Overnight', lines: 'Lines/Drains', meds: 'Meds', pain: 'Pain', plan: 'Plan' };
+                    const itemLabels = { vitals: 'Vitals', ios: 'I/Os', labs: 'Labs', overnight: 'Overnight', lines: 'Lines/Drains', meds: 'Meds', orders: 'Orders', mar: 'MAR', pain: 'Pain', plan: 'Plan' };
 
                     // Visual feedback: highlight auto-filled fields
                     if (parsed.checkedItems.length > 0) {
@@ -8418,7 +8468,7 @@ To-do: Check AM labs, I/Os q4h`}
                 <div className="p-4 md:p-6 max-w-4xl mx-auto">
                     <div className="mb-6">
                         <div className="flex justify-between items-center mb-2">
-                            <h2 className="text-2xl font-bold text-medical-600">Pre-Rounded: {Math.floor(checkedItems / 8)}/{patients.length} patients</h2>
+                            <h2 className="text-2xl font-bold text-medical-600">Pre-Rounded: {Math.floor(checkedItems / itemCount)}/{patients.length} patients</h2>
                             <div className="flex items-center gap-3">
                                 <p className="text-sm text-gray-500">Est. ~{timeRemaining} min</p>
                                 <button onClick={() => setShowClearConfirm(true)} className="px-3 py-1 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition">
@@ -8476,9 +8526,9 @@ To-do: Check AM labs, I/Os q4h`}
                                             <div className={`font-bold text-lg ${patient.isTrauma ? 'text-red-600' : 'text-medical-600'}`}>Room {patient.room} {patient.isTrauma && <span className="text-xs bg-red-500 text-white px-1.5 py-0.5 rounded ml-1">{patient.traumaLevel || 'T'}</span>}</div>
                                             <div className="text-sm text-gray-500">{patient.diagnosis}</div>
                                             <div className="flex gap-1">
-                                                <div className="text-xs bg-gray-50 px-2 py-1 rounded">{patientChecked}/8</div>
+                                                <div className="text-xs bg-gray-50 px-2 py-1 rounded">{patientChecked}/{itemCount}</div>
                                                 <div className="w-20 bg-gray-50 rounded h-4">
-                                                    <div className="bg-emerald-500 h-4 rounded transition-all" style={{width: `${(patientChecked / 8) * 100}%`}}></div>
+                                                    <div className="bg-emerald-500 h-4 rounded transition-all" style={{width: `${(patientChecked / itemCount) * 100}%`}}></div>
                                                 </div>
                                             </div>
                                         </div>
