@@ -7422,16 +7422,16 @@
 
             const saveHandoff = async (patientId) => {
                 try {
-                    const patient = patients.find(p => p.id === patientId);
-                    if (!patient) return;
                     await DB.put('patients', {
-                        ...patient,
-                        treatmentPlan: handoffPlans[patientId] || patient.treatmentPlan || '',
+                        id: patientId,
+                        treatmentPlan: handoffPlans[patientId] || '',
                         handoffIfThen: ifsThens[patientId] || '',
-                        phone: contactInfo[patientId] || patient.phone || ''
+                        phone: contactInfo[patientId] || ''
                     });
                     setSavedStatus(prev => ({ ...prev, [patientId]: true }));
                     setEditingPatients(prev => ({ ...prev, [patientId]: false }));
+                    // Refresh patients so local state matches DB
+                    await loadPatients();
                     setTimeout(() => setSavedStatus(prev => ({ ...prev, [patientId]: false })), 2000);
                 } catch (err) {
                     console.error('Error saving handoff:', err);
