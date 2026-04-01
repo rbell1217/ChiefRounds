@@ -7417,14 +7417,21 @@
             const full = ocrText;
             const p = {};
 
-            // Room number - look for 3-5 digit numbers near patient identifiers
-            const roomMatch = full.match(/\b(\d{4,5})\s/);
-            if (roomMatch) p.room = roomMatch[1];
-            // Also try 3-digit near medical context
-            if (!p.room) {
-                const rm3 = full.match(/\b(\d{3})\s+(?:UIC|Gen|Surg|male|female|yo)/i);
-                if (rm3) p.room = rm3[1];
-            }
+            // Room number - look for 3-5 digit numbers, exclude years (2020-2030) and dates
+            const allNums = [...full.matchAll(/\b(\d{3,5})\b/g)].map(m => m[1]);
+            const roomCandidates = allNums.filter(n => {
+                const num = parseInt(n);
+                // Exclude years
+                if (num >= 2020 && num <= 2035) return false;
+                // Exclude small numbers that are likely ages or dates
+                if (num < 100) return false;
+                // Room numbers are typically 3-5 digits
+                return n.length >= 3 && n.length <= 5;
+            });
+            // Prefer 4-digit numbers (most common room format)
+            const fourDigit = roomCandidates.find(n => n.length === 4);
+            if (fourDigit) p.room = fourDigit;
+            else if (roomCandidates.length > 0) p.room = roomCandidates[0];
 
             // Age / gender
             const ageMatch = full.match(/(\d{1,3})\s*(?:yo|y\/o)\s*(male|female|M\b|F\b)/i);
@@ -7435,21 +7442,60 @@
             else if (/DNR\s*\/?\s*DNI/i.test(full)) p.codeStatus = 'DNR/DNI';
             else if (/DNR/i.test(full)) p.codeStatus = 'DNR';
 
-            // Diagnosis - look for common surgical diagnoses
+            // Diagnosis - look for common surgical diagnoses (with OCR fuzzy matching)
             const dxPatterns = [
+                // Exact matches first
                 /(?:#|dx[:\s]|diagnosis[:\s])\s*([a-z][a-z\s]+(?:pancreatitis|appendicitis|cholecystitis|obstruction|abscess|hernia|cancer|fracture|bleed|hemorrhage|ischemia|perforation|colitis|diverticulitis|peritonitis))/i,
                 /\b(necrotizing\s+pancreatitis|acute\s+pancreatitis|small\s+bowel\s+obstruction|SBO|acute\s+cholecystitis|perforated\s+\w+|bowel\s+obstruction)/i,
-                /\b(LLE\s+CLI|LLE\s+CLTI|RLE\s+CLI|critical\s+limb\s+ischemia|PAD|AAA)\b/i
+                /\b(LLE\s+CLI|LLE\s+CLTI|RLE\s+CLI|critical\s+limb\s+ischemia|PAD|AAA)\b/i,
+                /\b(necrotizing\s+\w+|nec\s*\.?\s*panc\w*)/i,
+                // OCR-garbled versions (common Tesseract errors)
+                /\b(necrot\w*\s+panc\w+)/i,
+                /(?:#)\s*(\w+ing\s+panc\w+)/i,
+                /(?:#)\s*(\w+\s+pancreat\w+)/i,
+                // Pancreatitis variants
+                /\b(\w*pancreatitis\b)/i,
+                /\b(\w*pancre\w*titis\b)/i,
+                /\b(panc\w{4,})/i
             ];
             for (const pat of dxPatterns) {
                 const m = full.match(pat);
-                if (m) { p.diagnosis = m[1].trim().replace(/^#\s*/, ''); break; }
+                if (m) {
+                    let dx = m[1].trim().replace(/^#\s*/, '');
+                    // Clean up OCR artifacts and normalize
+                    if (/panc/i.test(dx) && /necro/i.test(dx)) dx = 'necrotizing pancreatitis';
+                    else if (/panc\w*titis/i.test(dx) && !/necro/i.test(dx)) {
+                        // Check if "necrotizing" appears nearby in the text
+                        if (/necrot\w*/i.test(full)) dx = 'necrotizing pancreatitis';
+                        else dx = 'pancreatitis';
+                    }
+                    p.diagnosis = dx;
+                    break;
+                }
+            }
+            // If still no diagnosis, check for # followed by text (common signout format)
+            if (!p.diagnosis) {
+                const hashDx = full.match(/#\s*([a-z]\w+(?:\s+[a-z]\w+){0,3})/i);
+                if (hashDx) p.diagnosis = hashDx[1].trim();
             }
 
-            // s/p procedure
-            const spMatch = full.match(/s\/p\s+(.+?)(?=\s+(?:\d{1,2}\/\d{1,2}|COPD|HTN|tobacco|PTSD|GERD|Pre-DM|ETOH|PMH|PSH|$))/i);
-            if (spMatch) {
-                p.procedures = spMatch[1].replace(/\s+at\s+OSH$/i, ' at OSH').trim();
+            // s/p procedure - flexible matching for OCR errors (slp, s\p, s/p, s p)
+            const spPatterns = [
+                /s\/p\s+(.+?)(?=\s+(?:\d{1,2}\/\d{1,2}|COPD|HTN|tobacco|PTSD|GERD|Pre-DM|ETOH|PMH|PSH|$))/i,
+                /s[\/\\l|]p\s+(.+?)(?=\s+(?:\d{1,2}\/\d{1,2}|COPD|HTN|tobacco|PTSD|GERD|ETOH|PMH|$))/i,
+                /(?:status\s*post|s\/p|slp|s\sp)\s+(exp(?:loratory)?\s*lap\w*(?:\s+(?:at\s+\w+)?)?)/i,
+                /s\/p\s+((?:lap(?:aroscopic)?|open|robotic)?\s*(?:appy|chole|colectomy|ex[- ]?lap|whipple|hernia\s*repair|mastectomy|CABG|bypass|endarterectomy)\w*(?:\s+(?:at\s+\w+)?)?)/i
+            ];
+            for (const pat of spPatterns) {
+                const m = full.match(pat);
+                if (m) {
+                    let proc = m[1].trim();
+                    // Clean up and try to get date
+                    const procDate = full.match(new RegExp(proc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*(?:at\\s+\\w+)?\\s*(\\d{1,2}\\/\\d{1,2}(?:\\/\\d{2,4})?)', 'i'));
+                    if (procDate) proc = proc + ' ' + procDate[1];
+                    p.procedures = proc;
+                    break;
+                }
             }
 
             // Dates - transferred/admitted/OR date
