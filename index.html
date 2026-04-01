@@ -7380,21 +7380,28 @@
                 const result = await TesseractLib.recognize(imageFile, 'eng');
                 const extractedText = result.data.text || '';
 
-                // Preserve line structure for table parsing - don't collapse all whitespace
+                if (!extractedText.trim()) return null;
+
+                // Basic cleanup - preserve line structure
                 let cleaned = extractedText
                     .replace(/\r\n/g, '\n')
-                    .replace(/\n{3,}/g, '\n\n') // Max 2 consecutive newlines
-                    .replace(/[ \t]{3,}/g, ' | ') // Convert wide column gaps to pipe delimiters
-                    .replace(/[ \t]+/g, ' ') // Collapse remaining multi-spaces
+                    .replace(/\n{3,}/g, '\n\n')
                     .trim();
 
-                // Normalize line breaks
-                cleaned = cleaned.split('\n').map(line => line.trim()).filter(line => line.length > 0).join('\n');
+                // Normalize lines
+                cleaned = cleaned.split('\n').map(line => line.replace(/\s+/g, ' ').trim()).filter(line => line.length > 0).join('\n');
 
-                // Detect if this looks like a tabular signout and reformat
-                const tableHeaders = /\b(?:OR\s*Date|POD|CC|Surgery|PMHx|PSHx|AbxMeds|PPx|Diet|IVF|Drain|Lines|To\s*Do|FYI)\b/i;
-                if (tableHeaders.test(cleaned)) {
-                    cleaned = reformatTabularSignout(cleaned);
+                // Try table reformatter if this looks like a tabular signout
+                try {
+                    const tableHeaders = /\b(?:OR\s*Date|PMHx|PSHx|AbxMeds|PPx|Diet.?IVF|Drain.?Lines|To\s*Do)\b/i;
+                    if (tableHeaders.test(cleaned)) {
+                        const reformatted = reformatTabularSignout(cleaned);
+                        if (reformatted && reformatted.trim().length > 10) {
+                            cleaned = reformatted;
+                        }
+                    }
+                } catch (e) {
+                    console.error('Table reformat error (using raw OCR):', e);
                 }
 
                 return cleaned;
