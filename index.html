@@ -7377,9 +7377,7 @@
                 }
 
                 const { Tesseract: TesseractLib } = window;
-                const result = await TesseractLib.recognize(imageFile, 'eng', {
-                    tessedit_pageseg_mode: '6' // Assume uniform block - better for tables
-                });
+                const result = await TesseractLib.recognize(imageFile, 'eng');
                 const extractedText = result.data.text || '';
 
                 // Preserve line structure for table parsing - don't collapse all whitespace
