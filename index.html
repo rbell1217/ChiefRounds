@@ -7900,7 +7900,7 @@
                                                 Room {patient.room}
                                                 {patient.isTrauma && <span className="text-xs bg-red-500 text-white px-1.5 py-0.5 rounded ml-2">{patient.traumaLevel || 'T'}</span>}
                                             </span>
-                                            <span className="text-gray-600 font-medium">{patient.diagnosis || 'N/A'}</span>
+                                            <span className="text-gray-600 font-medium">{patient.diagnosis || 'N/A'}{patient.procedures && patient.procedures.length > 0 ? ` s/p ${patient.procedures.join(', ')}` : ''}{patient.admitDate ? ` (${patient.admitDate.substring(5).replace('-', '/')})` : ''}</span>
                                         </div>
                                         <div className="flex items-center gap-3 text-sm">
                                             <button onClick={() => { setSharePatientIds([patient.id]); setShowShareModal(true); }}
