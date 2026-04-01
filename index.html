@@ -10,6 +10,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.1/jspdf.plugin.autotable.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
@@ -784,6 +785,22 @@
             'CVC': 'central venous catheter', 'A-line': 'arterial line',
             'Foley': 'Foley catheter',
         };
+
+        // Add vascular/surgical abbreviations
+        Object.assign(MED_ABBREVS, {
+            'FEA': 'femoral endarterectomy', 'SFA': 'superficial femoral artery',
+            'CLTI': 'chronic limb-threatening ischemia', 'DAPT': 'dual antiplatelet therapy',
+            'SQH': 'subcutaneous heparin', 'PCI': 'percutaneous coronary intervention',
+            'LLE': 'left lower extremity', 'RLE': 'right lower extremity',
+            'LUE': 'left upper extremity', 'RUE': 'right upper extremity',
+            'BLE': 'bilateral lower extremity',
+            'CLC': 'chronic limb care', 'Angio': 'angiogram',
+            'EVT': 'endovascular therapy', 'AAA': 'abdominal aortic aneurysm',
+            'PAD': 'peripheral arterial disease', 'ABI': 'ankle-brachial index',
+            'CEA': 'carotid endarterectomy', 'EVAR': 'endovascular aneurysm repair',
+            'BKA': 'below knee amputation', 'AKA': 'above knee amputation',
+            'PTA': 'percutaneous transluminal angioplasty'
+        });
 
         // Reverse lookup: full term -> abbreviation (for normalizing signout text)
         const MED_TERM_TO_ABBREV = {};
@@ -6981,12 +6998,12 @@
             text = normalizeMedicalText(text);
 
             // Split into patient blocks. Common delimiters:
-            // - "Room ###" or "Rm ###" at start of line
+            // - "Room ###" or "Rm ###" or "Rm (####)" at start of line
             // - "###-" or "### -" (room number dash)
             // - Blank line followed by a new room number
             // - "Pt:" or "Patient:" prefixes
             // - Numbered lists like "1." "2." at start with room info
-            const roomPattern = /(?:^|\n)(?=\s*(?:room|rm|bed)\s*#?\s*\d+|\s*\d{3,4}\s*[-–—:|]|\s*(?:pt|patient)\s*(?:\d+|:)|\s*\d+\.\s*(?:room|rm|bed)?\s*#?\s*\d+)/gi;
+            const roomPattern = /(?:^|\n)(?=\s*(?:room|rm|bed)\s*#?\s*(?:\(?\d+\)?|\d+)|\s*\d{3,4}\s*[-–—:|]|\s*(?:pt|patient)\s*(?:\d+|:)|\s*\d+\.\s*(?:room|rm|bed)?\s*#?\s*\d+)/gi;
 
             let blocks = [];
             const splitPoints = [];
@@ -7001,11 +7018,11 @@
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i].trim();
                 // Check if this line starts a new patient block
-                const isNewPatient = /^(?:room|rm|bed)\s*#?\s*\d+/i.test(line) ||
+                const isNewPatient = /^(?:room|rm|bed)\s*#?\s*\(?\d+\)?/i.test(line) ||
                     /^\d{3,4}\s*[-–—:|]/i.test(line) ||
                     /^\d{3,4}\s+\w/i.test(line) && /(?:yo|y\/o|M|F|male|female|dx|diagnosis|s\/p)/i.test(line) ||
                     /^(?:pt|patient)\s*[:#]?\s*\d/i.test(line) ||
-                    /^\d+\.\s*(?:room|rm|bed)?\s*#?\s*\d+/i.test(line) ||
+                    /^\d+\.\s*(?:room|rm|bed)?\s*#?\s*\(?\d+\)?/i.test(line) ||
                     /^\d+\.\s*\d{3,4}\s/i.test(line);
 
                 if (isNewPatient) {
@@ -7053,11 +7070,13 @@
                     status: 'stable',
                     overnightPlan: '',
                     ifThen: '',
-                    todos: []
+                    todos: [],
+                    service: 'General'
                 };
 
-                // Extract room number
-                const roomMatch = b.match(/(?:room|rm|bed)\s*#?\s*(\d+)/i) ||
+                // Extract room number - handle Rm (####), Rm ####, Room ####, etc.
+                const roomMatch = b.match(/(?:room|rm|bed)\s*#?\s*\((\d+)\)/i) ||
+                    b.match(/(?:room|rm|bed)\s*#?\s*(\d+)/i) ||
                     b.match(/^(?:\d+\.\s*)?(\d{3,4})\s*[-–—:|]/i) ||
                     b.match(/^(?:\d+\.\s*)?(\d{3,4})\s+/i);
                 if (roomMatch) patient.room = roomMatch[1];
@@ -7086,7 +7105,7 @@
                 if (dxMatch) patient.diagnosis = dxMatch[1].trim();
 
                 // Extract procedure / s/p
-                const spMatch = b.match(/(?:s\/p|status post|procedure|op)\s*[:\-]?\s*(.+?)(?=\n|(?:\s*(?:problems?|plan|todo|to[- ]?do|tasks?|if[/ ]then|overnight|diet|activity|code|dispo|pod|contact|PMH|pmh|past medical|$)))/i);
+                const spMatch = b.match(/(?:s\/p|status post|procedure|op)\s*[:\-]?\s*(.+?)(?=\n|(?:\s*(?:status|problems?|plan|todo|to[- ]?do|tasks?|if[/ ]then|overnight|diet|activity|code|dispo|pod|contact|PMH|pmh|past medical|$)))/i);
                 if (spMatch) {
                     let procText = spMatch[1].trim();
                     // Strip dates from procedure text (e.g. "lap appy 3/18" -> "lap appy")
@@ -7101,6 +7120,33 @@
                     // Strip "w/" or "with" clauses that aren't part of the procedure name
                     // but keep "w/ LOA" since LOA is a procedure
                     patient.procedures = procText.split(/[,;]/).map(p => p.trim()).filter(Boolean);
+                }
+
+                // Extract Status field (e.g. "Status: POD 1. LLE CLTI with toe wounds. On DAPT & SQH.")
+                const statusMatch = b.match(/(?:status)\s*[:\-]?\s*(.+?)(?=\n|(?:\s*(?:plan|todo|to[- ]?do|tasks?|overnight|diet|activity|code|dispo|contact|PMH|pmh|PSH|past|$)))/i);
+                if (statusMatch) {
+                    const statusText = statusMatch[1].trim();
+                    // Extract POD number if present
+                    const podMatch = statusText.match(/POD\s*#?(\d+)/i);
+                    if (podMatch && !patient._parsedPOD) {
+                        const pod = parseInt(podMatch[1]);
+                        const todayStr = getTodayISO();
+                        const todayParts = todayStr.split('-');
+                        const todayDate = new Date(parseInt(todayParts[0]), parseInt(todayParts[1]) - 1, parseInt(todayParts[2]));
+                        todayDate.setDate(todayDate.getDate() - pod);
+                        patient.admitDate = `${todayDate.getFullYear()}-${String(todayDate.getMonth() + 1).padStart(2, '0')}-${String(todayDate.getDate()).padStart(2, '0')}`;
+                        patient._parsedPOD = pod;
+                    }
+                    // Extract clinical details and add to problems if not already there
+                    const clinicalDetails = statusText.replace(/POD\s*#?\d+\.?\s*/i, '').trim();
+                    if (clinicalDetails.length > 0) {
+                        const details = clinicalDetails.split(/\.\s+|,\s+/).filter(d => d.length > 0);
+                        details.forEach(detail => {
+                            if (!patient.problems.some(p => p.toLowerCase() === detail.toLowerCase())) {
+                                patient.problems.push(detail);
+                            }
+                        });
+                    }
                 }
 
                 // Extract dates - try explicit admit/surgery dates first
@@ -7299,10 +7345,57 @@
                     patient.problems = [...patient.problems, ...complications];
                 }
 
+                // Auto-detect service from content
+                const fullText = b.toLowerCase();
+                const vascularKeywords = ['fea', 'sfa', 'clti', 'angio', 'stent', 'endarterectomy', 'bypass', 'graft', 'abi', 'cea', 'evar', 'bka', 'aka', 'pta', 'aaa', 'pad', 'evt', 'arterial', 'venous', 'limb', 'femoral', 'popliteal', 'dapt', 'sqh', 'pci'];
+                const traumaKeywords = ['trauma', 'mvc', 'gsw', 'fall', 'fracture', 'atls', 'blast', 'assault', 'stab'];
+                const colorectalKeywords = ['colectomy', 'colostomy', 'ileostomy', 'diverticulitis', 'colon', 'rectal', 'ibd', 'crohn', 'uc'];
+                const hepatobiliary = ['liver', 'hepat', 'biliary', 'cholecystectomy', 'whipple', 'pancrea', 'bile'];
+                const acuteCare = ['appendectomy', 'sbo', 'ex-lap', 'abscess', 'perforation', 'peritonitis', 'hernia'];
+
+                let detectedService = 'General';
+                if (vascularKeywords.some(kw => fullText.includes(kw))) detectedService = 'Vascular';
+                else if (traumaKeywords.some(kw => fullText.includes(kw))) detectedService = 'Trauma';
+                else if (colorectalKeywords.some(kw => fullText.includes(kw))) detectedService = 'Colorectal';
+                else if (hepatobiliary.some(kw => fullText.includes(kw))) detectedService = 'Hepatobiliary';
+                else if (acuteCare.some(kw => fullText.includes(kw))) detectedService = 'Acute Care Surgery';
+
+                patient.service = detectedService;
+
                 return patient;
             }).filter(p => p.room); // Only keep patients with a room number
 
             return parsedPatients;
+        }
+
+        // ==================== OCR TEXT EXTRACTION ====================
+        async function extractTextFromImage(imageFile) {
+            try {
+                // Show that we're processing
+                if (!window.Tesseract) {
+                    console.error('Tesseract.js not loaded');
+                    return null;
+                }
+
+                const { Tesseract: TesseractLib } = window;
+                const result = await TesseractLib.recognize(imageFile, 'eng');
+                const extractedText = result.data.text || '';
+
+                // Clean up OCR artifacts - remove extra spaces and garbled characters
+                let cleaned = extractedText
+                    .replace(/\n\s*\n/g, '\n') // Remove excessive blank lines
+                    .replace(/\s+/g, ' ') // Collapse multiple spaces to single space
+                    .replace(/([.!?])\s+/g, '$1\n') // Add newlines after sentences
+                    .trim();
+
+                // Normalize line breaks
+                cleaned = cleaned.split('\n').map(line => line.trim()).filter(line => line.length > 0).join('\n');
+
+                return cleaned;
+            } catch (err) {
+                console.error('OCR error:', err);
+                return null;
+            }
         }
 
         // ==================== SHIFT HANDOFF COMPONENT ====================
@@ -7318,6 +7411,9 @@
             const [importText, setImportText] = React.useState('');
             const [parsedImport, setParsedImport] = React.useState(null);
             const [importStatus, setImportStatus] = React.useState('');
+            const [ocrProcessing, setOcrProcessing] = React.useState(false);
+            const [ocrStatus, setOcrStatus] = React.useState('');
+            const [serviceFilter, setServiceFilter] = React.useState('All');
             const dictation = useDictation();
             const patientDictations = {};
 
@@ -7471,6 +7567,32 @@
                 setHandoffPlans(plans);
             };
 
+            const handleImageCapture = async (event) => {
+                const file = event.target.files?.[0];
+                if (!file) return;
+
+                setOcrProcessing(true);
+                setOcrStatus('Processing image...');
+
+                try {
+                    const extractedText = await extractTextFromImage(file);
+                    if (extractedText) {
+                        setImportText(extractedText);
+                        setOcrStatus('Image text extracted successfully');
+                        setTimeout(() => setOcrStatus(''), 2000);
+                    } else {
+                        setOcrStatus('Failed to extract text from image');
+                        setTimeout(() => setOcrStatus(''), 3000);
+                    }
+                } catch (err) {
+                    console.error('Image processing error:', err);
+                    setOcrStatus('Error processing image: ' + err.message);
+                    setTimeout(() => setOcrStatus(''), 3000);
+                } finally {
+                    setOcrProcessing(false);
+                }
+            };
+
             const handleParseSignout = () => {
                 if (!importText.trim()) return;
                 const parsed = parseSignoutText(importText);
@@ -7570,7 +7692,8 @@
                                 admitDate: parsed.admitDate || getTodayISO(),
                                 status: 'stable',
                                 age: parsed.age || 0,
-                                gender: parsed.gender || ''
+                                gender: parsed.gender || '',
+                                service: parsed.service || 'General'
                             };
                             const result = await DB.add('patients', newPatient);
                             patientId = result?.id || result;
@@ -7742,8 +7865,28 @@
 
                     <DictationBar dictation={dictation} onParse={handleParseHandoffDictation} parseLabel="Apply to Patient" />
 
+                    {/* Service Filter Bar */}
+                    <div className="flex gap-2 mb-4 flex-wrap">
+                        {(() => {
+                            const services = ['All', ...new Set(patients.map(p => p.service || 'General').filter(s => s && s !== 'General'))];
+                            return services.map(service => (
+                                <button key={service} onClick={() => setServiceFilter(service)}
+                                    className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
+                                        serviceFilter === service
+                                            ? 'bg-medical-600 text-white'
+                                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                    }`}>
+                                    {service}{service !== 'All' ? ` (${patients.filter(p => (p.service || 'General') === service).length})` : ` (${patients.length})`}
+                                </button>
+                            ));
+                        })()}
+                    </div>
+
                     <div className="space-y-4">
-                        {[...patients].sort((a, b) => {
+                        {[...patients].filter(p => {
+                            if (serviceFilter === 'All') return true;
+                            return (p.service || 'General') === serviceFilter;
+                        }).sort((a, b) => {
                             if (a.isTrauma && !b.isTrauma) return -1;
                             if (!a.isTrauma && b.isTrauma) return 1;
                             return parseInt(a.room) - parseInt(b.room);
@@ -8004,12 +8147,34 @@ Activity: NWB
 To-do: Check AM labs, I/Os q4h`}
                                                 </pre>
                                             </div>
+                                            <div className="space-y-3">
+                                                <div className="flex gap-2">
+                                                    <label className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium text-sm cursor-pointer text-center disabled:opacity-50">
+                                                        📷 Take Photo
+                                                        <input type="file" accept="image/*" capture="environment" onChange={handleImageCapture} className="hidden" disabled={ocrProcessing} />
+                                                    </label>
+                                                    <label className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium text-sm cursor-pointer text-center disabled:opacity-50">
+                                                        🖼️ Upload Image
+                                                        <input type="file" accept="image/*" onChange={handleImageCapture} className="hidden" disabled={ocrProcessing} />
+                                                    </label>
+                                                </div>
+                                                {ocrProcessing && (
+                                                    <div className="px-4 py-2 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700 font-medium">
+                                                        {ocrStatus || 'Processing image...'}
+                                                    </div>
+                                                )}
+                                                {ocrStatus && !ocrProcessing && (
+                                                    <div className={`px-4 py-2 rounded-lg text-sm font-medium ${ocrStatus.includes('successfully') ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+                                                        {ocrStatus}
+                                                    </div>
+                                                )}
+                                            </div>
                                             <textarea
                                                 value={importText}
                                                 onChange={(e) => setImportText(e.target.value)}
                                                 className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg text-gray-800 text-sm font-mono"
                                                 rows="12"
-                                                placeholder="Paste your signout text here..."
+                                                placeholder="Paste your signout text here (or use photo buttons above)..."
                                                 autoFocus
                                             />
                                             <div className="flex justify-end gap-2">
@@ -8030,11 +8195,23 @@ To-do: Check AM labs, I/Os q4h`}
                                             <div className="space-y-3 max-h-[50vh] overflow-y-auto">
                                                 {parsedImport.map((p, idx) => (
                                                     <div key={idx} className="bg-gray-50 border border-gray-200 rounded-lg p-3">
-                                                        <div className="flex items-center gap-3 mb-2">
+                                                        <div className="flex items-center gap-3 mb-2 flex-wrap">
                                                             <span className="bg-medical-600 text-white text-xs font-bold px-2 py-1 rounded">Rm {p.room}</span>
                                                             <span className="text-sm font-semibold text-gray-800">
                                                                 {p.diagnosis || 'No diagnosis'}{p.procedures.length > 0 ? ` s/p ${p.procedures.join(', ')}` : ''}
                                                             </span>
+                                                            {p.service && p.service !== 'General' && (
+                                                                <span className={`text-xs font-bold px-2 py-0.5 rounded text-white ${
+                                                                    p.service === 'Vascular' ? 'bg-purple-600' :
+                                                                    p.service === 'Trauma' ? 'bg-red-600' :
+                                                                    p.service === 'Colorectal' ? 'bg-blue-600' :
+                                                                    p.service === 'Hepatobiliary' ? 'bg-orange-600' :
+                                                                    p.service === 'Acute Care Surgery' ? 'bg-pink-600' :
+                                                                    'bg-gray-600'
+                                                                }`}>
+                                                                    {p.service}
+                                                                </span>
+                                                            )}
                                                             {p.admitDate && <span className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded">POD {calculatePOD(p.admitDate)}</span>}
                                                             {p.codeStatus && <span className="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded">{p.codeStatus}</span>}
                                                         </div>
