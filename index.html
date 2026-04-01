@@ -7371,31 +7371,186 @@
         // ==================== OCR TEXT EXTRACTION ====================
         async function extractTextFromImage(imageFile) {
             try {
-                // Show that we're processing
                 if (!window.Tesseract) {
                     console.error('Tesseract.js not loaded');
                     return null;
                 }
 
                 const { Tesseract: TesseractLib } = window;
-                const result = await TesseractLib.recognize(imageFile, 'eng');
+                const result = await TesseractLib.recognize(imageFile, 'eng', {
+                    tessedit_pageseg_mode: '6' // Assume uniform block - better for tables
+                });
                 const extractedText = result.data.text || '';
 
-                // Clean up OCR artifacts - remove extra spaces and garbled characters
+                // Preserve line structure for table parsing - don't collapse all whitespace
                 let cleaned = extractedText
-                    .replace(/\n\s*\n/g, '\n') // Remove excessive blank lines
-                    .replace(/\s+/g, ' ') // Collapse multiple spaces to single space
-                    .replace(/([.!?])\s+/g, '$1\n') // Add newlines after sentences
+                    .replace(/\r\n/g, '\n')
+                    .replace(/\n{3,}/g, '\n\n') // Max 2 consecutive newlines
+                    .replace(/[ \t]{3,}/g, ' | ') // Convert wide column gaps to pipe delimiters
+                    .replace(/[ \t]+/g, ' ') // Collapse remaining multi-spaces
                     .trim();
 
                 // Normalize line breaks
                 cleaned = cleaned.split('\n').map(line => line.trim()).filter(line => line.length > 0).join('\n');
+
+                // Detect if this looks like a tabular signout and reformat
+                const tableHeaders = /\b(?:OR\s*Date|POD|CC|Surgery|PMHx|PSHx|AbxMeds|PPx|Diet|IVF|Drain|Lines|To\s*Do|FYI)\b/i;
+                if (tableHeaders.test(cleaned)) {
+                    cleaned = reformatTabularSignout(cleaned);
+                }
 
                 return cleaned;
             } catch (err) {
                 console.error('OCR error:', err);
                 return null;
             }
+        }
+
+        // Reformat tabular signout OCR output into labeled free-text that the parser understands
+        function reformatTabularSignout(ocrText) {
+            const lines = ocrText.split('\n');
+            let result = [];
+            let currentPatient = {};
+            let inToDoSection = false;
+            let todoLines = [];
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+
+                // Detect room number line - starts a new patient
+                const roomMatch = line.match(/(?:^|\|)\s*(?:room|rm)?\s*(\d{3,5})\b/i) ||
+                    line.match(/\b(\d{3,5})\s*(?:yo|y\/o|male|female|M\b|F\b)/i);
+
+                if (roomMatch && !inToDoSection) {
+                    // Flush previous patient
+                    if (currentPatient.room) {
+                        if (todoLines.length > 0) currentPatient.todos = todoLines.join('; ');
+                        result.push(formatPatientBlock(currentPatient));
+                        todoLines = [];
+                    }
+                    currentPatient = { room: roomMatch[1], rawLines: [] };
+                    inToDoSection = false;
+                }
+
+                // Detect column-header keywords and extract data
+                // CC/Surgery
+                const ccMatch = line.match(/(?:CC|Surgery|#)\s*[:\-|]?\s*(.+)/i);
+                if (ccMatch && !currentPatient.diagnosis) {
+                    const ccText = ccMatch[1].replace(/\|.*/, '').trim();
+                    // Split on s/p if present
+                    const spSplit = ccText.match(/^(.+?)\s+s\/p\s+(.+)/i);
+                    if (spSplit) {
+                        currentPatient.diagnosis = spSplit[1].trim();
+                        currentPatient.procedures = spSplit[2].trim();
+                    } else {
+                        currentPatient.diagnosis = ccText;
+                    }
+                }
+
+                // s/p pattern anywhere
+                const spMatch = line.match(/\bs\/p\s+(.+?)(?:\s*\||\s*$)/i);
+                if (spMatch && !currentPatient.procedures) {
+                    currentPatient.procedures = spMatch[1].replace(/\s*\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\s*$/, '').trim();
+                }
+
+                // OR Date / admit date
+                const dateMatch = line.match(/(?:OR\s*Date|transferred|admitted?|admit)\s*[:\-|]?\s*(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)/i);
+                if (dateMatch) currentPatient.admitDate = dateMatch[1];
+
+                // POD
+                const podMatch = line.match(/\bPOD\s*#?\s*(\d+)/i);
+                if (podMatch) currentPatient.pod = podMatch[1];
+
+                // Code status
+                const codeMatch = line.match(/\b(FULL\s*CODE|DNR\s*\/?\s*DNI|DNR|DNI|COMFORT)\b/i);
+                if (codeMatch) currentPatient.codeStatus = codeMatch[1];
+
+                // PMHx/PSHx
+                const pmhMatch = line.match(/(?:PMHx?|past medical)\s*[:\-|]?\s*(.+)/i);
+                if (pmhMatch) currentPatient.pmh = pmhMatch[1].replace(/\|.*/, '').trim();
+
+                const pshMatch = line.match(/(?:PSHx?|past surgical)\s*[:\-|]?\s*(.+)/i);
+                if (pshMatch) currentPatient.psh = pshMatch[1].replace(/\|.*/, '').trim();
+
+                // Antibiotics / Medications
+                const abxMatch = line.match(/(?:Abx|AbxMeds|Antibiotics?|Meds)\s*[:\-|]?\s*(.+)/i);
+                if (abxMatch) currentPatient.abx = (currentPatient.abx || '') + ' ' + abxMatch[1].replace(/\|.*/, '').trim();
+
+                // Diet
+                const dietMatch = line.match(/(?:Diet)\s*[:\-|]?\s*(\S+)/i);
+                if (dietMatch) currentPatient.diet = dietMatch[1].trim();
+
+                // Activity
+                const actMatch = line.match(/(?:Activity)\s*[:\-|]?\s*(.+?)(?:\s*\||$)/i);
+                if (actMatch) currentPatient.activity = actMatch[1].trim();
+
+                // DVT
+                const dvtMatch = line.match(/(?:DVT|PPx|Prophylaxis)\s*[:\-|]?\s*(.+?)(?:\s*\||$)/i);
+                if (dvtMatch) currentPatient.dvt = dvtMatch[1].trim();
+
+                // NPO detection
+                if (/\bNPO\b/.test(line) && !currentPatient.diet) currentPatient.diet = 'NPO';
+
+                // IVF / Drains / Lines
+                const lineMatch = line.match(/(?:Drain|Lines?|IVF|TPN|PICC|NGT)\s*[:\-|\/]?\s*(.+?)(?:\s*\||$)/i);
+                if (lineMatch && !currentPatient.drains) currentPatient.drains = lineMatch[0].trim();
+
+                // To-Do section
+                if (/(?:To\s*Do|FYI|Action|Tasks?)\s*[:\-|]?/i.test(line)) {
+                    inToDoSection = true;
+                    const afterLabel = line.replace(/.*?(?:To\s*Do|FYI|Action|Tasks?)\s*[:\-|]?\s*/i, '').trim();
+                    if (afterLabel) todoLines.push(afterLabel);
+                    continue;
+                }
+                if (inToDoSection && line.length > 3) {
+                    todoLines.push(line);
+                }
+
+                // Age/gender
+                const ageMatch = line.match(/(\d{1,3})\s*(?:yo|y\/o|year[- ]old)?\s*(male|female|M\b|F\b)/i);
+                if (ageMatch) { currentPatient.age = ageMatch[1]; currentPatient.gender = ageMatch[2]; }
+
+                // Service
+                const svcMatch = line.match(/\b(UIC|Gen\s*Surg|Vascular|Trauma|Colorectal|Hepatobiliary|Ortho)\b/i);
+                if (svcMatch) currentPatient.service = svcMatch[1];
+
+                // Attending
+                const attMatch = line.match(/(?:Att(?:ending)?|Dr\.?)\s*[:\-]?\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/);
+                if (attMatch && !currentPatient.attending) currentPatient.attending = attMatch[1];
+
+                // Store raw line for fallback
+                if (currentPatient.room) currentPatient.rawLines = currentPatient.rawLines || [];
+                if (currentPatient.room) currentPatient.rawLines.push(line);
+            }
+
+            // Flush last patient
+            if (currentPatient.room) {
+                if (todoLines.length > 0) currentPatient.todos = todoLines.join('; ');
+                result.push(formatPatientBlock(currentPatient));
+            }
+
+            return result.join('\n\n');
+        }
+
+        function formatPatientBlock(p) {
+            let lines = [];
+            lines.push(`Room ${p.room}${p.age ? ` - ${p.age}${p.gender || ''}` : ''}`);
+            if (p.diagnosis) lines.push(`Dx: ${p.diagnosis}`);
+            if (p.procedures) lines.push(`s/p ${p.procedures}`);
+            if (p.admitDate) lines.push(`Admit: ${p.admitDate}`);
+            if (p.pod) lines.push(`POD ${p.pod}`);
+            if (p.codeStatus) lines.push(`Code: ${p.codeStatus}`);
+            if (p.pmh) lines.push(`PMH: ${p.pmh}`);
+            if (p.psh) lines.push(`PSH: ${p.psh}`);
+            if (p.abx) lines.push(`Abx: ${p.abx.trim()}`);
+            if (p.diet) lines.push(`Diet: ${p.diet}`);
+            if (p.activity) lines.push(`Activity: ${p.activity}`);
+            if (p.dvt) lines.push(`DVT: ${p.dvt}`);
+            if (p.drains) lines.push(`Lines/Drains: ${p.drains}`);
+            if (p.todos) lines.push(`To-Do: ${p.todos}`);
+            if (p.service) lines.push(`Service: ${p.service}`);
+            return lines.join('\n');
         }
 
         // ==================== SHIFT HANDOFF COMPONENT ====================
