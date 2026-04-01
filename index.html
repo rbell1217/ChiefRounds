@@ -7417,6 +7417,32 @@
             const dictation = useDictation();
             const patientDictations = {};
 
+            const [savedStatus, setSavedStatus] = React.useState({}); // { patientId: true/false }
+            const [editingPatients, setEditingPatients] = React.useState({}); // { patientId: true/false }
+
+            const saveHandoff = async (patientId) => {
+                try {
+                    const patient = patients.find(p => p.id === patientId);
+                    if (!patient) return;
+                    await DB.put('patients', {
+                        ...patient,
+                        treatmentPlan: handoffPlans[patientId] || patient.treatmentPlan || '',
+                        handoffIfThen: ifsThens[patientId] || '',
+                        phone: contactInfo[patientId] || patient.phone || ''
+                    });
+                    setSavedStatus(prev => ({ ...prev, [patientId]: true }));
+                    setEditingPatients(prev => ({ ...prev, [patientId]: false }));
+                    setTimeout(() => setSavedStatus(prev => ({ ...prev, [patientId]: false })), 2000);
+                } catch (err) {
+                    console.error('Error saving handoff:', err);
+                    alert('Error saving handoff data');
+                }
+            };
+
+            const toggleEdit = (patientId) => {
+                setEditingPatients(prev => ({ ...prev, [patientId]: !prev[patientId] }));
+            };
+
             const [showShareModal, setShowShareModal] = React.useState(false);
             const [sharePatientIds, setSharePatientIds] = React.useState([]); // which patients to share
             const [teamSearchQuery, setTeamSearchQuery] = React.useState('');
@@ -7496,7 +7522,7 @@
                 const contact = {};
                 active.forEach(p => {
                     plans[p.id] = p.treatmentPlan || '';
-                    ifs[p.id] = '';
+                    ifs[p.id] = p.handoffIfThen || '';
                     contact[p.id] = p.phone || '';
                 });
                 setHandoffPlans(plans);
@@ -7961,20 +7987,41 @@
                                     <div>
                                         <div className="flex items-center justify-between mb-1">
                                             <label className="text-xs font-semibold text-gray-500">OVERNIGHT PLAN</label>
-                                            <button onClick={() => setActivePatientId(activePatientId === patient.id ? null : patient.id)}
-                                                className={`text-xs px-2 py-0.5 rounded transition ${activePatientId === patient.id ? 'bg-medical-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-                                                {activePatientId === patient.id ? 'Active' : 'Set Active'}
-                                            </button>
+                                            <div className="flex gap-1">
+                                                <button onClick={() => toggleEdit(patient.id)}
+                                                    className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600 hover:bg-gray-200 transition">
+                                                    {editingPatients[patient.id] ? 'Cancel' : 'Edit'}
+                                                </button>
+                                                <button onClick={() => setActivePatientId(activePatientId === patient.id ? null : patient.id)}
+                                                    className={`text-xs px-2 py-0.5 rounded transition ${activePatientId === patient.id ? 'bg-medical-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                                                    {activePatientId === patient.id ? 'Active' : 'Set Active'}
+                                                </button>
+                                            </div>
                                         </div>
-                                        <DictateField value={handoffPlans[patient.id] || ''} onChange={(v) => setHandoffPlans({...handoffPlans, [patient.id]: v})}
-                                            className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded text-gray-700 text-sm"
-                                            rows={2} placeholder="Continue current management..."/>
+                                        {editingPatients[patient.id] ? (
+                                            <DictateField value={handoffPlans[patient.id] || ''} onChange={(v) => setHandoffPlans({...handoffPlans, [patient.id]: v})}
+                                                className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded text-gray-700 text-sm"
+                                                rows={2} placeholder="Continue current management..."/>
+                                        ) : (
+                                            <p className="px-3 py-2 bg-gray-50 border border-gray-200 rounded text-gray-700 text-sm min-h-[2.5rem]">
+                                                {handoffPlans[patient.id] || <span className="text-gray-400 italic">No plan entered</span>}
+                                            </p>
+                                        )}
                                     </div>
 
                                     {/* If/Then */}
-                                    <DictateField label="IF/THEN" value={ifsThens[patient.id] || ''} onChange={(v) => setIfsThens({...ifsThens, [patient.id]: v})}
-                                        className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded text-gray-700 text-sm"
-                                        rows={1} placeholder="If temp >38.5, then blood cultures x2..."/>
+                                    <div>
+                                        <label className="text-xs font-semibold text-gray-500">IF/THEN</label>
+                                        {editingPatients[patient.id] ? (
+                                            <DictateField value={ifsThens[patient.id] || ''} onChange={(v) => setIfsThens({...ifsThens, [patient.id]: v})}
+                                                className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded text-gray-700 text-sm"
+                                                rows={1} placeholder="If temp >38.5, then blood cultures x2..."/>
+                                        ) : (
+                                            <p className="mt-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded text-gray-700 text-sm min-h-[2.5rem]">
+                                                {ifsThens[patient.id] || <span className="text-gray-400 italic">No if/then plan</span>}
+                                            </p>
+                                        )}
+                                    </div>
 
                                     {/* To-Do Tasks */}
                                     <div>
@@ -8036,9 +8083,30 @@
                                     {/* Contact Info */}
                                     <div>
                                         <label className="text-xs font-semibold text-gray-500">CONTACT</label>
-                                        <input type="text" value={contactInfo[patient.id] || ''} onChange={(e) => setContactInfo({...contactInfo, [patient.id]: e.target.value})}
-                                            className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded text-gray-700 text-sm"
-                                            placeholder="Phone/Contact"/>
+                                        {editingPatients[patient.id] ? (
+                                            <input type="text" value={contactInfo[patient.id] || ''} onChange={(e) => setContactInfo({...contactInfo, [patient.id]: e.target.value})}
+                                                className="w-full mt-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded text-gray-700 text-sm"
+                                                placeholder="Phone/Contact"/>
+                                        ) : (
+                                            <p className="mt-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded text-gray-700 text-sm min-h-[2.5rem]">
+                                                {contactInfo[patient.id] || <span className="text-gray-400 italic">No contact info</span>}
+                                            </p>
+                                        )}
+                                    </div>
+
+                                    {/* Save / Edit Actions */}
+                                    <div className="flex gap-2 pt-2 border-t border-gray-100">
+                                        {editingPatients[patient.id] ? (
+                                            <button onClick={() => saveHandoff(patient.id)}
+                                                className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition">
+                                                {savedStatus[patient.id] ? 'Saved!' : 'Save Handoff'}
+                                            </button>
+                                        ) : (
+                                            <button onClick={() => toggleEdit(patient.id)}
+                                                className="flex-1 py-2 bg-medical-600 hover:bg-medical-700 text-white rounded-lg text-sm font-medium transition">
+                                                Edit Handoff
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             </div>
